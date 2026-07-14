@@ -28,8 +28,8 @@ eigenen Quelltext. Ergebnis vorweg:
 - Die These ist **richtig und von der Forschung ausdrücklich formuliert** — als
   unerledigte Hausaufgabe des Feldes.
 - Sie ist **nicht neu**. Genau dieser Ansatz ist seit 2012 kommerzialisiert — von
-  einer Firma, die zufällig **so heißt, wie dieses Projekt gerade umbenannt
-  wurde**.
+  einer Firma namens *Chordify*. Dieses Projekt hieß bis zur Recherche für dieses
+  Dokument genauso; es heißt seitdem **JamPilot**.
 - Der Teil, der **wirklich unbesetzt** ist, ist ein anderer als gedacht — und
   dieses Projekt hat dafür durch den Vorlauf einen strukturellen Vorteil, den die
   Konkurrenz nicht hat.
@@ -156,7 +156,7 @@ größte Streit bei den **Umkehrungen/Slash-Akkorden** herrscht.
 
 Es gibt genau **eine** inhaltliche Akkordentscheidung im ganzen Programm, und sie
 ist eine lineare Score-Summe über 60 Templates mit anschließendem Argmax —
-[chords.py:129-141](../../chordify/chords.py#L129-L141):
+[chords.py:129-141](../../jampilot/chords.py#L129-L141):
 
 ```python
 score = float(np.dot(unit, template)) - penalty_rate * extra_notes
@@ -180,12 +180,12 @@ dass **die Evidenz zerstört wird, bevor irgendein Kontext sie sehen könnte:**
 
 | Stelle | Was verloren geht |
 |---|---|
-| [chords.py:129-141](../../chordify/chords.py#L129-L141) | 60 Scores → **ein** Gewinner. Keine Rangliste, kein Zweitplatzierter, kein Abstand zum Zweiten. |
-| [cli.py:307](../../chordify/cli.py#L307) | `raw = result.name` — `confidence`, `root`, `quality` fallen weg, **bevor** irgendetwas Zeitliches passiert. |
-| [chords.py:158](../../chordify/chords.py#L158) | Der Glätter bekommt ein `ChordResult` und liest davon **nur den String**. Mehrheitsentscheid über drei Namen, ungewichtet. |
-| [cli.py:259](../../chordify/cli.py#L259) | Die Zeitleiste ist `list[tuple[float, str]]` — **(Zeit, String)**. Kein Score, keine Alternativen, kein Rückbezug aufs Chroma. |
-| [tonality.py:128](../../chordify/tonality.py#L128) | `correlate()` liefert eine **Verteilung über 24 Tonarten** — `argmax` in [tonality.py:187](../../chordify/tonality.py#L187) wirft sie weg. |
-| [cli.py:309](../../chordify/cli.py#L309) | Die Tonart wird gesammelt, aber **nie zurückgeführt**: `match_chord` kennt keine Tonart. Es gibt keinen diatonischen Prior. |
+| [chords.py:129-141](../../jampilot/chords.py#L129-L141) | 60 Scores → **ein** Gewinner. Keine Rangliste, kein Zweitplatzierter, kein Abstand zum Zweiten. |
+| [cli.py:307](../../jampilot/cli.py#L307) | `raw = result.name` — `confidence`, `root`, `quality` fallen weg, **bevor** irgendetwas Zeitliches passiert. |
+| [chords.py:158](../../jampilot/chords.py#L158) | Der Glätter bekommt ein `ChordResult` und liest davon **nur den String**. Mehrheitsentscheid über drei Namen, ungewichtet. |
+| [cli.py:259](../../jampilot/cli.py#L259) | Die Zeitleiste ist `list[tuple[float, str]]` — **(Zeit, String)**. Kein Score, keine Alternativen, kein Rückbezug aufs Chroma. |
+| [tonality.py:128](../../jampilot/tonality.py#L128) | `correlate()` liefert eine **Verteilung über 24 Tonarten** — `argmax` in [tonality.py:187](../../jampilot/tonality.py#L187) wirft sie weg. |
+| [cli.py:309](../../jampilot/cli.py#L309) | Die Tonart wird gesammelt, aber **nie zurückgeführt**: `match_chord` kennt keine Tonart. Es gibt keinen diatonischen Prior. |
 
 Der letzte Punkt ist der bezeichnendste. Das Programm **kennt die Tonart** und
 benutzt sie ausschließlich für die *Schreibweise* — nie für die *Wahl* des
@@ -197,9 +197,9 @@ nutzt es nicht.
 Tempo, Beat, Taktposition, Genre, Stimmentrennung, Akkord-Übergangs­wahr­schein­lich­keiten,
 Umkehrungen/Slash-Akkorde, sus/dim/aug. Der Akkordvorrat sind
 **fünf Typen × 12 Grundtöne = 60 Templates**
-([chords.py:10-16](../../chordify/chords.py#L10-L16)). Und die Zeitleiste wird
+([chords.py:10-16](../../jampilot/chords.py#L10-L16)). Und die Zeitleiste wird
 zwei Sekunden hinter der hörbaren Position gelöscht
-([cli.py:329](../../chordify/cli.py#L329)) — es gibt **kein Gedächtnis der
+([cli.py:329](../../jampilot/cli.py#L329)) — es gibt **kein Gedächtnis der
 Progression**, die man als Evidenz benutzen könnte.
 
 ---
@@ -225,7 +225,7 @@ Interpreter.** In diesem Fenster darf der Interpreter beliebig lange nachdenken,
 beliebig weit zurückschauen — und **beliebig oft seine Meinung ändern.**
 
 Und dieses Widerrufsrecht ist **bereits gebaut und getestet**.
-[`_commit()`](../../chordify/cli.py#L433-L437) nimmt Segmente zurück, solange sie
+[`_commit()`](../../jampilot/cli.py#L433-L437) nimmt Segmente zurück, solange sie
 noch niemand gehört hat:
 
 ```python
@@ -240,13 +240,13 @@ Der Onset wird dabei **vererbt**: *wann* gewechselt wurde, steht fest; *was*
 gespielt wird, korrigiert sich. Genau diese Trennung braucht ein Interpreter.
 
 Dazu kommt das **Frame-Chroma-Archiv**
-([`FrameHistory.since()`](../../chordify/chroma.py#L168)): 6,5 Sekunden Chroma im
+([`FrameHistory.since()`](../../jampilot/chroma.py#L168)): 6,5 Sekunden Chroma im
 23-Millisekunden-Raster, in Stream-Koordinaten, **ohne eine einzige zusätzliche
 CQT**. Ein Interpreter kann jedes noch nicht hörbare Segment mit beliebigen
 Hypothesen neu bewerten, ohne das Audio erneut anzufassen.
 
 Und der Broadcast überträgt **vollständige Snapshots** der Zeitleiste
-([web.py:35](../../chordify/web.py#L35)) — ein Interpreter, der Segmente
+([web.py:35](../../jampilot/web.py#L35)) — ein Interpreter, der Segmente
 umschreibt, braucht **kein neues Protokoll**. Die Korrektur propagiert von selbst
 bis ins Handy.
 
@@ -293,8 +293,8 @@ statt `(float, str)`. Damit wird eine spätere Revision überhaupt erst
 
 | Quelle | Aufwand | Erwarteter Nutzen | Begründung |
 |---|---|---|---|
-| **Tonart als diatonischer Prior** | sehr gering — [`correlate()`](../../chordify/tonality.py#L128) liefert die Verteilung schon | **hoch** | Kostet einen Term in der Score-Summe. In F-Dur ist H-Dur unwahrscheinlich. Die Information liegt ungenutzt herum. |
-| **Bassverlauf statt `bass[root]`** | gering — die Bass-Frames werden heute berechnet und **weggeworfen** ([chroma.py:129](../../chordify/chroma.py#L129)) | mittel-hoch | Grundlage für Umkehrungen/Slash-Akkorde — laut Koops der **größte Streitpunkt** unter Menschen, also der größte Interpretationsspielraum. |
+| **Tonart als diatonischer Prior** | sehr gering — [`correlate()`](../../jampilot/tonality.py#L128) liefert die Verteilung schon | **hoch** | Kostet einen Term in der Score-Summe. In F-Dur ist H-Dur unwahrscheinlich. Die Information liegt ungenutzt herum. |
+| **Bassverlauf statt `bass[root]`** | gering — die Bass-Frames werden heute berechnet und **weggeworfen** ([chroma.py:129](../../jampilot/chroma.py#L129)) | mittel-hoch | Grundlage für Umkehrungen/Slash-Akkorde — laut Koops der **größte Streitpunkt** unter Menschen, also der größte Interpretationsspielraum. |
 | **Akkordfolge als Sprachmodell** | mittel (Zeitleiste muss Gedächtnis bekommen) | mittel | Literatur: hilft, aber „effects are small". Nicht überschätzen. |
 | **Beat / Taktposition** | hoch (neue Analyse) | mittel | Mauch & Dixon: Bass + Metrum helfen vor allem, die richtige **Granularität** zu treffen — das ist eine *Anzeige*-Eigenschaft. |
 | **Genre** | hoch (Klassifikator oder Nutzerangabe) | offen | Billiger Zwischenschritt: **den Nutzer fragen.** Ein Schalter „Pop / Blues / Jazz" ist eine Zeile UI und ersetzt einen Klassifikator. |
@@ -325,7 +325,7 @@ falsifizierbaren Antworten. Vorschläge, nach Aussagekraft geordnet:
 1. **Wie oft revidiert ein bidirektionaler Interpreter eine Entscheidung, bevor
    sie hörbar wird — und wie oft macht er sie dadurch besser statt schlechter?**
    Messbar mit dem vorhandenen Debug-Trace
-   ([`CHORDIFY_DEBUG`](../../chordify/cli.py#L268)): Jede Revision jenseits von
+   ([`JAMPILOT_DEBUG`](../../jampilot/cli.py#L268)): Jede Revision jenseits von
    `audible_pos` protokollieren, gegen eine Referenzannotation halten. **Das ist
    die Kernfrage dieses Projekts und meines Wissens unbeantwortet.**
 
@@ -348,7 +348,7 @@ falsifizierbaren Antworten. Vorschläge, nach Aussagekraft geordnet:
 
 # Teil VI — Was dagegen spricht. Ehrlich.
 
-## 1. Das ist alles schon gebaut. Und es heißt Chordify.
+## 1. Das ist alles schon gebaut. Und es hieß, wie wir hießen.
 
 Die schmerzhafteste Erkenntnis der Recherche:
 
@@ -372,9 +372,11 @@ Annotator personalisierte Labels ableitet). Und Chordify hat eine
 
 **Zwei Konsequenzen:**
 
-- **Der Name muss weg.** Er kollidiert nicht nur markenrechtlich, sondern
-  ausgerechnet mit dem Marktführer für exakt diese Idee. Das ist kein
-  Namensproblem, das ist ein Positionierungsproblem.
+- **Der Name musste weg** — und ist weg. Er kollidierte nicht nur
+  markenrechtlich, sondern ausgerechnet mit dem Marktführer für exakt diese Idee;
+  das war kein Namensproblem, das war ein Positionierungsproblem. Das Projekt
+  heißt seit dieser Recherche **JamPilot**: Der Lotse sitzt vorne und sagt an,
+  was kommt — genau das tut der Vorlauf.
 - **„Wir interpretieren statt zu detektieren" ist kein Alleinstellungsmerkmal.**
   Die Differenzierung muss konkreter sein. Der Kandidat dafür steht in Teil III:
   **der Vorlauf.** Chordify analysiert Dateien offline (da hat es alle Zeit der
@@ -408,7 +410,7 @@ Akkorden. Pauwels et al. warnen ausdrücklich davor.
 **Gegenmittel:** Der Prior muss **schwach** sein und die Konfidenz der Tonart
 berücksichtigen. Die Architektur hat dafür bereits die richtige Haltung: Die
 Tonart meldet sich die ersten zwölf Sekunden **gar nicht**
-([tonality.py:34](../../chordify/tonality.py#L34)), statt zu raten. Diese
+([tonality.py:34](../../jampilot/tonality.py#L34)), statt zu raten. Diese
 Vorsicht muss der Interpreter erben.
 
 ## 4. Man wird es mit Standardmetriken nicht beweisen können
@@ -439,7 +441,7 @@ Ohne Zeitangaben, nach Erkenntnisgewinn pro Aufwand:
 
 2. **Tonart als schwachen Prior einspeisen.** Der billigste Kontexthebel
    überhaupt — die Verteilung existiert bereits
-   ([tonality.py:128](../../chordify/tonality.py#L128)) und wird weggeworfen.
+   ([tonality.py:128](../../jampilot/tonality.py#L128)) und wird weggeworfen.
    Sofort messbar: an/aus, Selbsttest.
 
 3. **Revisionen messen.** Den Debug-Trace um Revisionsereignisse erweitern und
@@ -448,7 +450,7 @@ Ohne Zeitangaben, nach Erkenntnisgewinn pro Aufwand:
    vorhandenen Code fast beantwortbar.**
 
 4. **Bassverlauf ins Archiv.** Die Bass-Frames werden berechnet und weggeworfen
-   ([chroma.py:129](../../chordify/chroma.py#L129)). Sie aufzuheben kostet
+   ([chroma.py:129](../../jampilot/chroma.py#L129)). Sie aufzuheben kostet
    Speicher, keine Rechenzeit — und ist die Voraussetzung für Slash-Akkorde.
 
 5. **Den Nutzer nach dem Genre fragen**, statt es zu erraten. Ein Schalter ist
