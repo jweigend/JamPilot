@@ -113,6 +113,47 @@ python3 -m venv .venv
 `--no-route` (direct mode without automatic routing), `--samplerate` (default
 48000), `--port` (web display, default 8765), `--no-web`.
 
+## Standalone binary
+
+A single executable, no Python and no venv on the target machine:
+
+```bash
+pip install pyinstaller
+pyinstaller packaging/jampilot.spec --noconfirm   # -> dist/jampilot
+./dist/jampilot selftest                          # verifies the bundle
+```
+
+**~137 MB, ~2.5 s to start.** The size is librosa's doing — it drags in numba and
+llvmlite (206 MB of JIT compiler) plus scipy and scikit-learn, and none of it can
+be excluded: librosa imports all of it on our code path even though we call none
+of its functions. The startup cost is `--onefile` unpacking itself into a temp
+directory on every launch. For a tool you start once per session and leave
+running, that is the right trade; if you want a 0.45 s start, build `--onedir`
+instead and ship a folder (374 MB).
+
+`dist/jampilot selftest` is the test that matters here: it drives librosa, numba
+and both CQTs without needing a sound card, so it trips over any module
+PyInstaller failed to collect. Run it after every change to the spec.
+
+**Builds do not cross-compile.** PyInstaller bundles the native libraries of the
+machine it runs on, so a Linux binary needs Linux, and macOS needs a Mac —
+separately for Intel and Apple Silicon. `.github/workflows/build.yml` does all
+three on tag push.
+
+What the binary still cannot bring with it, because these are system components:
+
+- **macOS** — [BlackHole](https://existential.audio/blackhole/) must be installed
+  separately (it is an audio driver, not a library). Also: an unsigned binary
+  downloaded from the internet is quarantined by Gatekeeper. Either
+  `xattr -d com.apple.quarantine jampilot` on first use, or sign and notarise it
+  with an Apple Developer account. Started from a terminal, JamPilot inherits the
+  terminal's microphone permission; a double-clickable `.app` would need its own
+  `NSMicrophoneUsageDescription`.
+- **Linux** — `pactl` (PipeWire/PulseAudio) is called as an external program for
+  the null-sink routing. Without it, use `--no-route --input <device>`. The glibc
+  of the build machine is the *minimum* on the target, so build on the oldest
+  distribution you want to support.
+
 ## Web display
 
 `run` automatically starts a fullscreen web display (`http://<machine>:8765/`,

@@ -1,0 +1,70 @@
+name: Build
+
+# Baut JamPilot als EINE ausfuehrbare Datei pro Plattform.
+#
+# Warum eine Matrix und nicht ein Job? PyInstaller kann NICHT cross-kompilieren -
+# es buendelt die nativen Bibliotheken der Maschine, auf der es laeuft
+# (libportaudio, libsndfile, libllvmlite, die BLAS von numpy/scipy). Jede
+# Zielplattform braucht darum ihren eigenen Runner. macOS zerfaellt zusaetzlich
+# in zwei Architekturen: macos-13 ist Intel, macos-14 ist Apple Silicon.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:        # zum Ausprobieren von Hand startbar
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Aeltestes Ubuntu, das GitHub anbietet: Die glibc, gegen die gebaut
+          # wird, ist die MINDESTVERSION auf dem Zielrechner. Auf einem neueren
+          # Ubuntu zu bauen macht die Binary auf aelteren unbrauchbar.
+          - os: ubuntu-22.04
+            name: jampilot-linux-x86_64
+          - os: macos-13
+            name: jampilot-macos-x86_64      # Intel
+          - os: macos-14
+            name: jampilot-macos-arm64       # Apple Silicon
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Unter Linux liegt PortAudio NICHT im sounddevice-Wheel - es kommt vom
+      # System, und PyInstaller kann nur einsammeln, was da ist. Ohne dieses
+      # Paket baut es durch und die fertige Binary findet spaeter kein einziges
+      # Audiogeraet. Unter macOS bringt das Wheel die dylib selbst mit.
+      - name: PortAudio (nur Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 portaudio19-dev
+
+      - name: Abhaengigkeiten
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Bauen
+        run: pyinstaller packaging/jampilot.spec --noconfirm
+
+      # Der eigentliche Test des Bundles - und er braucht keine Soundkarte.
+      # Der Selbsttest zieht librosa, numba und beide CQTs durch und faellt ueber
+      # jedes Modul, das PyInstaller nicht mitgenommen hat. Genau daran ist beim
+      # Kalibrieren der excludes mehrfach ein Build gescheitert; ohne diesen
+      # Schritt haette man das erst auf der Buehne gemerkt.
+      - name: Selbsttest aus dem Bundle
+        run: ./dist/jampilot selftest
+
+      - name: Geraete auflisten (laedt PortAudio wirklich?)
+        run: ./dist/jampilot devices || true   # CI-Runner haben keine Soundkarte
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/jampilot
