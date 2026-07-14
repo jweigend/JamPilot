@@ -62,10 +62,30 @@ jobs:
       - name: Geraete auflisten (laedt PortAudio wirklich?)
         run: ./dist/jampilot devices || true   # CI-Runner haben keine Soundkarte
 
+      # Was die CI ueber die Oberflaeche sagen KANN - und was nicht.
+      # Der Selbsttest oben baut das Kontrollfenster gegen die
+      # Offscreen-Plattform. Damit ist bewiesen, dass Qt im Bundle geladen und
+      # das Fenster konstruiert werden kann - genau der Fehler, der beim
+      # Buendeln wirklich passiert (Plattform-Plugin fehlt: "cocoa" bzw. "xcb").
+      # NICHT bewiesen ist, dass es auf einem echten Desktop erscheint: Ein
+      # Runner hat keine angemeldete Sitzung, keine Soundkarte und kein
+      # BlackHole. Das zeigt erst ein echter Start.
+      - name: Info.plist des .app pruefen (nur macOS)
+        if: runner.os == 'macOS'
+        run: |
+          plutil -p dist/JamPilot.app/Contents/Info.plist \
+            | grep -q NSMicrophoneUsageDescription \
+            || { echo "NSMicrophoneUsageDescription fehlt - die App bekaeme keinen Ton"; exit 1; }
+          echo "Info.plist ok"
+
       - name: Pruefsumme
         run: sha256sum dist/jampilot || shasum -a 256 dist/jampilot
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: dist/jampilot
+          # Unter macOS zusaetzlich das .app-Buendel: Nur das laesst sich im
+          # Finder doppelklicken UND bekommt die Mikrofonfreigabe.
+          path: |
+            dist/jampilot
+            dist/JamPilot.app

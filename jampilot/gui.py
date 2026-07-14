@@ -21,10 +21,11 @@ gar nicht erst machen kann.
 """
 
 import sys
+import threading
 import webbrowser
 
 from PySide6.QtCore import (Property, QEasingCurve, QPropertyAnimation, QSize, Qt,
-                            QTimer)
+                            QTimer, Signal)
 from PySide6.QtGui import QColor, QPainter, QPalette
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QFrame, QHBoxLayout,
                                QLabel, QPushButton, QVBoxLayout, QWidget)
@@ -142,11 +143,18 @@ class _Zeile(QWidget):
 
 
 class Fenster(QWidget):
+    # Der Warmup laeuft in einem Hintergrundthread und muss melden, dass er durch
+    # ist. Ein Signal ist der EINZIGE Weg, aus einem fremden Thread an die
+    # Oberflaeche zu kommen: Qt stellt es in die Ereignisschlange des
+    # Hauptthreads, statt das Widget von aussen anzufassen.
+    vorbereitet = Signal()
+
     def __init__(self, engine, url: str | None):
         super().__init__()
         self.engine = engine
         self.url = url
         self._eigene_aenderung = False   # unterscheidet Klick von Nachziehen
+        self.startet = False             # Warmup laeuft, der Betrieb noch nicht
 
         self.setWindowTitle("JamPilot")
         self.setMinimumWidth(380)
@@ -287,6 +295,10 @@ class Fenster(QWidget):
         self._eigene_aenderung = True      # Schieber setzen, ohne sie auszuloesen
         try:
             self.routing.schieber.sofort(e.running)
+            # Waehrend des Warmups laesst sich nichts schalten: Der Betrieb wird
+            # gleich von selbst anlaufen, und ein Klick jetzt startete ihn ohne
+            # uebersetzten JIT - der erste Akkord kaeme dann verstolpert.
+            self.routing.schieber.setEnabled(not self.startet)
             self.stumm.schieber.sofort(e.running and not e.muted)
             self.stumm.schieber.setEnabled(e.running)
         finally:
@@ -296,6 +308,18 @@ class Fenster(QWidget):
             self.punkt.setStyleSheet(f"color:{ROT}; font-size:15px;")
             self.zustand.setText("Error")
             self.hinweis.setText(e.fehler or "unknown error")
+            self.hinweis.setStyleSheet(f"color:{ROT}; font-size:11px;")
+            self.hinweis.show()
+        elif self.startet:
+            # Der sichtbare Beweis, dass der Doppelklick angekommen ist. Ohne ihn
+            # steht hier waehrend des Warmups "Stopped" - und das ist zwar wahr
+            # (noch ist nichts umgeleitet), sieht aber aus wie ein Programm, das
+            # nicht tut, was es soll.
+            self.punkt.setStyleSheet(f"color:{AMBER}; font-size:15px;")
+            self.zustand.setText("Starting")
+            self.hinweis.setText("Preparing the analysis — a few seconds, then "
+                                 "the sound starts running through JamPilot.")
+            self.hinweis.setStyleSheet(f"color:{GRAU}; font-size:11px;")
             self.hinweis.show()
         elif not e.running:
             self.punkt.setStyleSheet(f"color:{GRAU}; font-size:15px;")
@@ -333,7 +357,7 @@ class Fenster(QWidget):
         ereignis.accept()
 
 
-def run(engine, url: str | None, autostart: bool = False) -> int:
+def run(engine, url: str | None, autostart: bool = False, vorbereiten=None) -> int:
     """Fenster oeffnen und die Qt-Schleife im Hauptthread fahren.
 
     `autostart` startet den Betrieb ERST, wenn das Fenster schon steht (per
@@ -341,6 +365,16 @@ def run(engine, url: str | None, autostart: bool = False) -> int:
     Fehlerfall: Scheitert die Soundkarte, sieht der Nutzer die Meldung IM
     Fenster, neben dem Schalter - statt einen Traceback in einem Terminal, das er
     vielleicht gar nicht offen hat.
+
+    `vorbereiten` ist die teure Vorarbeit (numbas JIT uebersetzen, ~3s). Sie
+    laeuft in einem HINTERGRUNDTHREAD, waehrend das Fenster schon steht. Vorher
+    lief sie davor - und wer die App doppelklickt, sah dadurch mehrere Sekunden
+    lang ueberhaupt nichts, weil ein Doppelklick kein Terminal hat, in dem
+    "Initialising analysis..." stuende. Ein Programm, das nach dem Klick nichts
+    zeigt, ist fuer den Nutzer ein Programm, das nicht startet.
+
+    Der Warmup laeuft VOR dem Audio, nicht daneben: Der Stream soll nicht schon
+    Toene in den Puffer schieben, waehrend die halbe CPU im JIT-Compiler steckt.
     """
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("JamPilot")
@@ -355,6 +389,7 @@ def run(engine, url: str | None, autostart: bool = False) -> int:
 
     if autostart:
         def anwerfen():
+            fenster.startet = False
             try:
                 engine.start()
             except Exception as exc:
@@ -363,7 +398,27 @@ def run(engine, url: str | None, autostart: bool = False) -> int:
                 fenster.hinweis.show()
             fenster.nachziehen()
 
-        QTimer.singleShot(0, anwerfen)
+        # Queued ueber die Ereignisschlange - `anwerfen` laeuft also im
+        # Hauptthread, auch wenn das Signal aus dem Warmup-Thread kommt.
+        fenster.vorbereitet.connect(anwerfen)
+
+        if vorbereiten is None:
+            QTimer.singleShot(0, anwerfen)
+        else:
+            fenster.startet = True
+            fenster.nachziehen()          # "Starting", bevor die Schleife laeuft
+
+            def vorheizen():
+                try:
+                    vorbereiten()
+                except Exception:
+                    # Ein gescheiterter Warmup ist kein Grund, gar nicht zu
+                    # starten: numba uebersetzt dann eben beim ersten Fenster.
+                    # Was wirklich kaputt ist, meldet engine.start() - im Fenster.
+                    pass
+                fenster.vorbereitet.emit()
+
+            threading.Thread(target=vorheizen, daemon=True).start()
 
     return app.exec()
 

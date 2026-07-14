@@ -112,6 +112,7 @@ python3 -m venv .venv
 .venv/bin/python -m jampilot analyze song.wav # analyse a WAV offline
 .venv/bin/python -m jampilot run --delay 4    # live, with 4 s of lead
 .venv/bin/python -m jampilot cleanup          # remove a null sink after a crash
+.venv/bin/python -m jampilot install          # desktop launcher (Linux, see below)
 ```
 
 `run` options: `--delay` (seconds), `--output` (target sink/device), `--input` +
@@ -153,9 +154,32 @@ A single executable, no Python and no venv on the target machine:
 
 ```bash
 pip install pyinstaller
-pyinstaller packaging/jampilot.spec --noconfirm   # -> dist/jampilot
+packaging/build.sh                                # -> dist/jampilot + dist/JamPilot.desktop
 ./dist/jampilot selftest                          # verifies the bundle
 ```
+
+### Double-clicking it (Linux)
+
+**Double-click `dist/JamPilot.desktop`, not `dist/jampilot`.** Double-clicking the
+binary itself does nothing at all — no window, no message, no error — and that is
+not a bug in JamPilot: a Linux file manager will not run a binary. `dist/jampilot`
+has the MIME type `application/x-executable`, no application is registered for it,
+and the "run this file?" prompt (`executable-text-activation`) exists only for
+executable *text* files. Nemo and Nautilus simply do nothing.
+
+The launcher is the mechanism Linux provides for this. `packaging/build.sh` writes
+it next to the binary; to get JamPilot into the application menu instead:
+
+```bash
+./dist/jampilot install            # -> ~/.local/share/applications/jampilot.desktop
+./dist/jampilot install --remove   # takes it back out
+```
+
+Started this way there is no terminal, so the **window has to be the feedback** —
+which is why it now opens *before* the ~3 s numba warmup rather than after it.
+Between the `--onefile` unpacking and the warmup, the old order left a
+double-clicker staring at an empty screen for five seconds, which looks exactly
+like a program that failed to start (and invites a second double-click).
 
 **~183 MB, ~2.5 s to start.** The size is librosa's doing — it drags in numba and
 llvmlite (206 MB of JIT compiler) plus scipy and scikit-learn, and none of it can

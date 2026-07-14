@@ -3,6 +3,7 @@
 Befehle:
     devices                Audio-Geraete und Systemaudio-Quellen anzeigen
     selftest               Erkennungspipeline ohne Audiohardware testen
+    install                Starter fuer den Doppelklick anlegen (Linux)
     cleanup                Verwaiste Null-Sinks nach einem Absturz entfernen
     analyze DATEI.wav      Akkorde einer WAV-Datei offline anzeigen
     run                    Live: Systemaudio verzoegert ausgeben + Akkorde anzeigen
@@ -86,6 +87,12 @@ def cmd_selftest(_args):
     from . import selftest
 
     sys.exit(0 if selftest.run() else 1)
+
+
+def cmd_install(args):
+    from . import desktop
+
+    desktop.install(nach=args.to, entfernen=args.remove)
 
 
 def cmd_cleanup(args):
@@ -211,12 +218,6 @@ def cmd_run(args):
         except OSError as exc:
             print(f"Web display unavailable ({exc}) - continuing without it.")
 
-    from .chroma import warmup
-
-    print("Initialising analysis...", end="", flush=True)
-    warmup(args.samplerate, ANALYSIS_WINDOW)
-    print(" ok", flush=True)   # ohne flush landet das "ok" hinter einem Traceback
-
     broadcaster = web_display.broadcaster if web_display else None
 
     from .engine import Engine
@@ -241,6 +242,12 @@ def cmd_run(args):
     if not mit_fenster and not args.no_window:
         print("No display available - running headless (Ctrl+C quits).")
 
+    def vorheizen():
+        """numbas JIT uebersetzen lassen, bevor der erste Ton analysiert wird."""
+        from .chroma import warmup
+
+        warmup(args.samplerate, ANALYSIS_WINDOW)
+
     try:
         if mit_fenster:
             # Das Fenster geht ZUERST auf, das Audio startet erst darin. Anders
@@ -249,9 +256,20 @@ def cmd_run(args):
             # Moment ist, in dem er eines braucht. So landet der Fehler dort, wo
             # er hingehoert: sichtbar, neben dem Schalter, der ihn behebt.
             #
+            # Aus demselben Grund geht das Fenster auch vor dem WARMUP auf, und
+            # der laeuft dahinter im Hintergrund (gui.run kuemmert sich darum).
+            # numbas JIT braucht ~3s, das Entpacken der Binary noch einmal ~2.5s
+            # - wer doppelklickt, hat kein Terminal, in dem "Initialising
+            # analysis..." stuende, und saehe FUENF SEKUNDEN LANG NICHTS. Genau
+            # so sieht ein Programm aus, das nicht startet: Man klickt noch
+            # einmal, und dann laufen zwei.
+            #
             # Qt MUSS im Hauptthread laufen (unter macOS zwingend), die Analyse
             # laeuft daher im Hintergrund - siehe engine.py.
-            sys.exit(gui.run(engine, url, autostart=True))
+            sys.exit(gui.run(engine, url, autostart=True, vorbereiten=vorheizen))
+        print("Initialising analysis...", end="", flush=True)
+        vorheizen()
+        print(" ok", flush=True)   # ohne flush landet das "ok" hinter einem Traceback
         engine.start()
         try:
             engine._thread.join()      # bis Strg+C
@@ -538,12 +556,27 @@ def main():
         prog="jampilot",
         description="Delayed system-audio loopback with a chord display that runs ahead.",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    # NICHT required: Ohne Befehl laeuft `run`. Sonst ist die App per Doppelklick
+    # unbenutzbar - ein Doppelklick uebergibt kein Argument, argparse bricht mit
+    # "the following arguments are required: command" ab, und das Fenster, das
+    # dem Nutzer alles erklaeren wuerde, geht nie auf. Fuer ein Programm, das als
+    # fertige Binary ausgeliefert wird, ist "kein Argument" der HAEUFIGSTE Fall,
+    # nicht ein Fehler.
+    sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("devices", help="List audio devices").set_defaults(func=cmd_devices)
     sub.add_parser("selftest", help="Test detection without audio hardware").set_defaults(
         func=cmd_selftest
     )
+    p_install = sub.add_parser(
+        "install", help="Create a desktop launcher for double-clicking (Linux)")
+    p_install.add_argument("--to", metavar="DIR", default=None,
+                           help="Write JamPilot.desktop into DIR instead of the "
+                                "application menu")
+    p_install.add_argument("--remove", action="store_true",
+                           help="Remove the launcher again")
+    p_install.set_defaults(func=cmd_install)
+
     p_cleanup = sub.add_parser(
         "cleanup", help="Remove orphaned null sinks after a crash")
     p_cleanup.add_argument("--force", action="store_true",
@@ -575,7 +608,22 @@ def main():
                        default=48000, help="Sample rate (8000..192000, default 48000)")
     p_run.set_defaults(func=cmd_run)
 
-    args = parser.parse_args()
+    # `run` ist der Standardbefehl - kein Argument bedeutet "starte das Programm".
+    # Ein Doppelklick auf die Binary uebergibt naemlich gar nichts, und mit einem
+    # erzwungenen Unterbefehl braeche argparse dort mit "the following arguments
+    # are required: command" ab: Das Fenster, das dem Nutzer alles erklaeren
+    # wuerde, ginge nie auf.
+    #
+    # Dasselbe gilt fuer Optionen OHNE Befehl. `jampilot --delay 6` ist der
+    # Aufruf, den jeder tippt, und er scheiterte vorher an einer Meldung, die den
+    # Grund nicht nennt ("invalid choice: '6'"). Steht vorn kein bekannter
+    # Befehl, ist `run` gemeint.
+    befehle = set(sub.choices)
+    argumente = sys.argv[1:]
+    if not argumente or (argumente[0] not in befehle
+                         and argumente[0] not in ("-h", "--help")):
+        argumente = ["run", *argumente]
+    args = parser.parse_args(argumente)
     # Geraete duerfen Index oder Name sein.
     for attr in ("input", "output"):
         value = getattr(args, attr, None)

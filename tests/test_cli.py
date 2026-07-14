@@ -3,6 +3,7 @@
 import argparse
 import struct
 import wave
+import sys
 
 import numpy as np
 import pytest
@@ -98,3 +99,68 @@ class TestGeraetepruefung:
 
     def test_kein_geraet_angegeben_ist_in_ordnung(self):
         cli._check_devices(None, None)   # darf nicht werfen
+
+
+class TestOhneArgument:
+    """Kein Befehl = `run`.
+
+    Eine ausgelieferte Binary wird DOPPELGEKLICKT, und ein Doppelklick uebergibt
+    kein Argument. Bestand argparse darauf, brach das Programm mit "the following
+    arguments are required: command" ab - und das Fenster, das dem Nutzer alles
+    erklaert haette, ging nie auf. Fuer eine App ist "kein Argument" der
+    Normalfall, nicht ein Fehler.
+    """
+
+    def test_ohne_argument_laeuft_run(self, monkeypatch):
+        from unittest.mock import patch
+
+        from jampilot import cli
+
+        monkeypatch.setattr(sys, "argv", ["jampilot"])
+        with patch("jampilot.cli.cmd_run") as run:
+            cli.main()
+        assert run.called
+        args = run.call_args[0][0]
+        assert args.delay == 4.0 and args.port == 8765      # die Standardwerte
+
+    def test_hilfe_geht_weiterhin(self, monkeypatch, capsys):
+        from jampilot import cli
+
+        monkeypatch.setattr(sys, "argv", ["jampilot", "--help"])
+        with pytest.raises(SystemExit) as exit:
+            cli.main()
+        assert exit.value.code == 0
+        assert "run" in capsys.readouterr().out
+
+    def test_die_anderen_befehle_gehen_weiterhin(self, monkeypatch):
+        from unittest.mock import patch
+
+        from jampilot import cli
+
+        monkeypatch.setattr(sys, "argv", ["jampilot", "selftest"])
+        with patch("jampilot.cli.cmd_selftest") as st:
+            cli.main()
+        assert st.called
+
+    def test_optionen_ohne_befehl_gehen_an_run(self, monkeypatch):
+        # `jampilot --delay 6` ist der Aufruf, den jeder tippt. Vorher scheiterte
+        # er an "invalid choice: '6'" - einer Meldung, die den Grund nicht nennt.
+        from unittest.mock import patch
+
+        from jampilot import cli
+
+        monkeypatch.setattr(sys, "argv", ["jampilot", "--delay", "6", "--no-web"])
+        with patch("jampilot.cli.cmd_run") as run:
+            cli.main()
+        args = run.call_args[0][0]
+        assert args.delay == 6.0 and args.no_web
+
+    def test_ein_echter_befehl_wird_nicht_zu_run_umgebogen(self, monkeypatch):
+        from unittest.mock import patch
+
+        from jampilot import cli
+
+        monkeypatch.setattr(sys, "argv", ["jampilot", "analyze", "song.wav"])
+        with patch("jampilot.cli.cmd_analyze") as an:
+            cli.main()
+        assert an.called and an.call_args[0][0].file == "song.wav"

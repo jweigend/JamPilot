@@ -105,6 +105,19 @@ if [ "$modus" = "--check" ]; then
     fi
 fi
 
+# --- Der Doppelklick ----------------------------------------------------------
+# Eine nackte Binary laesst sich im Dateimanager NICHT starten: Sie hat den
+# MIME-Typ application/x-executable, dafuer ist kein Programm registriert, und
+# der Doppelklick tut nichts - kein Fenster, keine Meldung. Der Starter daneben
+# ist der Weg, den Linux dafuer vorsieht. Er entsteht hier, nach dem --check:
+# der zweite Bau raeumt dist/ ab und wuerde ihn sonst mitnehmen.
+#
+# Unter macOS baut die Spec ein richtiges JamPilot.app - dort gibt es das nicht.
+if [ "$(uname)" = "Linux" ]; then
+    echo "==> Starter fuer den Doppelklick ..."
+    ./dist/jampilot install --to dist
+fi
+
 echo
 echo "  fertig:  dist/jampilot  ($(du -h dist/jampilot | cut -f1))"
 echo "  sha256:  $hash1"

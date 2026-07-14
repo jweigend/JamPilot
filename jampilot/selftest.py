@@ -19,6 +19,8 @@ er den Fall nie stellte. Ein Massstab, der die unangenehme Frage nicht stellt,
 misst nichts. Die Umkehrungen stellen sie.
 """
 
+import os
+
 import numpy as np
 
 from . import bass as bassmodul
@@ -135,6 +137,45 @@ def _detect_slash(audio: np.ndarray) -> str:
     return bassmodul.slash(chord, bassmodul.name(bassmodul.dominant(juengere)))
 
 
+def _fenster_pruefen() -> bool | None:
+    """Laesst sich das Kontrollfenster bauen? True/False - oder None (kein Qt).
+
+    Das ist die einzige Aussage ueber die Oberflaeche, die eine Maschine OHNE
+    Bildschirm treffen kann - und ausgerechnet sie deckt den Fehler ab, der beim
+    Buendeln wirklich passiert: Qt findet sein Plattform-Plugin nicht (unter
+    macOS "cocoa", unter Linux "xcb") und der Prozess stirbt beim ersten Fenster.
+    Ein Bundle, das startet, aber kein Fenster oeffnen KANN, ist genau die Sorte
+    Fehler, die man sonst erst auf dem Rechner des Nutzers findet.
+
+    Gebaut wird gegen die Offscreen-Plattform: Sie braucht keinen Desktop und
+    keine angemeldete Sitzung - beides hat ein CI-Runner nicht. Damit ist
+    bewiesen, dass Qt geladen und das Fenster konstruiert werden kann. NICHT
+    bewiesen ist, dass es auf einem echten Desktop erscheint; das kann nur ein
+    echter Start zeigen.
+    """
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+    except ImportError:
+        return None                     # ohne Qt laeuft JamPilot rein im Terminal
+
+    from types import SimpleNamespace
+
+    from . import gui
+
+    app = QApplication.instance() or QApplication([])
+    leer = SimpleNamespace(running=False, muted=False, delay_seconds=4.0,
+                           lead=0.0, status="stopped", fehler=None,
+                           start=lambda: None, stop=lambda: None,
+                           toggle_mute=lambda: False)
+    fenster = gui.Fenster(leer, "http://127.0.0.1:8765/")
+    fenster.nachziehen()
+    ok = fenster.zustand.text() == "Stopped"
+    fenster.close()
+    app.processEvents()
+    return ok
+
+
 def run() -> bool:
     rng = np.random.default_rng(42)
     print(f"Selftest: {len(TEST_CASES)} root-position chords, "
@@ -203,5 +244,18 @@ def run() -> bool:
     print(f"\n  Inversions: clean {inv['clean']}/{inv_total}, "
           f"noisy {inv['noisy']}/{inv_total}")
 
+    # Die Oberflaeche - so weit es ohne Bildschirm geht. Fehlt Qt, laeuft
+    # JamPilot im Terminal; das ist kein Fehler. Ist Qt DA, muss das Fenster sich
+    # aber bauen lassen: Genau daran scheitert ein Bundle, dem das
+    # Plattform-Plugin fehlt.
+    fenster = _fenster_pruefen()
+    if fenster is None:
+        print("\n  Control window: skipped (no Qt - terminal only)")
+    elif fenster:
+        print("\n  Control window: builds (Qt loads, offscreen)")
+    else:
+        print("\n  Control window: FAILED to build")
+
     return (scores["cqt_clean"] == total and scores["cqt_real"] >= total - 1
-            and inv["clean"] == inv_total and inv["noisy"] >= inv_total - 1)
+            and inv["clean"] == inv_total and inv["noisy"] >= inv_total - 1
+            and fenster is not False)

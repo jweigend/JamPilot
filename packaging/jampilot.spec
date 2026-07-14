@@ -16,6 +16,7 @@ Beides bleibt eine Voraussetzung auf dem Zielrechner, siehe README.
 """
 
 import os
+import sys
 
 from PyInstaller.utils.hooks import collect_all
 
@@ -116,5 +117,35 @@ exe = EXE(
     debug=False,
     strip=False,
     upx=False,          # UPX zerlegt die signierten dylibs unter macOS
-    console=True,       # Terminal-Programm: die Ausgabe IST die Oberflaeche
+    console=True,       # bleibt ein CLI-Programm: `jampilot analyze`, `selftest` ...
 )
+
+# macOS: zusaetzlich ein richtiges .app-Buendel.
+#
+# Eine nackte Unix-Binary laesst sich im Finder zwar doppelklicken, oeffnet dabei
+# aber ein Terminal - und, weit schlimmer, sie bekommt KEINE Mikrofonfreigabe.
+# macOS verlangt dafuer NSMicrophoneUsageDescription in der Info.plist; ohne den
+# Eintrag liefert das Audio-Eingabegeraet einfach Stille, ohne dass irgendwo eine
+# verstaendliche Meldung erscheint. Genau der Eintrag steht hier.
+#
+# Das .app umschliesst dieselbe Binary. `jampilot` von der Kommandozeile bleibt
+# also, wie es war; das Buendel ist der Weg fuer alle, die doppelklicken.
+if sys.platform == "darwin":
+    app = BUNDLE(                                                   # noqa: F821
+        exe,
+        name="JamPilot.app",
+        icon=None,
+        bundle_identifier="de.jweigend.jampilot",
+        info_plist={
+            "CFBundleName": "JamPilot",
+            "CFBundleDisplayName": "JamPilot",
+            "CFBundleShortVersionString": "0.1.0",
+            "NSHighResolutionCapable": True,
+            # Ohne diesen Text kein Ton - und zwar stumm, nicht mit Fehler.
+            "NSMicrophoneUsageDescription":
+                "JamPilot reads your system audio (via a loopback device such as "
+                "BlackHole) to show the chords before you hear them.",
+            # Kein Dock-Icon-Flackern beim Start des Kontrollfensters.
+            "LSBackgroundOnly": False,
+        },
+    )
