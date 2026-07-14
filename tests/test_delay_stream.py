@@ -135,3 +135,66 @@ class TestCallback:
         assert np.all(ausgabe[:500] == 0)                     # Ringpuffer noch leer
         assert np.array_equal(ausgabe[500:1024],
                               np.arange(0, 524, dtype=np.float32))  # um 500 verzoegert
+
+
+class TestStumm:
+    """STUMM, nicht ANGEHALTEN - und der Unterschied ist der ganze Punkt.
+
+    Wuerde der Schalter den Ringpuffer einfrieren, waere er in Wahrheit
+    "Verzoegerung vergroessern": Man kaeme mit jeder stummen Sekunde eine Sekunde
+    weiter hinter die Quelle, und der Vorlauf - der Sinn des Programms - waere
+    hinueber. Stattdessen laeuft alles weiter, nur der Lautsprecher schweigt.
+    """
+
+    @staticmethod
+    def _block(loop, position, blocksize=64, wert=None):
+        indata = (np.full((blocksize, 2), wert, dtype=np.float32) if wert is not None
+                  else np.tile(np.arange(position, position + blocksize,
+                                         dtype=np.float32)[:, None], (1, 2)))
+        outdata = np.zeros((blocksize, 2), dtype=np.float32)
+        loop._callback(indata, outdata, blocksize, Zeit(position / loop.samplerate), None)
+        return outdata[:, 0].copy()
+
+    def test_stumm_nach_dem_ausblenden(self, loop):
+        _rampe_einspeisen(loop, 16)               # Ringpuffer fuellen
+        assert loop.toggle_mute() is True
+        self._block(loop, 1024)                   # dieser Block blendet aus
+        stille = self._block(loop, 1088)
+        assert np.all(stille == 0.0)
+
+    def test_aufheben_bringt_den_ton_zurueck(self, loop):
+        _rampe_einspeisen(loop, 16)
+        loop.toggle_mute()
+        self._block(loop, 1024)
+        assert loop.toggle_mute() is False       # wieder laut
+        self._block(loop, 1088)                   # blendet ein
+        wieder_da = self._block(loop, 1152)
+        assert np.any(wieder_da != 0.0)
+
+    def test_der_puffer_laeuft_stumm_weiter(self, loop):
+        """Die Verzoegerung darf durch das Stummschalten NICHT wachsen."""
+        _rampe_einspeisen(loop, 16)
+        vorher = loop.captured_frames
+        loop.toggle_mute()
+        for i in range(8):
+            self._block(loop, 1024 + i * 64)
+        # Der Eingang wurde weiter eingelesen - Analyse und Zeitrechnung laufen.
+        assert loop.captured_frames == vorher + 8 * 64
+        # Und das stumme Material liegt im Analysepuffer, wie immer.
+        assert loop.audio_ending_at(loop.captured_frames, 64) is not None
+
+    def test_blendet_aus_statt_zu_springen(self, loop):
+        """Ein harter Schnitt auf Null ist ein Sprung im Signal - das knackt."""
+        _rampe_einspeisen(loop, 8)
+        # Gleichsignal: jeder Sprung in der Ausgabe kommt dann vom Schalter,
+        # nicht vom Eingang.
+        for i in range(10):
+            self._block(loop, 512 + i * 64, wert=1.0)
+        loop.toggle_mute()
+        ausblendung = self._block(loop, 1152, wert=1.0)
+
+        assert ausblendung[0] > 0.9 and ausblendung[-1] < 0.1   # wirklich geblendet
+        spruenge = np.abs(np.diff(ausblendung))
+        assert spruenge.max() < 0.1, f"Sprung von {spruenge.max():.2f} - das knackt"
+        # Monoton fallend: keine Zacken, die man als Zwitschern hoeren wuerde.
+        assert np.all(np.diff(ausblendung) <= 1e-6)

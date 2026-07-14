@@ -28,12 +28,35 @@ datas, binaries, hiddenimports = [], [], []
 #   soundfile   -> libsndfile
 #   sounddevice -> libportaudio      (ohne das gibt es keine Audiogeraete)
 #   llvmlite    -> libllvmlite       (numbas JIT, ~170 MB, unvermeidbar)
+# PySide6 steht bewusst NICHT in dieser Liste: Fuer Qt bringt PyInstaller einen
+# eigenen Hook mit, der genau die benoetigten Bibliotheken und Plattform-Plugins
+# einsammelt. Es zusaetzlich per collect_all einzuziehen holt die ganze
+# Qt-Welt herein und kostete gemessen 38 MB - ohne dass etwas mehr funktioniert.
 for paket in ("librosa", "numba", "llvmlite", "soundfile", "sounddevice",
               "soxr", "lazy_loader", "audioread", "msgpack"):
     d, b, h = collect_all(paket)
     datas += d
     binaries += b
     hiddenimports += h
+
+# numbas JIT-Cache (.nbc/.nbi) NICHT mitnehmen. collect_all sammelt alles ein, was
+# in den Paketverzeichnissen liegt - und dazu gehoeren die vorkompilierten
+# Artefakte, die numba beim Entwickeln neben librosas Quellen ablegt. Im Bundle
+# passen sie nicht mehr zu den Pfaden, unter denen sie entstanden sind. Was dann
+# passiert, ist schlimmer als ein sauberer Fehler: Mal greift der Cache, mal
+# nicht. Beobachtet wurde ein Absturz beim Warmup
+#
+#   NotImplementedError: No definition for lowering static_setitem(...)
+#
+# der bei JEDEM ZWEITEN Start kam und beim naechsten wieder verschwand. Ohne die
+# Dateien uebersetzt numba im Bundle selbst - deterministisch, und ein paar
+# hundert Millisekunden langsamer beim ersten Aufruf.
+#
+# Nebeneffekt, der genauso wichtig ist: Das Bundle haengt damit nicht mehr davon
+# ab, was im Entwickler-venv zufaellig schon uebersetzt war. Ein reproduzierbarer
+# Bau darf so etwas nicht einsammeln.
+datas = [(quelle, ziel) for quelle, ziel in datas
+         if not quelle.endswith((".nbc", ".nbi"))]
 
 excludes = [
     # Nur, was NACHWEISLICH nicht importiert wird. Jeder weitere Ausschluss
@@ -47,6 +70,24 @@ excludes = [
     # nach JEDER Aenderung laufen lassen.
     "matplotlib", "IPython", "tkinter", "pytest", "_pytest",
     "PIL", "Pillow",     # qrcode laeuft ueber die SVG-Fabrik, nicht ueber Pillow
+
+    # Qt ist gross, und PyInstaller nimmt per Default ALLES mit. Das
+    # Kontrollfenster braucht genau drei Module: QtCore, QtGui, QtWidgets.
+    # Alles andere - die QML/Quick-Welt, 3D, Multimedia, Netzwerkstacks - fliegt
+    # raus. Was hier faelschlich stehen bleibt, meldet sich sofort beim Start.
+    "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtQuick3D", "PySide6.QtQuickWidgets",
+    "PySide6.QtQuickControls2", "PySide6.Qt3DCore", "PySide6.Qt3DRender",
+    "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets", "PySide6.QtWebEngineCore",
+    "PySide6.QtWebEngineWidgets", "PySide6.QtWebChannel", "PySide6.QtWebSockets",
+    "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtBluetooth",
+    "PySide6.QtNfc", "PySide6.QtPositioning", "PySide6.QtLocation",
+    "PySide6.QtSensors", "PySide6.QtSerialPort", "PySide6.QtSql", "PySide6.QtTest",
+    "PySide6.QtDesigner", "PySide6.QtHelp", "PySide6.QtOpenGL",
+    "PySide6.QtOpenGLWidgets", "PySide6.QtPdf", "PySide6.QtPdfWidgets",
+    "PySide6.QtSpatialAudio", "PySide6.QtTextToSpeech", "PySide6.QtRemoteObjects",
+    "PySide6.QtScxml", "PySide6.QtStateMachine", "PySide6.QtUiTools",
+    "PySide6.QtConcurrent", "PySide6.QtXml", "PySide6.QtSvgWidgets",
+    "shiboken6.support",
 ]
 
 a = Analysis(

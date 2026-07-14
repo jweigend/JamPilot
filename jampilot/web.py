@@ -31,11 +31,13 @@ class ChordBroadcaster:
         self._lock = threading.Lock()
         self._clients: set[queue.Queue] = set()
         self._last: str | None = None
+        self._last_state: dict | None = None
 
     def publish(self, state: dict):
         payload = json.dumps(state)
         with self._lock:
             self._last = payload
+            self._last_state = state
             for q in self._clients:
                 try:
                     q.get_nowait()      # veralteten Zustand verdraengen
@@ -55,6 +57,19 @@ class ChordBroadcaster:
     def unsubscribe(self, q: queue.Queue):
         with self._lock:
             self._clients.discard(q)
+
+    def republish(self, **aenderungen):
+        """Den letzten Zustand mit geaenderten Feldern SOFORT erneut senden.
+
+        Der Stummschalter muss auf allen Geraeten sofort umschlagen. Warteten wir
+        auf den naechsten Analysetakt, haetten Handy und Laptop bis zu 250 ms lang
+        verschiedene Meinungen darueber, ob gerade Ton kommt - und wer tippt,
+        saehe seine eigene Aktion verzoegert.
+        """
+        with self._lock:
+            zustand = dict(self._last_state or {})
+        zustand.update(aenderungen)
+        self.publish(zustand)
 
 
 def lan_ip() -> str:
@@ -79,6 +94,9 @@ def _qr_svg(url: str) -> bytes:
 class _Handler(BaseHTTPRequestHandler):
     broadcaster: ChordBroadcaster = None  # von start() gesetzt
     qr_bytes: bytes = b""
+    # Wird erst gesetzt, wenn der Audiostream steht - die Webseite laeuft schon
+    # vorher (sie zeigt den QR-Code). Bis dahin: 503 statt Absturz.
+    mute_toggle = None
 
     def log_message(self, *_):
         pass  # kein Request-Log im Terminal
@@ -101,6 +119,22 @@ class _Handler(BaseHTTPRequestHandler):
             self._serve_events()
         else:
             self.send_error(404)
+
+    def do_POST(self):
+        """Stumm umschalten. Die Antwort ist der neue Zustand.
+
+        Warum POST und nicht GET? Das hier ist kein Abruf, sondern ein Eingriff -
+        und ein GET wuerde jeder Link-Vorschau, jedem Prefetch des Browsers die
+        Musik abstellen.
+        """
+        if self.path.split("?")[0] != "/mute":
+            self.send_error(404)
+            return
+        if self.mute_toggle is None:
+            self.send_error(503, "no audio stream")
+            return
+        stumm = bool(self.mute_toggle())
+        self._send(json.dumps({"muted": stumm}).encode(), "application/json")
 
     def _serve_events(self):
         self.send_response(200)
@@ -127,10 +161,19 @@ class _Handler(BaseHTTPRequestHandler):
 
 class WebDisplay:
     def __init__(self, server: ThreadingHTTPServer, url: str,
-                 broadcaster: ChordBroadcaster):
+                 broadcaster: ChordBroadcaster, handler: type):
         self._server = server
+        self._handler = handler
         self.url = url
         self.broadcaster = broadcaster
+
+    def set_mute_toggle(self, fn):
+        """Nachtraeglich verdrahten: Die Seite steht, bevor der Stream steht.
+
+        `staticmethod`, sonst bekaeme die Funktion beim Zugriff ueber den
+        Handler dessen `self` als erstes Argument untergeschoben.
+        """
+        self._handler.mute_toggle = staticmethod(fn)
 
     def stop(self):
         self._server.shutdown()
@@ -148,7 +191,7 @@ def start(port: int = DEFAULT_PORT) -> WebDisplay:
     server = ThreadingHTTPServer(("0.0.0.0", port), handler)
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    return WebDisplay(server, url, broadcaster)
+    return WebDisplay(server, url, broadcaster, handler)
 
 
 PAGE = r"""<!DOCTYPE html>
@@ -196,6 +239,42 @@ PAGE = r"""<!DOCTYPE html>
   #gear:hover, #gear.open { color: #6ea8ff; transform: rotate(45deg); }
   #gear svg { width: 3.4vmin; height: 3.4vmin; display: block;
               min-width: 22px; min-height: 22px; }
+
+  #mute {
+    background: none; border: 0; padding: .6vmin; cursor: pointer;
+    color: #555; transition: color .2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #mute:hover { color: #6ea8ff; }
+  #mute svg { width: 3.4vmin; height: 3.4vmin; display: block;
+               min-width: 22px; min-height: 22px; }
+  /* Der Knopf zeigt, was ein Druck TUT, nicht was gerade ist: laeuft der Ton,
+     steht da das Pausenzeichen; ist er stumm, das Play-Dreieck. */
+  #mute .ic-play { display: none; }
+  body.muted #mute { color: #f5a524; }
+  body.muted #pause .ic-pause { display: none; }
+  body.muted #mute .ic-play  { display: inline; }
+
+  /* Stumm heisst: gedimmt und entfaerbt - aber NICHT verdeckt. Der Akkord laeuft
+     weiter, weil die Quelle weiterlaeuft, und man will sehen, wo sie steht, um
+     rechtzeitig wieder einzusteigen. Ein Overlay ueber dem Akkord waere genau
+     die Information, die man in der Pause braucht. */
+  #stage, #lane { transition: opacity .3s, filter .3s; }
+  body.muted #stage, body.muted #lane { opacity: .3; filter: saturate(.15); }
+
+  #mutebadge {
+    position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+    z-index: 15; display: none; align-items: center; gap: 1.4vmin;
+    padding: 1.3vmin 2.8vmin; border-radius: 0 0 1.4vmin 1.4vmin;
+    background: #f5a52418; border: 1px solid #f5a52455; border-top: 0;
+    color: #f5a524; font-size: max(2vmin, 13px);
+    letter-spacing: .28em; text-transform: uppercase; font-weight: 600;
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  body.muted #mutebadge { display: flex; }
+  #mutebadge small { color: #8a7752; letter-spacing: .06em;
+                      text-transform: none; font-weight: 400; }
+  @keyframes pulse { 50% { opacity: .55; } }
 
   #backdrop {
     position: fixed; inset: 0; background: #000c; z-index: 20;
@@ -325,6 +404,21 @@ PAGE = r"""<!DOCTYPE html>
       <div id="keybadge"></div>
     </div>
     <div id="right">
+      <!-- Stummschalter. Die Leertaste tut dasselbe - aber ein Handy hat keine,
+           und die Anzeige steht meistens auf einem Handy. Ein eigener Knopf muss
+           sein: Tippen IRGENDWOHIN schaltet schon Vollbild, das ist vergeben. -->
+      <button id="mute" aria-label="Mute" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <g class="ic-pause">
+            <line x1="9" y1="5" x2="9" y2="19"></line>
+            <line x1="15" y1="5" x2="15" y2="19"></line>
+          </g>
+          <g class="ic-play">
+            <path d="M7 4.5 19 12 7 19.5 Z" fill="currentColor"></path>
+          </g>
+        </svg>
+      </button>
       <button id="gear" aria-label="Settings" aria-haspopup="dialog">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -412,7 +506,10 @@ PAGE = r"""<!DOCTYPE html>
   </div>
 
   <div id="lane"><div id="nowline"></div><div id="nowlabel">NOW</div></div>
-  <div id="hint">Click = fullscreen</div>
+  <div id="mutebadge">
+    Muted <small>&mdash; the source keeps playing, you just hear nothing</small>
+  </div>
+  <div id="hint">Click = fullscreen &middot; Space = mute</div>
 
 <script>
 "use strict";
@@ -706,9 +803,42 @@ function apply(state) {
   chords = state.chords || [];
   horizon = Math.max(1.5, (state.lead || 3) + 0.8);
   tonart = state.key || null;
+  if ("muted" in state) zeigeStumm(state.muted);
   neuSchreibenFallsNoetig();
   syncClock(state.t);
 }
+
+// STUMM. Nicht angehalten: Die Quelle laeuft weiter, der Ringpuffer laeuft
+// weiter, die Analyse laeuft weiter - nur der Lautsprecher schweigt. Deshalb
+// laeuft die Anzeige in der Pause WEITER (gedimmt), und beim Fortsetzen ist man
+// sofort wieder synchron zur Quelle, statt immer weiter hinter sie zu rutschen.
+let stumm = false;
+
+function zeigeStumm(m) {
+  stumm = !!m;
+  document.body.classList.toggle("muted", stumm);
+  const btn = $("mute");
+  btn.setAttribute("aria-pressed", stumm ? "true" : "false");
+  btn.setAttribute("aria-label", stumm ? "Unmute" : "Mute");
+}
+
+async function umschalten() {
+  try {
+    const antwort = await fetch("/mute", { method: "POST" });
+    if (!antwort.ok) return;      // kein Stream (Demo-Modus) - dann eben nichts
+    // Die Wahrheit kommt vom Server, nicht von unserer Vermutung: Sonst laufen
+    // zwei Geraete auseinander, wenn beide gleichzeitig druecken.
+    zeigeStumm((await antwort.json()).muted);
+  } catch (e) {
+    /* Verbindung weg - der naechste SSE-Zustand richtet die Anzeige wieder */
+  }
+}
+
+$("mute").addEventListener("click", ev => {
+  ev.stopPropagation();     // sonst schaltet der Body-Klick auch noch Vollbild
+  umschalten();
+  ev.currentTarget.blur();  // sonst wuerde die Leertaste danach den Knopf treffen
+});
 
 function connect() {
   const es = new EventSource("/events");   // EventSource verbindet selbst neu
@@ -737,7 +867,14 @@ for (const opt of document.querySelectorAll(".opt"))
   });
 
 document.addEventListener("keydown", ev => {
-  if (ev.key === "Escape") dialog(false);
+  if (ev.key === "Escape") { dialog(false); return; }
+  if (ev.code === "Space" || ev.key === " ") {
+    // Nicht im Einstellungsdialog: Dort waehlt die Leertaste eine Option aus,
+    // und beides gleichzeitig zu tun waere eine Ueberraschung.
+    if (!$("backdrop").hidden) return;
+    ev.preventDefault();          // sonst scrollt die Seite
+    umschalten();
+  }
 });
 
 setzeInstrument(instrument);   // gespeicherte Wahl anwenden und markieren

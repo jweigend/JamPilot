@@ -50,6 +50,24 @@ class DelayedLoopback:
         # Anker fuer die Ausgabeuhr: (Stream-Position, PortAudio-DAC-Zeit).
         self._dac_anchor: tuple[int, float] | None = None
 
+        # STUMM, nicht pausiert - und das ist keine Wortklauberei, sondern der
+        # Entwurf. Der Ringpuffer laeuft weiter, die Analyse laeuft weiter, die
+        # Quelle laeuft weiter; nur der Lautsprecher schweigt. Beim Aufheben ist
+        # man deshalb sofort wieder synchron zur Quelle. Wuerde man stattdessen
+        # den Puffer anhalten - also wirklich PAUSIEREN -, waere das in Wahrheit
+        # "Verzoegerung vergroessern": Man kaeme mit jeder Sekunde eine Sekunde
+        # weiter hinter die Quelle, und der Vorlauf, der ganze Sinn des
+        # Programms, waere hinueber.
+        self._muted = False
+
+        # Hart auf Null zu schalten ist ein Sprung im Signal, und den hoert man
+        # als Knacken. Also in ~15 ms aus- und wieder einblenden. Die Rampe wird
+        # hier einmal vorberechnet: im Audio-Callback wird nicht allokiert.
+        self._fade_frames = max(int(0.015 * samplerate), 1)
+        self._gain = 1.0
+        self._ramp = np.arange(blocksize, dtype=np.float32)
+        self._scratch = np.empty(blocksize, dtype=np.float32)
+
         # latency="high": die Akkordanalyse (~280ms CPU) haelt den GIL
         # zeitweise - grosszuegige Puffer verhindern Audio-Dropouts.
         self._stream = sd.Stream(
@@ -89,6 +107,24 @@ class DelayedLoopback:
             ring[: end - n] = indata[first:]
         self._pos = end % n
 
+        # Stummschalten NACH dem Ringpuffer: Der Puffer wird weiter befuellt und
+        # weiter ausgelesen, nur was rausgeht, wird leise. Damit bleibt die
+        # Zeitrechnung unangetastet - `audible_position` gilt stumm genauso, und
+        # der Vorlauf stimmt sofort wieder, sobald der Ton zurueckkommt.
+        ziel = 0.0 if self._muted else 1.0
+        if self._gain != ziel:
+            schritt = frames / self._fade_frames
+            neu = (min(self._gain + schritt, ziel) if ziel > self._gain
+                   else max(self._gain - schritt, ziel))
+            # rampe = gain + (neu - gain) * i/frames, in-place: kein malloc hier.
+            rampe = self._scratch[:frames]
+            np.multiply(self._ramp[:frames], (neu - self._gain) / frames, out=rampe)
+            rampe += self._gain
+            outdata *= rampe[:, None]
+            self._gain = neu
+        elif ziel == 0.0:
+            outdata[:] = 0.0
+
         # Was gerade in outdata geschrieben wurde, ist genau das Material, das
         # n Frames vor diesem Block eingelesen wurde - und es erklingt zur
         # gemessenen DAC-Zeit. Das ist die einzige Stelle, an der Eingang und
@@ -109,6 +145,21 @@ class DelayedLoopback:
                 buf[: stop - size] = mono[head:]
             self._write = stop % size
             self._frames_seen += frames
+
+    @property
+    def muted(self) -> bool:
+        return self._muted
+
+    def toggle_mute(self) -> bool:
+        """Stumm an/aus. Gibt den neuen Zustand zurueck.
+
+        Ein einzelnes bool, vom Audio-Callback nur gelesen - dafuer braucht es
+        kein Lock: In CPython ist die Zuweisung atomar, und ein Callback, der den
+        Wechsel eine Blockgrenze spaeter sieht, blendet eben 40 ms spaeter aus.
+        Ein Lock im Audio-Callback waere der teurere Fehler.
+        """
+        self._muted = not self._muted
+        return self._muted
 
     @property
     def captured_frames(self) -> int:

@@ -3,7 +3,8 @@ name = "jampilot"
 version = "0.1.0"
 description = "Verzoegertes Systemaudio-Loopback mit Akkordanzeige (Vorlauf) fuer Musiker"
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.26", "sounddevice>=0.4.6", "librosa>=0.10", "qrcode>=7.4"]
+dependencies = ["numpy>=1.26", "sounddevice>=0.4.6", "librosa>=0.10", "qrcode>=7.4",
+                "PySide6-Essentials>=6.6"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

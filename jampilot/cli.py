@@ -218,40 +218,59 @@ def cmd_run(args):
     print(" ok", flush=True)   # ohne flush landet das "ok" hinter einem Traceback
 
     broadcaster = web_display.broadcaster if web_display else None
+
+    from .engine import Engine
+
+    engine = Engine(args, broadcaster)
+
+    # Der Stummschalter der Webseite und der im Fenster muessen DIESELBE Sache
+    # umlegen - sonst zeigen die beiden Oberflaechen Verschiedenes an.
+    if web_display:
+        web_display.set_mute_toggle(engine.toggle_mute)
+
+    url = web_display.url if web_display else None
+
+    # Fenster, wenn eines geht. Es ist die Notbremse fuer den Fall, dass jemand
+    # die Webseite schliesst und sich fragt, wo sein Ton geblieben ist: Ohne
+    # sichtbaren Schalter bleibt die Umleitung bestehen, und niemand findet den
+    # Weg zurueck. Auf einem Server per SSH gibt es kein Fenster - dann laeuft es
+    # wie bisher rein auf der Kommandozeile.
+    from . import gui
+
+    mit_fenster = not args.no_window and gui.verfuegbar()
+    if not mit_fenster and not args.no_window:
+        print("No display available - running headless (Ctrl+C quits).")
+
     try:
-        use_routing = routing.available() and not args.no_route and args.input is None
-        if use_routing:
-            # Linux: Null-Sink wird Standard-Ausgang, wir capturen seinen
-            # Monitor und geben verzoegert auf die bisherige Hardware aus.
-            with routing.LinuxRouting() as route:
-                loop = DelayedLoopback("default", "default", args.delay,
-                                       samplerate=args.samplerate)
-                loop.start()
-                try:
-                    route.move_own_playback_to(args.output)
-                    print(f"Capturing system audio (null sink "
-                          f"'{routing.SINK_NAME}'), output to: "
-                          f"{args.output or route.previous_sink}")
-                    _display_loop(loop, args, broadcaster)
-                finally:
-                    loop.stop()
-        else:
-            if args.input is None:
-                print("Direct mode: using the default input.")
-                print("(macOS: install BlackHole and select it with --input.)")
-            loop = DelayedLoopback(args.input or "default", args.output,
-                                   args.delay, samplerate=args.samplerate)
-            loop.start()
-            try:
-                _display_loop(loop, args, broadcaster)
-            finally:
-                loop.stop()
+        if mit_fenster:
+            # Das Fenster geht ZUERST auf, das Audio startet erst darin. Anders
+            # herum stuerbe ein Geraetefehler mit einem Traceback ins Terminal -
+            # und ausgerechnet dann saehe der Nutzer kein Fenster, obwohl das der
+            # Moment ist, in dem er eines braucht. So landet der Fehler dort, wo
+            # er hingehoert: sichtbar, neben dem Schalter, der ihn behebt.
+            #
+            # Qt MUSS im Hauptthread laufen (unter macOS zwingend), die Analyse
+            # laeuft daher im Hintergrund - siehe engine.py.
+            sys.exit(gui.run(engine, url, autostart=True))
+        engine.start()
+        try:
+            engine._thread.join()      # bis Strg+C
+        except KeyboardInterrupt:
+            print("\nStopped.")
     finally:
+        engine.stop()
         if web_display:
             web_display.stop()
 
 
-def _display_loop(loop, args, broadcaster=None):
+def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
+    """Analyse und Anzeige, bis Strg+C kommt oder `stop` gesetzt wird.
+
+    `stop` (threading.Event) und `engine` gibt es, seit der Betrieb abschaltbar
+    ist: Laeuft die Schleife im Hintergrundthread des Kontrollfensters, kann sie
+    nicht auf KeyboardInterrupt warten - der landet im Hauptthread bei Qt. Ohne
+    `stop` verhaelt sich alles wie vorher (reiner CLI-Betrieb).
+    """
     from . import bass as bassmodul
     from .chroma import FrameHistory, analyze_window, rms
     from .chords import SILENCE_RMS, ChordSmoother, match_chord
@@ -293,7 +312,7 @@ def _display_loop(loop, args, broadcaster=None):
 
     grid = None  # naechster Analysepunkt als Stream-Position (Frames)
     try:
-        while True:
+        while not (stop is not None and stop.is_set()):
             captured = loop.captured_frames
             if captured < window_frames:
                 time.sleep(ANALYSIS_HOP)
@@ -347,6 +366,8 @@ def _display_loop(loop, args, broadcaster=None):
                     # Echter Vorlauf: so weit im Voraus wissen wir von einem
                     # Wechsel. Faellt aus den Messwerten, nicht aus Konstanten.
                     lead = 0.7 * lead + 0.3 * max(onset - audible_pos, 0.0)
+                    if engine is not None:
+                        engine.lead = lead      # das Fenster zeigt ihn an
 
             # Vergangenes behalten wir kurz - die Anzeige blendet Akkorde
             # hinter der JETZT-Linie noch aus.
@@ -395,6 +416,11 @@ def _display_loop(loop, args, broadcaster=None):
                                for (pos, name), bassnote in zip(timeline, basslinie)],
                     "lead": round(lead, 2),
                     "key": key.as_dict() if key else None,
+                    # Faehrt in jedem Zustand mit, nicht nur beim Umschalten: Ein
+                    # Browser, der sich spaeter verbindet, muss die Stummschaltung
+                    # sehen - sonst zeigt er munter Akkorde an, waehrend nichts zu
+                    # hoeren ist, und der Fehler sitzt scheinbar im Audio.
+                    "muted": loop.muted,
                 })
 
             # Im Terminal gibt es keinen Dialog - hier gilt immer die erkannte
@@ -541,6 +567,8 @@ def main():
                        help="No automatic null-sink routing (Linux)")
     p_run.add_argument("--no-web", action="store_true",
                        help="Start without the web display")
+    p_run.add_argument("--no-window", action="store_true",
+                       help="No control window - terminal only (Ctrl+C quits)")
     p_run.add_argument("--port", type=_bounded(int, 1024, 65535), default=8765,
                        help="Port of the web display (1024..65535, default 8765)")
     p_run.add_argument("--samplerate", type=_bounded(int, 8000, 192000, " Hz"),

@@ -102,3 +102,62 @@ class TestSeite:
     def test_die_seite_kann_beide_schreibweisen(self):
         # Die Umschreibung passiert im Browser - beide Tabellen muessen da sein.
         assert "FLAT_OF" in PAGE and "SHARP_OF" in PAGE
+
+
+class TestStummImBroadcaster:
+    def test_republish_aendert_nur_das_gewuenschte_feld(self):
+        b = ChordBroadcaster()
+        b.publish({"t": 12.0, "chords": [{"c": "C", "at": 11.0}], "muted": False})
+        q, letzter = b.subscribe()          # der letzte Zustand kommt als Rueckgabe,
+        assert json.loads(letzter)["muted"] is False   # nicht ueber die Queue
+
+        b.republish(muted=True)
+
+        zustand = json.loads(q.get_nowait())
+        assert zustand["muted"] is True
+        assert zustand["t"] == 12.0                    # Zeit unangetastet
+        assert zustand["chords"] == [{"c": "C", "at": 11.0}]   # Akkorde auch
+
+    def test_republish_erreicht_alle_geraete(self):
+        # Laptop und Handy haengen gleichzeitig dran. Wer auf dem einen pausiert,
+        # muss es auf dem anderen SOFORT sehen - nicht erst beim naechsten
+        # Analysetakt, sonst zeigen zwei Geraete 250ms lang Verschiedenes an.
+        b = ChordBroadcaster()
+        b.publish({"t": 1.0, "muted": False})
+        laptop, _ = b.subscribe()
+        handy, _ = b.subscribe()
+
+        b.republish(muted=True)
+
+        assert json.loads(laptop.get_nowait())["muted"] is True
+        assert json.loads(handy.get_nowait())["muted"] is True
+
+    def test_republish_ohne_vorherigen_zustand_stuerzt_nicht_ab(self):
+        # Jemand schaltet stumm, bevor die erste Analyse durch ist.
+        b = ChordBroadcaster()
+        q, _ = b.subscribe()
+        b.republish(muted=True)
+        assert json.loads(q.get_nowait()) == {"muted": True}
+
+
+class TestStummAufDerSeite:
+    def test_leertaste_schaltet_stumm(self):
+        assert 'ev.code === "Space"' in PAGE
+        assert "umschalten()" in PAGE
+
+    def test_es_gibt_einen_knopf_fuer_geraete_ohne_tastatur(self):
+        # Die Anzeige steht meistens auf einem Handy. Ohne Knopf waere die Pause
+        # dort nicht erreichbar - ein Tippen irgendwohin ist schon fuer Vollbild
+        # vergeben.
+        assert 'id="mute"' in PAGE
+        assert '$("mute").addEventListener("click"' in PAGE
+
+    def test_der_zustand_ist_sichtbar(self):
+        assert 'id="mutebadge"' in PAGE
+        assert "body.muted" in PAGE
+
+    def test_die_wahrheit_kommt_vom_server(self):
+        # Nicht optimistisch umschalten: Sonst laufen zwei Geraete auseinander,
+        # wenn beide gleichzeitig druecken.
+        assert 'fetch("/mute", { method: "POST" })' in PAGE
+        assert "(await antwort.json()).muted" in PAGE

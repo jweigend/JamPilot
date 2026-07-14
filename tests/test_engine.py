@@ -1,0 +1,135 @@
+"""Der Betrieb als schaltbares Ding: an, aus, stumm - und sauber zurueckgebaut.
+
+Ohne echtes Audio: `DelayedLoopback` und `LinuxRouting` sind Attrappen. Geprueft
+wird die Verdrahtung, nicht PortAudio - und vor allem die REIHENFOLGE beim
+Abbauen, denn die ist der gefaehrliche Teil.
+"""
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from jampilot.engine import Engine
+
+
+@pytest.fixture
+def args():
+    return SimpleNamespace(delay=4.0, samplerate=48000, input=None, output=None,
+                           no_route=True, no_web=True, port=8765)
+
+
+@pytest.fixture
+def engine(args):
+    """Engine mit Attrappen-Stream; die Analyse laeuft ins Leere."""
+    with patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
+         patch("jampilot.cli._display_loop"):
+        loop = Loop.return_value
+        loop.muted = False
+        loop.delay_seconds = 4.0
+        loop.toggle_mute.side_effect = lambda: setattr(
+            loop, "muted", not loop.muted) or loop.muted
+        e = Engine(args)
+        e._Loop = Loop
+        yield e
+        e.stop()
+
+
+class TestAnUndAus:
+    def test_startet_und_stoppt(self, engine):
+        assert not engine.running
+        engine.start()
+        assert engine.running and engine.status == "running"
+        engine.stop()
+        assert not engine.running and engine.status == "stopped"
+
+    def test_zweimal_starten_startet_nur_einmal(self, engine):
+        engine.start()
+        engine.start()                    # Doppelklick auf den Schieber
+        assert engine._Loop.call_count == 1
+
+    def test_stoppen_ohne_start_tut_nichts(self, engine):
+        engine.stop()                     # darf nicht fliegen
+        assert not engine.running
+
+    def test_wieder_einschalten_baut_neu_auf(self, engine):
+        engine.start()
+        engine.stop()
+        engine.start()
+        assert engine.running
+        assert engine._Loop.call_count == 2
+
+
+class TestAbbauReihenfolge:
+    """Der Stream MUSS vor der Umleitung sterben.
+
+    Andersherum liegt zwischen "Umleitung weg" und "Stream weg" ein Fenster, in
+    dem der Stream die zurueckgesetzte Standardquelle liest - typischerweise das
+    MIKROFON. Das dann verzoegert auf die Lautsprecher zu geben, ist die
+    klassische Rueckkopplung. Deshalb steht diese Reihenfolge in einem Test und
+    nicht nur in einem Kommentar.
+    """
+
+    def test_stream_zuerst_dann_die_umleitung(self, args):
+        args.no_route = False
+        reihenfolge = []
+
+        with patch("jampilot.routing.available", return_value=True), \
+             patch("jampilot.routing.LinuxRouting") as Routing, \
+             patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
+             patch("jampilot.cli._display_loop"):
+            Loop.return_value.stop.side_effect = lambda: reihenfolge.append("stream")
+            Routing.return_value.__exit__.side_effect = \
+                lambda *a: reihenfolge.append("routing")
+
+            e = Engine(args)
+            e.start()
+            e.stop()
+
+        assert reihenfolge == ["stream", "routing"]
+
+    def test_fehler_beim_start_raeumt_alles_weg(self, args):
+        # Halb aufgebaut ist schlimmer als gar nicht: bliebe der Null-Sink als
+        # Standardausgang stehen, waere der Rechner stumm - und der Nutzer haette
+        # keine Ahnung, warum.
+        args.no_route = False
+        with patch("jampilot.routing.available", return_value=True), \
+             patch("jampilot.routing.LinuxRouting") as Routing, \
+             patch("jampilot.delay_stream.DelayedLoopback",
+                   side_effect=RuntimeError("keine Soundkarte")):
+            e = Engine(args)
+            with pytest.raises(RuntimeError):
+                e.start()
+
+        assert not e.running
+        assert e.status == "error"
+        assert "keine Soundkarte" in e.fehler
+        Routing.return_value.__exit__.assert_called_once()
+
+
+class TestStumm:
+    def test_umschalten_geht_nur_im_betrieb(self, engine):
+        assert engine.toggle_mute() is False      # steht ja nicht
+        engine.start()
+        assert engine.toggle_mute() is True
+        assert engine.muted
+
+    def test_der_browser_erfaehrt_es_sofort(self, args):
+        broadcaster = MagicMock()
+        with patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
+             patch("jampilot.cli._display_loop"):
+            Loop.return_value.muted = False
+            Loop.return_value.toggle_mute.return_value = True
+            e = Engine(args, broadcaster=broadcaster)
+            e.start()
+            e.toggle_mute()
+            e.stop()
+
+        broadcaster.republish.assert_any_call(muted=True)
+
+    def test_stoppen_hebt_die_stummschaltung_auf(self, engine):
+        engine.start()
+        engine.toggle_mute()
+        engine.stop()
+        # Sonst startet der naechste Lauf stumm, und niemand weiss warum.
+        assert not engine.muted

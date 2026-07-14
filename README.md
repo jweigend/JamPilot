@@ -25,8 +25,13 @@ analysis a few seconds of the future, and it buys the player time to react.
 3. **Analysis**: A 1.5 s window of the fresh signal goes through **harmonic
    separation** (HPSS — removes drums/percussion) and a **constant-Q chroma**
    analysis (librosa, 36 bins/octave — logarithmic resolution also catches low
-   roots). A separate **bass chroma** (32–260 Hz) gives a bonus to chords whose
-   root is actually sounding in the bass (this is what tells C from Am7). The
+   roots). The chord is decided by the pitch-class *set* alone; **which** of
+   those notes lies at the bottom is a separate question, answered by a separate
+   signal — a **bass chroma** over 32–260 Hz (`bass.py`). Letting the bass vote
+   on the chord used to be a `BASS_BONUS`, and it wrecked every inversion: it
+   dragged the root onto the bass note, turning C/E into Em and F/A into Am —
+   chords promising notes (the B in Em, the E in Am) that are not being played.
+   Measured, it prevented not one wrong note and caused three. The
    result is matched against chord templates (major, minor, 7, maj7, m7 × 12
    roots); four-note chords must beat the triad by a calibrated margin, because
    overtones fake sevenths. A majority vote over the last three detections
@@ -113,6 +118,35 @@ python3 -m venv .venv
 `--no-route` (direct mode without automatic routing), `--samplerate` (default
 48000), `--port` (web display, default 8765), `--no-web`.
 
+## The control window
+
+`run` opens a small native window (Qt). It is not the main interface — you play
+by the web display — it is the **way back**.
+
+JamPilot reroutes your system sound: everything goes into a null sink that only
+JamPilot listens to. Close the web page, and there is no UI left: your sound is
+delayed, or silent, and nothing on screen explains why. The window is the switch
+that undoes it.
+
+- **Audio through JamPilot** — off tears the routing down and your system sound
+  is normal again, immediately. This is the panic switch.
+- **Sound** — mutes the delayed output. The music keeps playing and the chords
+  keep running; you just hear nothing. Same thing as `Space` on the web page.
+- Status (Running / Muted / Stopped), delay, measured lead, and a link to the
+  web display.
+
+Closing the window quits JamPilot — and so restores your audio. Leaving it
+running invisibly in the background is exactly the trap the window exists to
+prevent.
+
+Muting is *not* pausing, and the difference matters: the ring buffer keeps
+running. Pausing it would silently mean "increase the delay" — you would drift
+further behind the source with every muted second, and the lead, the whole point
+of the program, would be gone.
+
+`--no-window` runs without it (terminal only). Over SSH or in CI, where no
+display exists, that happens automatically.
+
 ## Standalone binary
 
 A single executable, no Python and no venv on the target machine:
@@ -123,13 +157,18 @@ pyinstaller packaging/jampilot.spec --noconfirm   # -> dist/jampilot
 ./dist/jampilot selftest                          # verifies the bundle
 ```
 
-**~137 MB, ~2.5 s to start.** The size is librosa's doing — it drags in numba and
+**~183 MB, ~2.5 s to start.** The size is librosa's doing — it drags in numba and
 llvmlite (206 MB of JIT compiler) plus scipy and scikit-learn, and none of it can
 be excluded: librosa imports all of it on our code path even though we call none
-of its functions. The startup cost is `--onefile` unpacking itself into a temp
-directory on every launch. For a tool you start once per session and leave
-running, that is the right trade; if you want a 0.45 s start, build `--onedir`
-instead and ship a folder (374 MB).
+of its functions. Qt adds ~46 MB on top, after throwing out every module the
+control window does not touch. The startup cost is `--onefile` unpacking itself
+into a temp directory on every launch. For a tool you start once per session and
+leave running, that is the right trade; if you want a 0.45 s start, build
+`--onedir` instead and ship a folder.
+
+The build is **reproducible**: same commit, same lock file, same platform → the
+same bytes. `packaging/build.sh --check` proves it by building twice and
+comparing the SHA-256.
 
 `dist/jampilot selftest` is the test that matters here: it drives librosa, numba
 and both CQTs without needing a sound card, so it trips over any module
@@ -238,6 +277,8 @@ jampilot/
   tonality.py      key detection → spelling (♯ or ♭)
   delay_stream.py  duplex stream with the delay ring buffer (sounddevice/PortAudio)
   routing.py       null-sink routing for Linux (pactl), transactional
+  engine.py        routing + stream + analysis as one switchable thing
+  gui.py           the control window (Qt) - the way back when the page is closed
   web.py           SSE server + fullscreen display with the timeline
   selftest.py      synthetic chords as a pipeline test
   cli.py           command-line frontend, timeline logic
