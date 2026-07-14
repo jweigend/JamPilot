@@ -33,11 +33,20 @@ Systemaudio ──► Ringpuffer (N s) ──► Lautsprecher (verzögert, unver
    Drums + Melodie: FFT-Fallback 1/8, HPSS+CQT 8/8.
 4. **Timing**: Eine Erkennung sagt, *was* klingt — nicht, *seit wann*. Den
    Einsatzzeitpunkt aus der Erkennungslatenz zurückzurechnen scheitert daran,
-   dass die je nach Signal schwankt. Der Wechsel wird deshalb im Fenster
-   *gesucht*: das CQT-Frame-Chroma (23-ms-Raster, fällt ohnehin an) wird an der
-   Stelle geschnitten, die es am besten in „davor = alter Akkord" / „ab hier =
-   neuer" teilt. Damit liegt der Onset auf ±30 ms statt auf dem Analysetakt
-   (~500 ms). Wie weit die Ausgabe hinterherhinkt, kommt aus PortAudios
+   dass die je nach Signal schwankt. Der Wechsel wird deshalb *gesucht*: das
+   CQT-Frame-Chroma (23-ms-Raster, fällt ohnehin an) wird an der Stelle
+   geschnitten, die es am besten in „davor = alter Akkord" / „ab hier = neuer"
+   teilt. Damit liegt der Onset auf ±30 ms statt auf dem Analysetakt (~500 ms).
+   Gesucht wird dabei in einer **Frame-Historie** (`FrameHistory`), nicht nur im
+   aktuellen 1,5-s-Fenster: wie lange die Erkennung braucht, hängt vom Material
+   ab — bei mehrdeutigen Wechseln (C/Am, G/Em) über 1,5 s. Reicht die Suche
+   nicht bis zum Einsatz zurück, klemmt sie auf den Fensteranfang, und dieser
+   Fehler ist **einseitig**: die Anzeige wird zu spät, nie zu früh. Gemessen:
+   bei 2 s Erkennungslatenz meldete die reine Fenstersuche den Wechsel um bis zu
+   600 ms zu spät; mit Historie bleibt der Fehler bei −30 ms, unabhängig von der
+   Latenz. Die Frames werden dafür nur aufgehoben — keine zusätzliche CQT
+   (9 µs und 13 KB pro Takt).
+   Wie weit die Ausgabe hinterherhinkt, kommt aus PortAudios
    **DAC-Zeitstempeln**, nicht aus der gemeldeten Latenz — die lag im Test um
    60 ms daneben. Analysefenster enden immer auf einem festen Stream-Raster;
    dauert eine Analyse zu lang, fällt ein Rasterpunkt aus, das Raster bleibt.
@@ -130,7 +139,7 @@ chordelay/
   web.py           SSE-Server + Vollbildanzeige mit Zeitleiste
   selftest.py      Synthetische Akkorde als Pipeline-Test
   cli.py           Kommandozeilen-Frontend, Zeitleisten-Logik
-tests/             pytest-Suite (97 Tests)
+tests/             pytest-Suite (108 Tests)
 ```
 
 ## Tests
@@ -142,7 +151,8 @@ tests/             pytest-Suite (97 Tests)
 
 Abgedeckt sind vor allem die Stellen, an denen sich Fehler *leise* einschleichen:
 
-- **Onset-Genauigkeit** (`test_onset_accuracy.py`) — hält fest, dass ein
+- **Onset-Genauigkeit** (`test_onset_accuracy.py`, `test_frame_history.py`) — hält
+  fest, dass ein
   Akkordwechsel auf < 100 ms genau und mit < 50 ms Streuung gefunden wird.
   Schlägt an, sobald jemand am Fenster, am Pooling oder an der Onset-Suche dreht.
 - **Zeitleiste** (`test_timeline.py`) — kein Segment unter 250 ms; Fehlgriffe

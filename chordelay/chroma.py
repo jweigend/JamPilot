@@ -129,6 +129,52 @@ def analyze_window(samples: np.ndarray, samplerate: int) -> WindowAnalysis:
     return WindowAnalysis(_pool(frames), _pool(bass_frames), frames)
 
 
+class FrameHistory:
+    """Rollendes Frame-Chroma in Stream-Koordinaten.
+
+    Ein Analysefenster reicht nur seine eigene Laenge zurueck. Braucht die
+    Erkennung laenger - und bei mehrdeutigen Wechseln (C/Am, G/Em) tut sie das -,
+    liegt der Einsatz VOR dem Fensteranfang und die Onset-Suche findet ihn nicht
+    mehr; sie klemmt auf den Fensteranfang. Dieser Fehler ist einseitig: er macht
+    die Anzeige zu spaet, nie zu frueh, und er ist unbegrenzt gross. Genau so
+    fuehlt es sich an - meistens stimmt es, an schwierigen Stellen hinkt es.
+
+    Die Frames fallen bei jeder Analyse ohnehin an. Hier werden sie aufgehoben,
+    damit die Suche beliebig weit zurueckreichen kann - ohne eine einzige
+    zusaetzliche CQT.
+    """
+
+    # Die aeussersten Frames eines Fensters sind durch das Padding der CQT
+    # verfaelscht. Sie werden nicht uebernommen - dank der Fensterueberlappung
+    # liefert ein anderes Fenster fuer dieselbe Stelle einen Innenwert.
+    EDGE = 6
+
+    def __init__(self, seconds: float):
+        self.size = int(seconds / FRAME_SECONDS)
+        self._data = np.zeros((12, self.size), dtype=np.float32)
+        self.end = 0        # absoluter Frame-Index hinter dem juengsten Eintrag
+
+    def add(self, frames: np.ndarray, window_start: float):
+        """Die Frames eines bei `window_start` (Stream-Sekunden) beginnenden
+        Fensters uebernehmen."""
+        if frames is None or frames.shape[1] <= 2 * self.EDGE:
+            return
+        innen = frames[:, self.EDGE : frames.shape[1] - self.EDGE]
+        erster = int(round(window_start / FRAME_SECONDS)) + self.EDGE
+        ziel = np.arange(erster, erster + innen.shape[1]) % self.size
+        self._data[:, ziel] = innen
+        self.end = max(self.end, erster + innen.shape[1])
+
+    def since(self, start_seconds: float):
+        """(Frames, Stream-Zeit des ersten Frames) ab `start_seconds` bis zum
+        juengsten Eintrag - oder None, wenn zu wenig Material da ist."""
+        erster = max(int(round(start_seconds / FRAME_SECONDS)), self.end - self.size)
+        if self.end - erster < 4:
+            return None
+        quelle = np.arange(erster, self.end) % self.size
+        return self._data[:, quelle], erster * FRAME_SECONDS
+
+
 def warmup(samplerate: int = 48000, window_seconds: float = 1.5):
     """Einmalige librosa/numba-Initialisierung (~2-3s) vorziehen.
 

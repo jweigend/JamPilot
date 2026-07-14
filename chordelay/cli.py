@@ -30,6 +30,12 @@ ANALYSIS_HOP = 0.25
 # Wechsel, sondern ein Fehlgriff der Erkennung - und wird zurueckgenommen.
 MIN_CHORD_SECONDS = 0.25
 
+# Wie weit die Onset-Suche zurueckreichen darf. Muss deutlich ueber der
+# Erkennungslatenz liegen (median ~0.8s, bei mehrdeutigen Wechseln aber auch
+# ueber 1.5s): reicht die Suche nicht bis zum Einsatz zurueck, wird er auf den
+# Suchanfang geklemmt - und das ist immer ZU SPAET, nie zu frueh.
+MAX_ONSET_SEARCH = 4.0
+
 
 def _bounded(kind, low, high, unit=""):
     """argparse-Typ mit fachlichen Grenzen - meldet Unsinn sofort, nicht erst
@@ -216,13 +222,15 @@ def cmd_run(args):
 
 
 def _display_loop(loop, args, broadcaster=None):
-    from .chroma import FRAME_SECONDS, analyze_window, rms
+    from .chroma import FrameHistory, analyze_window, rms
     from .chords import SILENCE_RMS, ChordSmoother, match_chord
 
     sr = args.samplerate
     window_frames = int(round(ANALYSIS_WINDOW * sr))
     hop_frames = int(round(ANALYSIS_HOP * sr))
     smoother = ChordSmoother(window=3)
+    # Frame-Chroma laenger aufheben als ein Fenster - siehe _locate_onset.
+    history = FrameHistory(MAX_ONSET_SEARCH + ANALYSIS_WINDOW + 1.0)
 
     # Die Zeitleiste: (Onset-Position im Stream, Akkord). Die Onsets werden im
     # Frame-Chroma gemessen, nicht aus dem Erkennungszeitpunkt zurueckgerechnet
@@ -269,7 +277,6 @@ def _display_loop(loop, args, broadcaster=None):
             # Gepoolt wird die juengere Fensterhaelfte - Stille-Gate ebenso,
             # sonst liefern ausklingende Toene am Songende Phantomakkorde.
             raw = "-"
-            frames = None
             if rms(audio[len(audio) // 2 :]) < SILENCE_RMS:
                 smoother.reset()
                 chord = "-"
@@ -277,7 +284,7 @@ def _display_loop(loop, args, broadcaster=None):
                 analysis = analyze_window(audio, sr)
                 result = match_chord(analysis.chroma, analysis.bass)
                 raw = result.name
-                frames = analysis.frames
+                history.add(analysis.frames, window_start)
                 chord = smoother.update(result)
                 if chord == "N":
                     chord = "?"
@@ -286,8 +293,8 @@ def _display_loop(loop, args, broadcaster=None):
 
             onset = None
             if chord != "?" and chord != current:
-                found = _locate_onset(chord, current, frames, window_start,
-                                      window_end / sr, FRAME_SECONDS)
+                found = _locate_onset(chord, current, history, window_end / sr,
+                                      timeline[-1][0] if timeline else None)
                 onset = _commit(timeline, found, chord, audible_pos)
                 current = timeline[-1][1] if timeline else chord
                 if onset is not None and chord != "-":
@@ -336,25 +343,42 @@ def _display_loop(loop, args, broadcaster=None):
         print(f"Stream-Warnungen: {loop.xruns} (zuletzt: {loop.last_status})")
 
 
-def _locate_onset(chord, previous, frames, window_start, window_end, frame_seconds):
-    """Stream-Position, an der `chord` im Fenster einsetzt."""
+def _locate_onset(chord, previous, history, window_end, last_onset):
+    """Stream-Position, an der `chord` einsetzt.
+
+    Gesucht wird nicht im Analysefenster, sondern in der Frame-Historie ab dem
+    letzten bekannten Wechsel. Sonst begrenzt die Fensterlaenge, wie weit die
+    Suche zurueckreicht - und ein Wechsel, dessen Erkennung laenger gedauert
+    hat, wird auf den Fensteranfang geklemmt und damit zu spaet gemeldet.
+    """
+    from .chroma import FRAME_SECONDS
     from .chords import find_onset_frame
 
     if chord == "-":
         # Stille schlaegt an, sobald die juengere Fensterhaelfte leise ist -
         # der Einsatz liegt also grob in deren Mitte.
-        onset = window_end - 0.25 * (window_end - window_start)
-    else:
-        previous_chord = previous if previous not in (None, "-", "?") else None
-        index = find_onset_frame(frames, previous_chord, chord)
-        if index is None:
-            # FFT-Fallback ohne Frames: zurueck auf die alte Schaetzung.
-            onset = window_end - 0.4 * (window_end - window_start)
-        else:
-            # Frame k ist der erste des neuen Akkords, seine Mitte liegt bei
-            # k * frame_seconds - die Grenze also ein halbes Frame davor.
-            onset = window_start + max(index - 0.5, 0.0) * frame_seconds
+        return window_end - 0.25 * ANALYSIS_WINDOW
 
+    # Nicht weiter zurueck als bis zum letzten Wechsel: davor stand ein anderer
+    # Akkord, dessen Frames die Suche nur verwaessern wuerden.
+    start = window_end - MAX_ONSET_SEARCH
+    if last_onset is not None:
+        start = max(start, last_onset)
+
+    fallback = window_end - 0.4 * ANALYSIS_WINDOW
+    span = history.since(start)
+    if span is None:
+        return fallback                       # FFT-Fallback / noch zu wenig Material
+
+    frames, span_start = span
+    previous_chord = previous if previous not in (None, "-", "?") else None
+    index = find_onset_frame(frames, previous_chord, chord)
+    if index is None:
+        return fallback
+
+    # Frame k ist der erste des neuen Akkords, seine Mitte liegt bei
+    # k * FRAME_SECONDS - die Grenze also ein halbes Frame davor.
+    onset = span_start + max(index - 0.5, 0.0) * FRAME_SECONDS
     return min(onset, window_end)   # gefunden werden kann nur Vergangenes
 
 
