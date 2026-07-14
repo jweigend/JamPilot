@@ -2,7 +2,7 @@
 
 import pytest
 
-from chordelay.cli import MIN_CHORD_SECONDS, _commit
+from chordify.cli import MIN_CHORD_SECONDS, _commit
 
 NICHT_HOERBAR = -99.0   # alles liegt noch im Vorlauf und ist ruecknehmbar
 

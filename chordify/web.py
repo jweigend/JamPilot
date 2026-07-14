@@ -156,7 +156,7 @@ PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>chordelay</title>
+<title>Chordify</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; }
@@ -252,7 +252,7 @@ PAGE = r"""<!DOCTYPE html>
 </head>
 <body>
   <div id="topbar">
-    <div id="brand"><div id="dot"></div>chordelay</div>
+    <div id="brand"><div id="dot"></div>Chordify</div>
     <div id="qrbox">
       <div id="qrcard"><img src="/qr.svg" alt="QR"></div>
       <div id="qrlabel">Smartphone verbinden</div>
@@ -314,10 +314,10 @@ function chordHtml(name) {
 // Was gerade los ist, wenn KEIN Akkord dasteht. Ohne diese Unterscheidung sieht
 // "der Rechner spielt keine Musik" genauso aus wie "die Anzeige ist tot".
 function idleText() {
-  if (link === "connecting") return ["Verbinde", "Suche die chordelay-Anzeige."];
+  if (link === "connecting") return ["Verbinde", "Suche die Chordify-Anzeige."];
   if (link === "lost")
     return ["Verbindung verloren",
-            "chordelay antwortet nicht mehr. Läuft es noch im Terminal?"];
+            "Chordify antwortet nicht mehr. Läuft es noch im Terminal?"];
   if (offset === null) return ["Startet", "Die Analyse läuft an."];
   return ["Keine Musik",
           "Spiel etwas ab &ndash; der Akkord steht hier, "

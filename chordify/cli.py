@@ -64,7 +64,7 @@ def _check_devices(input_device, output_device):
         except (ValueError, sd.PortAudioError) as exc:
             raise SystemExit(
                 f"Geraet {device!r} nicht nutzbar ({kind}): {exc}\n"
-                f"'chordelay devices' zeigt die verfuegbaren Geraete."
+                f"'chordify devices' zeigt die verfuegbaren Geraete."
             )
 
 
@@ -100,9 +100,9 @@ def cmd_cleanup(args):
     try:
         removed = routing.cleanup(force=args.force)
     except routing.InstanceRunning as exc:
-        raise SystemExit(f"{exc}\n'chordelay cleanup --force' raeumt trotzdem auf.")
-    print(f"{removed} verwaiste chordelay-Sink(s) entfernt." if removed
-          else "Keine verwaisten chordelay-Sinks gefunden.")
+        raise SystemExit(f"{exc}\n'chordify cleanup --force' raeumt trotzdem auf.")
+    print(f"{removed} verwaiste chordify-Sink(s) entfernt." if removed
+          else "Keine verwaisten chordify-Sinks gefunden.")
     print(f"Standard-Ausgang: {routing._pactl('get-default-sink')}")
 
 
@@ -244,7 +244,7 @@ def _display_loop(loop, args, broadcaster=None):
         print("Hinweis: --delay ist knapp; fuer nutzbaren Vorlauf >= 3s waehlen.")
     print()
 
-    debug_path = os.environ.get("CHORDELAY_DEBUG")
+    debug_path = os.environ.get("CHORDIFY_DEBUG")
     debug = open(debug_path, "w") if debug_path else None
     if debug:
         debug.write(f"# latency in={loop._stream.latency[0]:.3f} "
@@ -414,7 +414,7 @@ def _commit(timeline, onset, chord, audible_pos):
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="chordelay",
+        prog="chordify",
         description="Verzoegertes Systemaudio-Loopback mit Akkordanzeige (Vorlauf).",
     )
     sub = parser.add_subparsers(dest="command", required=True)

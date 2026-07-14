@@ -3,13 +3,13 @@
 import numpy as np
 import pytest
 
-from chordelay.chords import (
+from chordify.chords import (
     ChordResult,
     ChordSmoother,
     find_onset_frame,
     match_chord,
 )
-from chordelay.chroma import NOTE_NAMES
+from chordify.chroma import NOTE_NAMES
 
 
 def _chroma(*notes: str) -> np.ndarray:

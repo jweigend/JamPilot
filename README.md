@@ -1,4 +1,4 @@
-# chordelay — Realtime Chord Analyzer mit Vorlauf
+# Chordify — Realtime Chord Analyzer mit Vorlauf
 
 Ein Werkzeug für Musiker: Systemaudio (YouTube, Spotify, eigene Dateien, …)
 wird ein paar Sekunden gepuffert und dann **unverändert verzögert**
@@ -67,8 +67,8 @@ Systemaudio ──► Ringpuffer (N s) ──► Lautsprecher (verzögert, unver
 
 Würde man den Monitor des normalen Ausgangs abgreifen und verzögert auf
 denselben Ausgang ausgeben, hörte man Original + Verzögerung + Echo-Kaskade.
-`chordelay run` richtet deshalb temporär einen **Null-Sink** als
-Standard-Ausgang ein: Player spielen unhörbar dorthin, chordelay liest dessen
+`chordify run` richtet deshalb temporär einen **Null-Sink** als
+Standard-Ausgang ein: Player spielen unhörbar dorthin, Chordify liest dessen
 Monitor und gibt nur das verzögerte Signal auf die echte Hardware aus. Beim
 Beenden (auch per `kill`) wird alles zurückgesetzt.
 
@@ -76,14 +76,14 @@ Das Einrichten läuft **transaktional**: jeder Schritt wird registriert, bevor
 der nächste läuft; scheitert einer, wird rückwärts aufgeräumt. Sonst bliebe der
 stumme Null-Sink als Standard-Ausgang stehen — `with` ruft `__exit__` nämlich
 nicht auf, wenn `__enter__` fliegt. Ein `SIGKILL` lässt sich prinzipbedingt
-nicht abfangen; dafür gibt es **`chordelay cleanup`**, das verwaiste Sinks
+nicht abfangen; dafür gibt es **`chordify cleanup`**, das verwaiste Sinks
 entfernt und den Standard-Ausgang zurückholt. `run` räumt beim Start selbst
 auf, bevor es sich den bisherigen Ausgang merkt — sonst würde es die
 Stummschaltung eines abgestürzten Vorlaufs als "vorherigen Zustand" sichern
 und beim Beenden wiederherstellen.
 
 Verwaist ist ein Sink allerdings nur, wenn sein **Besitzerprozess nicht mehr
-lebt**. Wer ihn angelegt hat, steht in `/tmp/chordelay-<uid>.pid`; ohne diese
+lebt**. Wer ihn angelegt hat, steht in `/tmp/chordify-<uid>.pid`; ohne diese
 Prüfung würde eine zweite Instanz den Sink einer noch laufenden ersten
 entladen, und beide rissen sich gegenseitig das Routing weg. Ein zweiter Start
 bricht deshalb verständlich ab, statt Schaden anzurichten
@@ -94,9 +94,9 @@ bricht deshalb verständlich ab, statt Schaden anzurichten
 [BlackHole (2ch)](https://existential.audio/blackhole/) installieren, dann:
 
 - Systemausgabe auf „BlackHole 2ch“ stellen (übernimmt die Rolle des Null-Sinks),
-- `chordelay run --no-route --input "BlackHole 2ch" --output "MacBook Pro Speakers"`.
+- `chordify run --no-route --input "BlackHole 2ch" --output "MacBook Pro Speakers"`.
 
-Gerätenamen zeigt `chordelay devices`.
+Gerätenamen zeigt `chordify devices`.
 
 ## Installation & Benutzung
 
@@ -104,11 +104,11 @@ Gerätenamen zeigt `chordelay devices`.
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 
-.venv/bin/python -m chordelay selftest          # Erkennung ohne Audio testen
-.venv/bin/python -m chordelay devices           # Geräte anzeigen
-.venv/bin/python -m chordelay analyze lied.wav  # WAV offline analysieren
-.venv/bin/python -m chordelay run --delay 4     # Live mit 4 s Vorlauf
-.venv/bin/python -m chordelay cleanup           # Null-Sink nach Absturz entfernen
+.venv/bin/python -m chordify selftest          # Erkennung ohne Audio testen
+.venv/bin/python -m chordify devices           # Geräte anzeigen
+.venv/bin/python -m chordify analyze lied.wav  # WAV offline analysieren
+.venv/bin/python -m chordify run --delay 4     # Live mit 4 s Vorlauf
+.venv/bin/python -m chordify cleanup           # Null-Sink nach Absturz entfernen
 ```
 
 `run`-Optionen: `--delay` (Sekunden), `--output` (Ziel-Sink/Gerät),
@@ -131,7 +131,7 @@ Seite mit Beispielakkorden ohne laufende Analyse.
 ## Projektstruktur
 
 ```
-chordelay/
+chordify/
   chroma.py        FFT → Chroma-Vektor (12 Tonklassen), CQT-Frame-Chroma
   chords.py        Akkord-Templates, Matching, Glättung, Onset-Suche
   delay_stream.py  Duplex-Stream mit Delay-Ringpuffer (sounddevice/PortAudio)

@@ -7,8 +7,8 @@ import wave
 import numpy as np
 import pytest
 
-from chordelay import cli
-from chordelay.selftest import SAMPLERATE, _chord
+from chordify import cli
+from chordify.selftest import SAMPLERATE, _chord
 
 
 @pytest.fixture

@@ -20,23 +20,23 @@ import tempfile
 import time
 from pathlib import Path
 
-SINK_NAME = "chordelay"
-APP_NAME = "chordelay"
+SINK_NAME = "chordify"
+APP_NAME = "chordify"
 
 # Merkt sich, WER den Null-Sink angelegt hat. Ohne diesen Besitzvermerk kann
 # eine zweite Instanz den Sink einer noch laufenden ersten nicht von der Waise
 # eines abgestuerzten Laufs unterscheiden.
-LOCK_FILE = Path(tempfile.gettempdir()) / f"chordelay-{os.getuid()}.pid"
+LOCK_FILE = Path(tempfile.gettempdir()) / f"chordify-{os.getuid()}.pid"
 
 _UNSET = object()
 
 
 class InstanceRunning(RuntimeError):
-    """Eine andere chordelay-Instanz haelt das Audio-Routing."""
+    """Eine andere Chordify-Instanz haelt das Audio-Routing."""
 
     def __init__(self, pid: int):
         super().__init__(
-            f"Eine andere chordelay-Instanz laeuft bereits (PID {pid}). "
+            f"Eine andere Chordify-Instanz laeuft bereits (PID {pid}). "
             f"Erst beenden - zwei Instanzen wuerden sich das Routing "
             f"gegenseitig zerlegen."
         )
@@ -149,7 +149,7 @@ class LinuxRouting:
             self.module_id = _pactl(
                 "load-module", "module-null-sink",
                 f"sink_name={SINK_NAME}",
-                "sink_properties=device.description=chordelay-Systemaudio",
+                "sink_properties=device.description=Chordify-Systemaudio",
             )
             self._undo.append(lambda: _pactl("unload-module", self.module_id))
 
@@ -214,7 +214,7 @@ class LinuxRouting:
                 step()
             except Exception as exc:
                 print(f"Warnung: Aufraeumen unvollstaendig ({exc}). "
-                      f"'chordelay cleanup' setzt den Rest zurueck.",
+                      f"'chordify cleanup' setzt den Rest zurueck.",
                       file=sys.stderr)
 
     def __exit__(self, *exc):

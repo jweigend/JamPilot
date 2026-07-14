@@ -3,7 +3,7 @@
 import json
 import queue
 
-from chordelay.web import ChordBroadcaster
+from chordify.web import ChordBroadcaster
 
 
 def _leeren(q):
