@@ -1,9 +1,18 @@
 # JamPilot — jam along with anything, in real time
 
-A tool for musicians: system audio (YouTube, Spotify, your own files, …) is
-buffered for a few seconds and then played back **delayed but unchanged**. The
-*fresh* signal is what gets analysed — so the chord is on screen **before you
-hear it**. You can play along instead of chasing the song.
+**Play along with any song, without knowing it.** JamPilot taps your system audio
+(YouTube, Spotify, your own files, …), holds it back for a few seconds, and plays
+it to your speakers **delayed but otherwise untouched**. What it *analyses*,
+though, is the fresh signal — the part you have not heard yet. So the chord is on
+your screen **seconds before it reaches your ears**.
+
+You stop chasing the song. You see what is coming and play it.
+
+![The web display: the audible chord large in the centre, the coming chords running towards the NOW line](docs/bilder/web-anzeige.png)
+
+*The chord you hear right now is the big one — `Bm`. `C` arrives in 1.3 seconds,
+`D` in 3.2 — enough time to get your hand there. Top left, the key JamPilot has
+worked out (G major); top right, a QR code to put the same display on your phone.*
 
 ```
 System audio ──► ring buffer (N s) ──► speakers (delayed, unchanged)
@@ -11,8 +20,99 @@ System audio ──► ring buffer (N s) ──► speakers (delayed, unchanged)
       └──► chroma analysis ──► chord display (N s of lead)
 ```
 
-The delay is not a defect to be minimised. It is the feature: it buys the
-analysis a few seconds of the future, and it buys the player time to react.
+The delay is not a defect to be minimised. **It is the feature**: it buys the
+analysis a few seconds of the future, and it buys the player time to react. Four
+seconds is a good default — long enough to see a change coming, short enough that
+you still feel like you are playing *with* the record.
+
+## What you see
+
+**The display in the browser** is where you play. It opens by itself at
+`http://<your-machine>:8765/` and is built to be read from across the room, in a
+glance, while both your hands are busy:
+
+- **The big chord in the centre** is what is sounding **right now**, in sync with
+  what your speakers are putting out — not what the analysis is chewing on.
+- **The lane at the bottom** is the future, moving right to left towards the
+  `NOW` line. Each chord carries its countdown (`in 1.3s`). A chord flips to the
+  centre in exactly the frame in which its chip touches the line — big chord and
+  lane run off the same clock, so they cannot drift apart.
+- **The key badge**, top left, once there is enough music to be sure of it.
+- **The QR code** — scan it with a phone on the same Wi-Fi and you get the same
+  display on your music stand. The computer does the listening; every other
+  device is just a screen.
+- Click or tap for fullscreen, `Space` to mute. The **gear** switches spelling
+  (♯/♭) and the instrument mode (chords or bass) — both are per-device, so your
+  phone and your laptop may disagree.
+
+**The control window** opens next to it — a small native window, and it is not
+the main interface. It is the **way back**:
+
+![The control window: state, the routing switch, the mute switch, delay and measured lead](docs/bilder/kontrollfenster.png)
+
+JamPilot reroutes your system sound while it runs. Close the browser tab and,
+without this window, there would be no UI left at all: your sound is delayed, or
+silent, and nothing on screen tells you why. So the big switch at the top,
+**Audio through JamPilot**, is the panic button — off, and your system sound is
+normal again, immediately. Below it, **Sound** mutes only the delayed output (the
+music and the chords keep running; you just hear nothing). Underneath: the state,
+the delay, and the **lead actually being measured** — 3.9 seconds in the shot
+above, which is how far ahead of your ears the display is running.
+
+Closing the window quits JamPilot, and that restores your audio. Leaving it
+running invisibly in the background is precisely the trap the window exists to
+prevent.
+
+Muting is *not* pausing, and the difference matters: the ring buffer keeps
+running. Pausing it would silently mean "increase the delay" — you would drift
+further behind the song with every muted second, and the lead, the whole point of
+the program, would be gone.
+
+`--no-window` runs without it (terminal only). Over SSH or in CI, where there is
+no display, that happens by itself.
+
+## Get it running
+
+One script, straight from a fresh clone — Linux and macOS:
+
+```bash
+git clone https://github.com/jweigend/JamPilot.git && cd JamPilot
+./run.sh                     # sets everything up on the first call, then starts
+```
+
+**The first call takes about a minute** — it creates `.venv` and installs the
+locked dependencies. **Every call after that starts in well under a second.** A
+stamp inside `.venv` records which lock file and which Python it was built
+against; if that still matches and every package is present, there is nothing to
+do and the script gets out of the way.
+
+If it *doesn't* match, the script repairs it instead of failing at you — and that
+is the whole point of it. A lock file that changed, a Python that was upgraded out
+from under the venv, an install someone interrupted with Ctrl+C, a `site-packages`
+that lost a package: each of these used to end in a message that named the symptom
+(`No module named librosa`) and not the cause, days later. The stamp is written
+*only after* a successful install, so a half-built environment is never mistaken
+for a finished one.
+
+```bash
+./run.sh --delay 6           # any option of `jampilot run`
+./run.sh selftest            # any other command: devices, analyze, cleanup ...
+./run.sh --bundle            # standalone binary + double-click launcher -> dist/
+./run.sh --neu               # throw the environment away and start over
+```
+
+`run` options: `--delay` (seconds), `--output` (target sink/device), `--input` +
+`--no-route` (direct mode without automatic routing), `--samplerate` (default
+48000), `--port` (web display, default 8765), `--no-web`, `--no-window`.
+
+Then just play something — a YouTube video, Spotify, anything that makes sound —
+and watch the chords arrive before it does.
+
+The one thing the script cannot install for you is **PortAudio**, because it is a
+system library and not a Python package (`sudo apt install libportaudio2`,
+`brew install portaudio`). It checks for it and says so, rather than letting
+`sounddevice` fail with "PortAudio library not found". On macOS you also need
+[BlackHole](https://existential.audio/blackhole/) — see below.
 
 ## How it works
 
@@ -101,74 +201,6 @@ Install [BlackHole (2ch)](https://existential.audio/blackhole/), then:
 
 `jampilot devices` lists the device names.
 
-## Install & use
-
-One script, straight from a fresh clone — Linux and macOS:
-
-```bash
-git clone https://github.com/jweigend/JamPilot.git && cd JamPilot
-./run.sh                     # sets everything up on the first call, then starts
-```
-
-**The first call takes about a minute** (it creates `.venv` and installs the
-locked dependencies). **Every call after that starts in well under a second.** A
-stamp inside `.venv` records which lock file and which Python it was built
-against; if that still matches and every package is present, there is nothing to
-do and the script gets out of the way.
-
-If it *doesn't* match, the script repairs it instead of failing at you — and that
-is the whole point. A lock file that changed, a Python that was upgraded out from
-under the venv, an install someone interrupted with Ctrl+C, a `site-packages`
-that lost a package: each of these used to end in a message that named the
-symptom (`No module named librosa`) and not the cause, days later. The stamp is
-written *only after* a successful install, so a half-built environment is never
-mistaken for a finished one.
-
-```bash
-./run.sh --delay 6           # any option of `jampilot run`
-./run.sh selftest            # any other command: devices, analyze, cleanup ...
-./run.sh --bundle            # standalone binary + double-click launcher -> dist/
-./run.sh --neu               # throw the environment away and start over
-```
-
-`run` options: `--delay` (seconds), `--output` (target sink/device), `--input` +
-`--no-route` (direct mode without automatic routing), `--samplerate` (default
-48000), `--port` (web display, default 8765), `--no-web`.
-
-The one thing the script cannot install for you is **PortAudio**, because it is a
-system library and not a Python package (`sudo apt install libportaudio2`,
-`brew install portaudio`). It checks for it and says so, rather than letting
-`sounddevice` fail with "PortAudio library not found".
-
-## The control window
-
-`run` opens a small native window (Qt). It is not the main interface — you play
-by the web display — it is the **way back**.
-
-JamPilot reroutes your system sound: everything goes into a null sink that only
-JamPilot listens to. Close the web page, and there is no UI left: your sound is
-delayed, or silent, and nothing on screen explains why. The window is the switch
-that undoes it.
-
-- **Audio through JamPilot** — off tears the routing down and your system sound
-  is normal again, immediately. This is the panic switch.
-- **Sound** — mutes the delayed output. The music keeps playing and the chords
-  keep running; you just hear nothing. Same thing as `Space` on the web page.
-- Status (Running / Muted / Stopped), delay, measured lead, and a link to the
-  web display.
-
-Closing the window quits JamPilot — and so restores your audio. Leaving it
-running invisibly in the background is exactly the trap the window exists to
-prevent.
-
-Muting is *not* pausing, and the difference matters: the ring buffer keeps
-running. Pausing it would silently mean "increase the delay" — you would drift
-further behind the source with every muted second, and the lead, the whole point
-of the program, would be gone.
-
-`--no-window` runs without it (terminal only). Over SSH or in CI, where no
-display exists, that happens automatically.
-
 ## Standalone binary
 
 A single executable, no Python and no venv on the target machine:
@@ -243,16 +275,16 @@ What the binary still cannot bring with it, because these are system components:
   of the build machine is the *minimum* on the target, so build on the oldest
   distribution you want to support.
 
-## Web display
+## Web display, under the hood
 
-`run` automatically starts a fullscreen web display (`http://<machine>:8765/`,
-the URL is printed at startup): black background, the currently **audible**
-chord large in the centre, the **upcoming** chords running along the bottom lane
-towards the NOW line. Top right a QR code — a phone on the same Wi-Fi scans it
-and shows the same display (the computer analyses, every device is a pure remote
-display). Click/tap = fullscreen. Under the hood: an embedded HTTP server with
-server-sent events, fully offline-capable (no CDN); `?demo=1` shows the page with
-example chords and no running analysis.
+What the page *shows* is described above. What it *is*: an embedded HTTP server
+with server-sent events, no framework, no CDN, fully offline-capable — it has to
+work on a stage with no internet. The browser is a pure display: it receives the
+chords with their onset in stream seconds plus the currently audible position,
+syncs its clock against that with a minimum filter (the NTP principle: delivery
+time is always positive), and derives **both** the big chord and the lane from
+that one clock. `?demo=1` renders the page with example chords and no running
+analysis — handy for working on the layout.
 
 ## Chord spelling: ♯ or ♭ (key detection)
 
@@ -320,6 +352,7 @@ constant-Q transform uses long windows at low frequencies by construction. See
 ## Project layout
 
 ```
+run.sh             the one entry point: sets up, starts, builds (--bundle)
 jampilot/
   chroma.py        FFT → chroma vector (12 pitch classes), CQT frame chroma
   chords.py        chord templates, matching, smoothing, onset search
@@ -329,10 +362,15 @@ jampilot/
   routing.py       null-sink routing for Linux (pactl), transactional
   engine.py        routing + stream + analysis as one switchable thing
   gui.py           the control window (Qt) - the way back when the page is closed
+  desktop.py       the .desktop launcher - the way in, for a double-click
   web.py           SSE server + fullscreen display with the timeline
   selftest.py      synthetic chords as a pipeline test
   cli.py           command-line frontend, timeline logic
-tests/             pytest suite (220 tests)
+packaging/
+  venv.sh          the environment, stamped: expensive once, free afterwards
+  build.sh         the reproducible build (and it skips when nothing changed)
+  jampilot.spec    PyInstaller: one file on Linux, a real .app on macOS
+tests/             pytest suite (273 tests)
 docs/exploration/  design documents (in German)
 ```
 
@@ -342,8 +380,8 @@ everything a user sees is English.
 ## Tests
 
 ```bash
-.venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m pytest
+./run.sh selftest                 # the pipeline, no sound card needed
+.venv/bin/python -m pytest        # the suite (273 tests)
 ```
 
 The suite covers the places where bugs creep in *quietly*:
@@ -364,6 +402,17 @@ The suite covers the places where bugs creep in *quietly*:
   detection, protection against a second instance.
 - **SSE backpressure** (`test_web.py`) — a slow client gets the *newest* state,
   not the oldest.
+- **The way back** (`test_gui.py`, `test_engine.py`) — closing the window tears
+  the routing down; `kill`, Ctrl+C and a closed terminal (SIGHUP) leave the Qt
+  loop; and an **interrupt during startup** unwinds what was already built. Both
+  were real bugs, both left the machine **silent**: the signal handler raised
+  `KeyboardInterrupt`, which PySide6 swallowed inside a slot (JamPilot survived
+  SIGTERM — only `kill -9` ended it, and that skips every cleanup); and the
+  rollback in `engine.py` caught `Exception`, which a `KeyboardInterrupt` is not
+  — so Ctrl+C during the seconds it takes to open the audio device left the null
+  sink installed as your default output.
+- **The launcher** (`test_desktop.py`) — a `.desktop` file with the right
+  absolute path, quoted, executable, and `Terminal=false`.
 
 ## Roadmap
 
