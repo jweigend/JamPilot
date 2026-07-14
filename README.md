@@ -1,10 +1,27 @@
 # JamPilot — jam along with anything, in real time
 
-**Play along with any song, without knowing it.** JamPilot taps your system audio
-(YouTube, Spotify, your own files, …), holds it back for a few seconds, and plays
-it to your speakers **delayed but otherwise untouched**. What it *analyses*,
-though, is the fresh signal — the part you have not heard yet. So the chord is on
-your screen **seconds before it reaches your ears**.
+**Ever wanted to just grab your instrument and play along with whatever is coming
+out of your computer?** Spotify, YouTube, the MP3s on your disk — the live take
+nobody ever wrote a chord sheet for, the song in the Netflix episode you just
+heard. Not "find a tutorial, learn it, come back next week". *Now.*
+
+That is the whole idea. Whatever plays on your machine, JamPilot listens to it
+and **shows you the chords while it runs** — and it shows them **before you hear
+them**, so you are never a beat behind. Practise, learn a tune, or just play
+along for the fun of it.
+
+**No more googling for chords or tabs.** No transcription, no tutorial, no
+waiting a week. Press play, and play.
+
+Linux and macOS. It all happens on your own machine — no account, no cloud,
+nothing uploaded anywhere.
+
+---
+
+**How, in one paragraph:** JamPilot taps your system audio, holds it back for a
+few seconds, and plays it to your speakers **delayed but otherwise untouched**.
+What it *analyses*, though, is the fresh signal — the part you have not heard
+yet. So the chord is on your screen **seconds before it reaches your ears**.
 
 You stop chasing the song. You see what is coming and play it.
 
