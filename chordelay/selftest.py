@@ -81,8 +81,8 @@ def _detect_fft(audio: np.ndarray) -> str:
 
 
 def _detect_full(audio: np.ndarray) -> str:
-    chroma, bass = analyze_window(audio, SAMPLERATE)
-    return match_chord(chroma, bass).name
+    analysis = analyze_window(audio, SAMPLERATE)
+    return match_chord(analysis.chroma, analysis.bass).name
 
 
 def run() -> bool:

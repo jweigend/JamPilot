@@ -17,7 +17,15 @@ DEFAULT_PORT = 8765
 
 
 class ChordBroadcaster:
-    """Verteilt Zustands-Updates an alle verbundenen SSE-Clients."""
+    """Verteilt Zustands-Updates an alle verbundenen SSE-Clients.
+
+    Jeder Client haelt genau EINEN Platz. Jeder Zustand ist ein vollstaendiger
+    Snapshot (Zeitleiste + hoerbare Position), Zwischenstaende wegzuwerfen ist
+    also verlustfrei - den *neuesten* wegzuwerfen dagegen fatal: ein langsamer
+    Client bekaeme eine Warteschlange alter Akkorde serviert und stellte seine
+    Uhr auf veraltete Zeitpunkte. Bei Rueckstau gewinnt daher immer der neue
+    Zustand, nicht der alte.
+    """
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -30,12 +38,16 @@ class ChordBroadcaster:
             self._last = payload
             for q in self._clients:
                 try:
+                    q.get_nowait()      # veralteten Zustand verdraengen
+                except queue.Empty:
+                    pass
+                try:
                     q.put_nowait(payload)
                 except queue.Full:
-                    pass  # langsamer Client: Update verfallen lassen
+                    pass  # Client liest gerade - er holt sich den naechsten
 
     def subscribe(self) -> tuple[queue.Queue, str | None]:
-        q = queue.Queue(maxsize=8)
+        q = queue.Queue(maxsize=1)
         with self._lock:
             self._clients.add(q)
             return q, self._last
@@ -200,16 +212,24 @@ PAGE = r"""<!DOCTYPE html>
     position: absolute; left: 14%; top: 0; bottom: 0; width: 2px;
     background: linear-gradient(#6ea8ff88, #6ea8ff22);
   }
+  #nowline.hit { animation: hit .35s ease-out; }
+  @keyframes hit {
+    0% { box-shadow: 0 0 0 0 #6ea8ffcc; background: #fff; }
+    100% { box-shadow: 0 0 2.5vmin 1vmin #6ea8ff00; }
+  }
   #nowlabel { position: absolute; left: 14%; bottom: 1vh;
               transform: translateX(-50%);
               color: #444; font-size: 1.7vmin; letter-spacing: .25em; }
   .chip {
-    position: absolute; top: 42%; transform: translate(-50%, -50%);
+    /* Nur vertikal zentrieren: die LINKE Textkante markiert den Zeitpunkt,
+       nicht die Label-Mitte. Sie trifft die JETZT-Linie in genau dem Frame,
+       in dem der Akkord erklingt - sonst laege der Wechsel im Wortinneren. */
+    position: absolute; top: 42%; transform: translateY(-50%);
     font-size: 7.5vh; font-weight: 650; color: #9aa3ad;
-    will-change: left, opacity;
+    white-space: nowrap; will-change: left, opacity;
   }
   .chip .suffix { font-size: 55%; color: #567da3; }
-  .chip .eta { display: block; text-align: center; font-size: 2vmin;
+  .chip .eta { display: block; text-align: left; font-size: 2vmin;
                color: #4a5158; font-weight: 400; margin-top: .4vh; }
 
   #hint { position: fixed; bottom: 24.5vh; right: 2.6vmin; color: #333;
@@ -235,10 +255,30 @@ PAGE = r"""<!DOCTYPE html>
 const $ = id => document.getElementById(id);
 const NOW_PCT = 14;          // Position der JETZT-Linie in %
 const RIGHT_PCT = 97;        // Einstiegsposition rechts
-let state = null;            // letzter Serverzustand
-let recvAt = 0;              // performance.now() beim Empfang
+
+// Der Server schickt die Akkorde mit ihrer Onset-Position in Stream-Sekunden
+// (`at`) und dazu die gerade hoerbare Position (`t`). Der Browser rechnet
+// beides in seine eigene Uhr um und leitet GROSSEN AKKORD UND LAUFBAND aus
+// derselben Position ab. Deshalb kann der Akkordwechsel gar nicht anders, als
+// exakt dann zu passieren, wenn der Chip die JETZT-Linie beruehrt.
+let chords = [];             // [{c, at}] Onsets in Stream-Sekunden
 let horizon = 4;             // Sekunden von rechts bis JETZT-Linie
-let chips = new Map();       // key -> {el, chord, audibleAt}
+let offset = null;           // browserZeit(s) - streamPosition(s)
+let offsetSamples = [];
+let chips = new Map();       // key -> {el, at, chord}
+
+// Uhrabgleich nach NTP-Prinzip: die Zustellzeit eines SSE-Pakets ist immer
+// positiv, also ist das MINIMUM der beobachteten Offsets der wahre Versatz.
+// Ohne diesen Filter wandert die Zeitleiste mit dem Netz- und Tick-Jitter.
+function syncClock(t) {
+  offsetSamples.push(performance.now() / 1000 - t);
+  if (offsetSamples.length > 40) offsetSamples.shift();
+  const target = Math.min(...offsetSamples);
+  if (offset === null) offset = target;
+  else offset += (target - offset) * 0.2;   // sanft nachziehen, keine Spruenge
+}
+
+function streamNow() { return performance.now() / 1000 - offset; }
 
 function fmtChord(name) {
   if (!name || name === "-" || name === " ") return null;
@@ -247,73 +287,85 @@ function fmtChord(name) {
   return m ? { root: m[1], suffix: m[2] } : { root: name, suffix: "" };
 }
 
+function chordHtml(name) {
+  const f = fmtChord(name);
+  if (!f) return null;
+  return f.root + (f.suffix ? '<span class="suffix">' + f.suffix + "</span>" : "");
+}
+
 function setCurrent(name) {
   const el = $("current");
-  const f = fmtChord(name);
-  const html = f ? f.root + (f.suffix ? '<span class="suffix">' + f.suffix + "</span>" : "")
-                 : "&ndash;";
+  const html = chordHtml(name) || "&ndash;";
   if (el.dataset.shown === html) return;
   el.dataset.shown = html;
   el.innerHTML = html;
-  el.classList.toggle("silent", !f || name === "?");
+  el.classList.toggle("silent", !name || name === "-" || name === "?");
   el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
+  // Der Blitz auf der JETZT-Linie macht sichtbar, dass beide dieselbe Uhr
+  // benutzen: er faellt mit dem Wechsel des grossen Akkords zusammen.
+  const line = $("nowline");
+  line.classList.remove("hit"); void line.offsetWidth; line.classList.add("hit");
 }
 
-function syncChips() {
-  const seen = new Set();
-  for (const u of (state.upcoming || [])) {
-    const audibleAt = recvAt + u.in * 1000;
-    let key = null;
-    for (const [k, c] of chips)
-      if (c.chord === u.chord && Math.abs(c.audibleAt - audibleAt) < 600) { key = k; break; }
-    if (key === null) {
-      key = u.chord + ":" + Math.round(audibleAt);
-      const el = document.createElement("div");
-      el.className = "chip";
-      const f = fmtChord(u.chord);
-      if (!f) continue;
-      el.innerHTML = f.root + (f.suffix ? '<span class="suffix">' + f.suffix + "</span>" : "")
-                   + '<span class="eta"></span>';
-      $("lane").appendChild(el);
-      chips.set(key, { el, chord: u.chord, audibleAt });
-    } else {
-      chips.get(key).audibleAt = audibleAt;  // Serverkorrektur uebernehmen
-    }
-    seen.add(key);
+function syncChips(now) {
+  const wanted = new Map();
+  for (const c of chords) {
+    if (c.c === "-" || c.c === "?") continue;
+    if (c.at < now - 0.7) continue;        // schon durchgelaufen
+    wanted.set(c.at.toFixed(2) + "|" + c.c, c);
   }
-  for (const [k, c] of chips)
-    if (!seen.has(k) && c.audibleAt > performance.now() + 700) {
-      c.el.remove(); chips.delete(k);       // vom Server zurueckgezogen
-    }
+  for (const [key, c] of wanted) {
+    if (chips.has(key)) continue;
+    const html = chordHtml(c.c);
+    if (!html) continue;
+    const el = document.createElement("div");
+    el.className = "chip";
+    el.innerHTML = html + '<span class="eta"></span>';
+    $("lane").appendChild(el);
+    chips.set(key, { el, at: c.at });
+  }
+  for (const [key, chip] of chips) {
+    if (wanted.has(key)) continue;
+    chip.el.remove(); chips.delete(key);
+  }
 }
 
 function animate() {
-  const now = performance.now();
-  for (const [k, c] of chips) {
-    const remaining = (c.audibleAt - now) / 1000;
-    if (remaining < -0.7) { c.el.remove(); chips.delete(k); continue; }
-    const frac = Math.max(remaining, 0) / horizon;
-    const pct = NOW_PCT + Math.min(frac, 1.15) * (RIGHT_PCT - NOW_PCT);
-    c.el.style.left = pct + "%";
-    c.el.style.opacity = remaining < 0 ? String(1 + remaining / 0.7)
-                        : String(0.45 + 0.55 * (1 - Math.min(frac, 1)));
-    const eta = c.el.querySelector(".eta");
-    if (eta) eta.textContent = remaining > 0 ? "in " + remaining.toFixed(1) + "s" : "";
-  }
   requestAnimationFrame(animate);
+  if (offset === null) return;
+  const now = streamNow();
+
+  // Hoerbar ist der letzte Akkord, dessen Onset erreicht ist.
+  let audible = null;
+  for (const c of chords) {
+    if (c.at > now) break;
+    audible = c.c;
+  }
+  setCurrent(audible);
+
+  syncChips(now);
+  for (const chip of chips.values()) {
+    const remaining = chip.at - now;       // dieselbe Uhr wie oben
+    const frac = Math.max(remaining, 0) / horizon;
+    chip.el.style.left = (NOW_PCT + Math.min(frac, 1.15) * (RIGHT_PCT - NOW_PCT)) + "%";
+    chip.el.style.opacity = remaining < 0 ? String(1 + remaining / 0.7)
+                          : String(0.45 + 0.55 * (1 - Math.min(frac, 1)));
+    chip.el.querySelector(".eta").textContent =
+      remaining > 0.05 ? "in " + remaining.toFixed(1) + "s" : "";
+  }
 }
 
-function apply() {
-  setCurrent(state.audible);
+function apply(state) {
+  chords = state.chords || [];
   horizon = Math.max(1.5, (state.lead || 3) + 0.8);
-  syncChips();
+  syncClock(state.t);
 }
 
 function connect() {
   const es = new EventSource("/events");
   es.onopen = () => $("dot").classList.add("on");
   es.onerror = () => $("dot").classList.remove("on");
-  es.onmessage = e => { state = JSON.parse(e.data); recvAt = performance.now(); apply(); };
+  es.onmessage = e => apply(JSON.parse(e.data));
 }
 
 document.body.addEventListener("click", () => {
@@ -323,14 +375,14 @@ document.body.addEventListener("click", () => {
 
 if (new URLSearchParams(location.search).has("demo")) {
   const prog = ["C", "G", "Am", "F", "C", "G7", "Am7", "F"];
-  let i = 0;
+  const start = performance.now() / 1000;
   setInterval(() => {
-    state = { audible: prog[i % prog.length],
-              upcoming: [{ chord: prog[(i + 1) % prog.length], in: 1.4 },
-                         { chord: prog[(i + 2) % prog.length], in: 3.4 }],
-              lead: 3 };
-    recvAt = performance.now(); apply(); i++;
-  }, 2000);
+    const t = performance.now() / 1000 - start;   // "hoerbare" Position
+    const list = [];
+    for (let i = Math.floor(t / 2) - 1; i < t / 2 + 3; i++)
+      if (i >= 0) list.push({ c: prog[i % prog.length], at: i * 2 });
+    apply({ t, chords: list, lead: 3 });
+  }, 250);
   $("dot").classList.add("on");
 } else {
   connect();

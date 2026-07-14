@@ -58,6 +58,40 @@ def _build_templates():
 
 
 _TEMPLATES = _build_templates()
+_TEMPLATE_BY_NAME = {name: vec for name, vec, _, _ in _TEMPLATES}
+
+
+def find_onset_frame(frames: np.ndarray, prev_name: str | None, new_name: str) -> int | None:
+    """Frame-Index im Fenster, ab dem `new_name` klingt - oder None.
+
+    Wann ein Akkord einsetzt, laesst sich nicht aus dem Zeitpunkt der Erkennung
+    ableiten: die Erkennung braucht erst genug neues Material, um die Pooling-
+    Mehrheit zu kippen, und das dauert je nach Signal unterschiedlich lang. Der
+    Wechsel wird deshalb im Fenster *gesucht*: gesucht ist der Schnitt k, der
+    die Frames am besten in "davor = prev" / "ab hier = new" teilt. Damit liegt
+    die Aufloesung beim Frame-Raster (~23 ms) statt beim Analysetakt (~500 ms).
+    """
+    new_template = _TEMPLATE_BY_NAME.get(new_name)
+    if new_template is None or frames is None or frames.shape[1] < 4:
+        return None
+
+    unit = frames / (np.linalg.norm(frames, axis=0, keepdims=True) + 1e-9)
+    score_new = new_template @ unit
+
+    prev_template = _TEMPLATE_BY_NAME.get(prev_name) if prev_name else None
+    if prev_template is not None:
+        gain = score_new - prev_template @ unit
+    else:
+        # Kein Vorgaenger (Programmstart, nach Stille): gegen die Schwelle
+        # schneiden statt gegen ein Template. Traegt der Akkord schon das ganze
+        # Fenster, wird k=0 - der Einsatz lag vor dem Fenster, frueher koennen
+        # wir ihn nicht gesehen haben. Das ist die ehrliche Antwort; ein Schnitt
+        # gegen den eigenen Mittelwert wuerde hier einen Wechsel erfinden.
+        gain = score_new - MATCH_THRESHOLD
+
+    # k maximiert sum(gain[k:]): ab dort traegt der neue Akkord das Fenster.
+    suffix_sums = np.concatenate([np.cumsum(gain[::-1])[::-1], [0.0]])
+    return int(np.argmax(suffix_sums))
 
 
 def match_chord(chroma: np.ndarray, bass_chroma: np.ndarray | None = None) -> ChordResult:
@@ -112,4 +146,13 @@ class ChordSmoother:
             self._history.pop(0)
         if len(self._history) < self.window:
             return "?"
-        return max(set(self._history), key=self._history.count)
+
+        best = max(self._history, key=self._history.count)
+        # Ohne echte Mehrheit nicht raten. Ein `max(set(...))` lieferte hier je
+        # nach Hash-Seed einen beliebigen der Kandidaten - und ein solcher
+        # Phantomakkord erzeugt in der Zeitleiste ein Segment mit erfundenem
+        # Onset, das die nachfolgenden echten Onsets mitverschiebt. "?" heisst
+        # "unsicher": der Aufrufer behaelt den letzten stabilen Akkord bei.
+        if self._history.count(best) * 2 <= self.window:
+            return "?"
+        return best

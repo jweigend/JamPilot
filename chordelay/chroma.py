@@ -9,6 +9,8 @@ Zwei Verfahren (siehe docs/exploration/first-draft.md, "Audioverarbeitung"):
 2. `chroma_from_audio`: leichtgewichtiger FFT-Fallback ohne librosa.
 """
 
+from typing import NamedTuple
+
 import numpy as np
 
 try:
@@ -24,10 +26,23 @@ NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 # hoechsten relevanten Teiltoene und spart CQT-Rechenzeit.
 ANALYSIS_SR = 22050
 
+# Zeitraster der CQT-Frames. Die Frames fallen ohnehin an; sie festzuhalten
+# statt sie nur wegzumitteln ist die Grundlage der Onset-Bestimmung: der
+# Akkordwechsel wird darin auf ~23 ms genau lokalisiert, statt aus dem
+# Analysetakt (~0.5 s) geschaetzt zu werden.
+FRAME_HOP = 512
+FRAME_SECONDS = FRAME_HOP / ANALYSIS_SR
+
 # Frequenzbereich fuer die Analyse: unterhalb ~55 Hz dominiert Rumpeln,
 # oberhalb ~2 kHz dominieren Obertoene, die das Chroma verschmieren.
 FMIN = 55.0
 FMAX = 2000.0
+
+
+class WindowAnalysis(NamedTuple):
+    chroma: np.ndarray          # gepoolt: entscheidet, WELCHER Akkord klingt
+    bass: np.ndarray | None     # gepoolt: Grundton-Gewichtung
+    frames: np.ndarray | None   # 12 x F Frame-Chroma: entscheidet, WANN er einsetzt
 
 
 def chroma_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
@@ -66,14 +81,40 @@ def chroma_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
     return chroma / total
 
 
-def analyze_window(samples: np.ndarray, samplerate: int):
-    """Chroma + Bass-Chroma eines Analysefensters (>= ~1.5s empfohlen).
+def _cqt_frames(y: np.ndarray, fmin_note: str, n_octaves: int) -> np.ndarray:
+    # librosa warnt bei kurzen Fenstern ueber intern verkuerzte FFTs in den
+    # tiefen Oktaven - fuer Chroma-Zwecke unkritisch.
+    import warnings
 
-    Rueckgabe: (chroma, bass_chroma) - bass_chroma ist None im FFT-Fallback.
-    Beide Vektoren sind auf Summe 1 normalisiert (bzw. Nullvektor bei Stille).
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="n_fft=.*too large")
+        return librosa.feature.chroma_cqt(
+            y=y,
+            sr=ANALYSIS_SR,
+            fmin=librosa.note_to_hz(fmin_note),
+            n_octaves=n_octaves,
+            bins_per_octave=36,
+            hop_length=FRAME_HOP,
+        )
+
+
+def _pool(frames: np.ndarray) -> np.ndarray:
+    # Median ueber die juengere Haelfte der Frames: robust gegen Ausreisser,
+    # reagiert trotzdem auf Akkordwechsel im Fenster.
+    recent = frames[:, frames.shape[1] // 2 :]
+    pooled = np.median(recent, axis=1)
+    total = pooled.sum()
+    return pooled / total if total > 1e-9 else np.zeros(12)
+
+
+def analyze_window(samples: np.ndarray, samplerate: int) -> WindowAnalysis:
+    """Chroma, Bass-Chroma und Frame-Chroma eines Fensters (>= ~1.5s).
+
+    `bass` und `frames` sind None im FFT-Fallback; ohne `frames` faellt die
+    Onset-Bestimmung auf eine Konstante zurueck (siehe chords.find_onset_frame).
     """
     if not HAVE_LIBROSA:
-        return chroma_from_audio(samples, samplerate), None
+        return WindowAnalysis(chroma_from_audio(samples, samplerate), None, None)
 
     y = np.ascontiguousarray(samples, dtype=np.float32)
     if samplerate != ANALYSIS_SR:
@@ -83,33 +124,9 @@ def analyze_window(samples: np.ndarray, samplerate: int):
     # nur der tonale Anteil geht in die Akkordanalyse.
     y = librosa.effects.harmonic(y, margin=4.0)
 
-    def _pooled(fmin_note: str, n_octaves: int) -> np.ndarray:
-        # librosa warnt bei kurzen Fenstern ueber intern verkuerzte FFTs
-        # in den tiefen Oktaven - fuer Chroma-Zwecke unkritisch.
-        import warnings
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="n_fft=.*too large")
-            return _pooled_inner(fmin_note, n_octaves)
-
-    def _pooled_inner(fmin_note: str, n_octaves: int) -> np.ndarray:
-        frames = librosa.feature.chroma_cqt(
-            y=y,
-            sr=ANALYSIS_SR,
-            fmin=librosa.note_to_hz(fmin_note),
-            n_octaves=n_octaves,
-            bins_per_octave=36,
-        )
-        # Median ueber die juengere Haelfte der Frames: robust gegen
-        # Ausreisser, reagiert trotzdem auf Akkordwechsel im Fenster.
-        recent = frames[:, frames.shape[1] // 2 :]
-        pooled = np.median(recent, axis=1)
-        total = pooled.sum()
-        return pooled / total if total > 1e-9 else np.zeros(12)
-
-    chroma = _pooled("C2", 6)      # 65 Hz .. ~4.2 kHz: Akkordklang
-    bass = _pooled("C1", 3)        # 32 .. ~260 Hz: wo der Grundton liegt
-    return chroma, bass
+    frames = _cqt_frames(y, "C2", 6)       # 65 Hz .. ~4.2 kHz: Akkordklang
+    bass_frames = _cqt_frames(y, "C1", 3)  # 32 .. ~260 Hz: wo der Grundton liegt
+    return WindowAnalysis(_pool(frames), _pool(bass_frames), frames)
 
 
 def warmup(samplerate: int = 48000, window_seconds: float = 1.5):

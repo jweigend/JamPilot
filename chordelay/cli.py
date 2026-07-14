@@ -3,6 +3,7 @@
 Befehle:
     devices                Audio-Geraete und Systemaudio-Quellen anzeigen
     selftest               Erkennungspipeline ohne Audiohardware testen
+    cleanup                Verwaiste Null-Sinks nach einem Absturz entfernen
     analyze DATEI.wav      Akkorde einer WAV-Datei offline anzeigen
     run                    Live: Systemaudio verzoegert ausgeben + Akkorde anzeigen
 """
@@ -25,6 +26,41 @@ import numpy as np
 ANALYSIS_WINDOW = 1.5
 ANALYSIS_HOP = 0.25
 
+# Kuerzer als das spielt niemand einen Akkord. Ein Segment darunter ist kein
+# Wechsel, sondern ein Fehlgriff der Erkennung - und wird zurueckgenommen.
+MIN_CHORD_SECONDS = 0.25
+
+
+def _bounded(kind, low, high, unit=""):
+    """argparse-Typ mit fachlichen Grenzen - meldet Unsinn sofort, nicht erst
+    als PortAudio-Traceback nach dem 3-Sekunden-Warmup."""
+    def parse(text):
+        try:
+            value = kind(text)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"'{text}' ist keine Zahl")
+        if not low <= value <= high:
+            raise argparse.ArgumentTypeError(
+                f"{value}{unit} liegt ausserhalb von {low}{unit}..{high}{unit}")
+        return value
+    return parse
+
+
+def _check_devices(input_device, output_device):
+    """Geraete pruefen, BEVOR der teure Warmup laeuft."""
+    import sounddevice as sd
+
+    for device, kind in ((input_device, "input"), (output_device, "output")):
+        if device is None:
+            continue
+        try:
+            sd.query_devices(device, kind)
+        except (ValueError, sd.PortAudioError) as exc:
+            raise SystemExit(
+                f"Geraet {device!r} nicht nutzbar ({kind}): {exc}\n"
+                f"'chordelay devices' zeigt die verfuegbaren Geraete."
+            )
+
 
 def cmd_devices(_args):
     import sounddevice as sd
@@ -44,6 +80,24 @@ def cmd_selftest(_args):
     from . import selftest
 
     sys.exit(0 if selftest.run() else 1)
+
+
+def cmd_cleanup(args):
+    from . import routing
+
+    if not routing.available():
+        print("pactl nicht gefunden - hier gibt es nichts aufzuraeumen.")
+        return
+    # Ein SIGKILL laesst sich nicht abfangen; danach bleibt der Null-Sink als
+    # Standard-Ausgang stehen und der Rechner ist stumm. Das raeumt das weg -
+    # aber nur, wenn der Besitzer wirklich tot ist.
+    try:
+        removed = routing.cleanup(force=args.force)
+    except routing.InstanceRunning as exc:
+        raise SystemExit(f"{exc}\n'chordelay cleanup --force' raeumt trotzdem auf.")
+    print(f"{removed} verwaiste chordelay-Sink(s) entfernt." if removed
+          else "Keine verwaisten chordelay-Sinks gefunden.")
+    print(f"Standard-Ausgang: {routing._pactl('get-default-sink')}")
 
 
 def _load_wav_mono(path: str) -> tuple[np.ndarray, int]:
@@ -70,14 +124,20 @@ def cmd_analyze(args):
     hop = int(0.5 * samplerate)
 
     print(f"{args.file}: {len(samples) / samplerate:.1f}s @ {samplerate} Hz\n")
+    if len(samples) < window:
+        print(f"  Datei ist kuerzer als das Analysefenster ({ANALYSIS_WINDOW}s).")
+        return
+
     last = None
-    for start in range(0, len(samples) - window, hop):
+    # +1, sonst faellt das letzte vollstaendige Fenster raus - und eine Datei
+    # von genau Fensterlaenge wuerde ueberhaupt nicht analysiert.
+    for start in range(0, len(samples) - window + 1, hop):
         chunk = samples[start : start + window]
         if rms(chunk) < SILENCE_RMS:
             name = "-"
         else:
-            chroma, bass = analyze_window(chunk, samplerate)
-            name = match_chord(chroma, bass).name
+            analysis = analyze_window(chunk, samplerate)
+            name = match_chord(analysis.chroma, analysis.bass).name
         # Gepoolt wird die juengere Fensterhaelfte -> Zeitstempel mittig.
         if name != last:
             print(f"  {(start + 0.75 * window) / samplerate:6.1f}s  {name}")
@@ -96,6 +156,14 @@ def cmd_run(args):
 
     signal.signal(signal.SIGTERM, _raise_interrupt)
 
+    # Erst pruefen, dann teuer werden: Geraete- und Instanzfehler sollen sofort
+    # kommen, nicht als Traceback nach drei Sekunden numba-Warmup.
+    _check_devices(args.input, args.output)
+    if routing.available():
+        pid = routing.owner_pid()
+        if pid is not None and pid != os.getpid():
+            raise SystemExit(str(routing.InstanceRunning(pid)))
+
     web_display = None
     if not args.no_web:
         from . import web
@@ -111,7 +179,7 @@ def cmd_run(args):
 
     print("Initialisiere Analyse...", end="", flush=True)
     warmup(args.samplerate, ANALYSIS_WINDOW)
-    print(" ok")
+    print(" ok", flush=True)   # ohne flush landet das "ok" hinter einem Traceback
 
     broadcaster = web_display.broadcaster if web_display else None
     try:
@@ -148,25 +216,22 @@ def cmd_run(args):
 
 
 def _display_loop(loop, args, broadcaster=None):
-    from .chroma import analyze_window, rms
+    from .chroma import FRAME_SECONDS, analyze_window, rms
     from .chords import SILENCE_RMS, ChordSmoother, match_chord
 
-    # Ein erkannter Akkordwechsel hinkt dem Signal hinterher: er muss erst
-    # die gepoolte juengere Fensterhaelfte dominieren (~0.35 * Fenster,
-    # empirisch via Selbsttest-Signal gemessen) und den Mehrheits-Glaetter
-    # passieren (window // 2 Analysetakte). Ohne Korrektur stimmt weder der
-    # angezeigte Vorlauf noch der "Jetzt hoerbar"-Zeitpunkt.
+    sr = args.samplerate
+    window_frames = int(round(ANALYSIS_WINDOW * sr))
+    hop_frames = int(round(ANALYSIS_HOP * sr))
     smoother = ChordSmoother(window=3)
-    # 0.4 * Fenster: per Loopback-Messung kalibriert (rohe Erkennung folgt
-    # einem Wechsel nach ~0.6s, geglaettet ~1.15s bei Tick ~0.5s).
-    pooling_lag = 0.4 * ANALYSIS_WINDOW
-    smoother_ticks = smoother.window // 2
-    tick = ANALYSIS_HOP + 0.25  # Startschaetzung, unten laufend gemessen
-    audible_delay = args.delay + loop.output_latency
 
-    lead = audible_delay - (pooling_lag + smoother_ticks * tick)
-    print(f"Laeuft: Ausgabe um {args.delay:.1f}s verzoegert, "
-          f"effektiver Vorlauf ~{lead:.1f}s. Strg+C beendet.")
+    # Die Zeitleiste: (Onset-Position im Stream, Akkord). Die Onsets werden im
+    # Frame-Chroma gemessen, nicht aus dem Erkennungszeitpunkt zurueckgerechnet
+    # - eine Erkennung sagt WAS klingt, das Fenster sagt SEIT WANN.
+    timeline: list[tuple[float, str]] = []
+    current: str | None = None
+    lead = args.delay - 1.0  # Startschaetzung, unten aus echten Onsets gemessen
+
+    print(f"Laeuft: Ausgabe um {loop.delay_seconds:.1f}s verzoegert. Strg+C beendet.")
     if lead < 1.0:
         print("Hinweis: --delay ist knapp; fuer nutzbaren Vorlauf >= 3s waehlen.")
     print()
@@ -176,81 +241,151 @@ def _display_loop(loop, args, broadcaster=None):
     if debug:
         debug.write(f"# latency in={loop._stream.latency[0]:.3f} "
                     f"out={loop._stream.latency[1]:.3f}\n")
+        debug.write("# wall\twindow_end\traw\tchord\tonset\taudible_pos\n")
 
-    # Zeitbasis ist die Stream-Position (captured_seconds), nicht die
-    # Wanduhr: sie bezeichnet exakt das Fensterende im Signal, unabhaengig
-    # davon, wie lange Analyse und Ausgabe dieses Ticks dauern.
-    history: list[tuple[float, str]] = []  # (Stream-Position, Akkord)
-    last_tick_time = None
+    grid = None  # naechster Analysepunkt als Stream-Position (Frames)
     try:
         while True:
-            time.sleep(ANALYSIS_HOP)
-            if loop.captured_seconds < ANALYSIS_WINDOW:
-                continue  # Analysepuffer fuellt sich noch
-            audio = loop.latest_audio(ANALYSIS_WINDOW)
-            window_end = loop.captured_seconds
-            now = time.monotonic()
-            if last_tick_time is not None:
-                tick = 0.7 * tick + 0.3 * (now - last_tick_time)
-            last_tick_time = now
-            detection_lag = pooling_lag + smoother_ticks * tick
+            captured = loop.captured_frames
+            if captured < window_frames:
+                time.sleep(ANALYSIS_HOP)
+                continue
+            if grid is None:
+                grid = captured // hop_frames * hop_frames
+            if captured < grid:
+                time.sleep(min(0.02, (grid - captured) / sr))
+                continue
+
+            # Fenster enden immer auf dem Hop-Raster. Dauert eine Analyse
+            # laenger als ein Hop, faellt ein Rasterpunkt aus - das Raster
+            # selbst bleibt exakt, und genau daran haengt die Genauigkeit.
+            window_end = captured // hop_frames * hop_frames
+            grid = window_end + hop_frames
+            audio = loop.audio_ending_at(window_end, window_frames)
+            if audio is None:
+                continue  # Analyse zu weit hinten - Rasterpunkt verwerfen
+            window_start = (window_end - window_frames) / sr
 
             # Gepoolt wird die juengere Fensterhaelfte - Stille-Gate ebenso,
             # sonst liefern ausklingende Toene am Songende Phantomakkorde.
             raw = "-"
+            frames = None
             if rms(audio[len(audio) // 2 :]) < SILENCE_RMS:
                 smoother.reset()
-                upcoming = "-"
+                chord = "-"
             else:
-                chroma, bass = analyze_window(audio, args.samplerate)
-                result = match_chord(chroma, bass)
+                analysis = analyze_window(audio, sr)
+                result = match_chord(analysis.chroma, analysis.bass)
                 raw = result.name
-                upcoming = smoother.update(result)
-                if upcoming == "N":
-                    upcoming = "?"
-            # Der Erkennung die Stream-Position zuordnen, die sie im Signal
-            # beschreibt - nicht den Zeitpunkt, zu dem sie fertig wurde.
-            history.append((window_end - detection_lag, upcoming))
+                frames = analysis.frames
+                chord = smoother.update(result)
+                if chord == "N":
+                    chord = "?"
 
-            # Hoerbar ist gerade die Stream-Position, die den Ringpuffer und
-            # den Ausgabepuffer bereits durchlaufen hat.
-            audible = " "
-            audible_pos = loop.captured_seconds - audible_delay
-            while len(history) > 1 and history[1][0] <= audible_pos:
-                history.pop(0)
-            if history[0][0] <= audible_pos:
-                audible = history[0][1]
+            audible_pos = loop.audible_position()
+
+            onset = None
+            if chord != "?" and chord != current:
+                found = _locate_onset(chord, current, frames, window_start,
+                                      window_end / sr, FRAME_SECONDS)
+                onset = _commit(timeline, found, chord, audible_pos)
+                current = timeline[-1][1] if timeline else chord
+                if onset is not None and chord != "-":
+                    # Echter Vorlauf: so weit im Voraus wissen wir von einem
+                    # Wechsel. Faellt aus den Messwerten, nicht aus Konstanten.
+                    lead = 0.7 * lead + 0.3 * max(onset - audible_pos, 0.0)
+
+            # Vergangenes behalten wir kurz - die Anzeige blendet Akkorde
+            # hinter der JETZT-Linie noch aus.
+            while len(timeline) > 1 and timeline[1][0] <= audible_pos - 2.0:
+                timeline.pop(0)
+            audible = "-"
+            for pos, name in timeline:
+                if pos > audible_pos:
+                    break
+                audible = name
 
             if debug:
-                debug.write(f"{time.time():.3f}\t{window_end:.3f}\t{raw}\t"
-                            f"{upcoming}\t{audible}\n")
+                debug.write(f"{time.time():.3f}\t{window_end / sr:.3f}\t{raw}\t"
+                            f"{chord}\t{'' if onset is None else f'{onset:.3f}'}\t"
+                            f"{audible_pos:.3f}\n")
                 debug.flush()
 
-            lead = audible_delay - detection_lag
             if broadcaster:
-                # Kommende Akkordwechsel: Beginn jeder neuen Akkordregion in
-                # der noch nicht hoerbaren History, mit Restzeit in Sekunden.
-                future = []
-                prev = history[0][1]
-                for pos, name in history[1:]:
-                    if name != prev and name not in ("?", "-"):
-                        future.append({"chord": name,
-                                       "in": round(pos - audible_pos, 2)})
-                    prev = name
+                # Der Browser bekommt die Zeitleiste in Stream-Sekunden plus
+                # die gerade hoerbare Position. Er leitet daraus Akkordanzeige
+                # UND Laufband aus derselben Uhr ab - deshalb koennen sie nicht
+                # auseinanderlaufen.
                 broadcaster.publish({
-                    "audible": audible.strip() or "-",
-                    "upcoming": future,
-                    "lead": round(lead, 1),
+                    "t": round(audible_pos, 3),
+                    "chords": [{"c": name, "at": round(pos, 3)}
+                               for pos, name in timeline],
+                    "lead": round(lead, 2),
                 })
             sys.stdout.write(
-                f"\r  Kommt in {lead:3.1f}s: {upcoming:<6s} | Jetzt hoerbar: {audible:<6s}"
+                f"\r  Kommt in {max(lead, 0.0):3.1f}s: {current or '-':<6s} "
+                f"| Jetzt hoerbar: {audible:<6s}"
             )
             sys.stdout.flush()
     except KeyboardInterrupt:
         print("\nBeendet.")
-    if loop.status_messages:
-        print(f"Stream-Warnungen: {len(loop.status_messages)} "
-              f"(zuletzt: {loop.status_messages[-1]})")
+    finally:
+        if debug:
+            debug.close()
+    if loop.xruns:
+        print(f"Stream-Warnungen: {loop.xruns} (zuletzt: {loop.last_status})")
+
+
+def _locate_onset(chord, previous, frames, window_start, window_end, frame_seconds):
+    """Stream-Position, an der `chord` im Fenster einsetzt."""
+    from .chords import find_onset_frame
+
+    if chord == "-":
+        # Stille schlaegt an, sobald die juengere Fensterhaelfte leise ist -
+        # der Einsatz liegt also grob in deren Mitte.
+        onset = window_end - 0.25 * (window_end - window_start)
+    else:
+        previous_chord = previous if previous not in (None, "-", "?") else None
+        index = find_onset_frame(frames, previous_chord, chord)
+        if index is None:
+            # FFT-Fallback ohne Frames: zurueck auf die alte Schaetzung.
+            onset = window_end - 0.4 * (window_end - window_start)
+        else:
+            # Frame k ist der erste des neuen Akkords, seine Mitte liegt bei
+            # k * frame_seconds - die Grenze also ein halbes Frame davor.
+            onset = window_start + max(index - 0.5, 0.0) * frame_seconds
+
+    return min(onset, window_end)   # gefunden werden kann nur Vergangenes
+
+
+def _commit(timeline, onset, chord, audible_pos):
+    """Traegt `chord` in die Zeitleiste ein. Gibt den Onset zurueck, oder None,
+    wenn kein neues Segment entstand.
+
+    Ein Segment unter MIN_CHORD_SECONDS ist kein Akkord, sondern ein Fehlgriff
+    der Erkennung. Dank des Vorlaufs sehen wir den Fehlgriff Sekunden bevor er
+    hoerbar wird - also nehmen wir ihn einfach zurueck, statt ihn als 50-ms-Blitz
+    durchzureichen. Der nachrueckende Akkord erbt den frueheren Onset: *wann*
+    gewechselt wurde, stand bereits fest; nur *was* gespielt wird, korrigiert
+    sich. Deshalb konvergiert das - jede weitere Erkennung raeumt die vorige
+    Fehlentscheidung ab, ohne den Zeitpunkt zu verschieben.
+    """
+    while (timeline
+           and timeline[-1][0] > audible_pos          # noch nicht gehoert
+           and onset - timeline[-1][0] < MIN_CHORD_SECONDS):
+        onset = min(onset, timeline[-1][0])
+        timeline.pop()
+
+    if timeline:
+        if timeline[-1][1] == chord:
+            return None            # der Akkord lief durch, der Blip war Rauschen
+        # Nur erreichbar, wenn das Vorsegment schon hoerbar war: dann laesst es
+        # sich nicht mehr zuruecknehmen, aber der Wechsel darf trotzdem nicht
+        # kuerzer als MIN_CHORD danach liegen.
+        onset = max(onset, timeline[-1][0] + MIN_CHORD_SECONDS)
+
+    timeline.append((onset, chord))
+    return onset
 
 
 def main():
@@ -264,13 +399,21 @@ def main():
     sub.add_parser("selftest", help="Erkennung ohne Audiohardware testen").set_defaults(
         func=cmd_selftest
     )
+    p_cleanup = sub.add_parser(
+        "cleanup", help="Verwaiste Null-Sinks nach einem Absturz entfernen")
+    p_cleanup.add_argument("--force", action="store_true",
+                           help="Auch aufraeumen, wenn kein Besitzer eingetragen ist")
+    p_cleanup.set_defaults(func=cmd_cleanup)
 
     p_analyze = sub.add_parser("analyze", help="WAV-Datei offline analysieren")
     p_analyze.add_argument("file")
     p_analyze.set_defaults(func=cmd_analyze)
 
     p_run = sub.add_parser("run", help="Live-Loopback mit Akkordanzeige")
-    p_run.add_argument("--delay", type=float, default=4.0, help="Verzoegerung in Sekunden")
+    # Grenzen fachlich, nicht technisch: unter ~1s Delay bleibt kein Vorlauf
+    # uebrig, ueber 30s laeuft der Ringpuffer aus dem Ruder.
+    p_run.add_argument("--delay", type=_bounded(float, 0.5, 30.0, "s"), default=4.0,
+                       help="Verzoegerung in Sekunden (0.5..30, Standard 4)")
     p_run.add_argument("--input", default=None,
                        help="Eingabegeraet (Index/Name); schaltet in den Direktmodus")
     p_run.add_argument("--output", default=None,
@@ -279,9 +422,10 @@ def main():
                        help="Kein automatisches Null-Sink-Routing (Linux)")
     p_run.add_argument("--no-web", action="store_true",
                        help="Ohne Web-Anzeige starten")
-    p_run.add_argument("--port", type=int, default=8765,
-                       help="Port der Web-Anzeige (Standard 8765)")
-    p_run.add_argument("--samplerate", type=int, default=48000)
+    p_run.add_argument("--port", type=_bounded(int, 1024, 65535), default=8765,
+                       help="Port der Web-Anzeige (1024..65535, Standard 8765)")
+    p_run.add_argument("--samplerate", type=_bounded(int, 8000, 192000, " Hz"),
+                       default=48000, help="Abtastrate (8000..192000, Standard 48000)")
     p_run.set_defaults(func=cmd_run)
 
     args = parser.parse_args()

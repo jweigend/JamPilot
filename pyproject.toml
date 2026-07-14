@@ -5,6 +5,9 @@ description = "Verzoegertes Systemaudio-Loopback mit Akkordanzeige (Vorlauf) fue
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.26", "sounddevice>=0.4.6", "librosa>=0.10", "qrcode>=7.4"]
 
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
 [project.scripts]
 chordelay = "chordelay.cli:main"
 
@@ -14,3 +17,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["chordelay"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::UserWarning"]   # librosa warnt bei kurzen Fenstern
