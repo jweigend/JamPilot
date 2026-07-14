@@ -1,4 +1,5 @@
 .venv/
+.build-venv/          # packaging/build.sh --venv
 __pycache__/
 *.egg-info/
 

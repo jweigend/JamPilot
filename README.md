@@ -103,21 +103,42 @@ Install [BlackHole (2ch)](https://existential.audio/blackhole/), then:
 
 ## Install & use
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+One script, straight from a fresh clone — Linux and macOS:
 
-.venv/bin/python -m jampilot selftest         # test detection without audio
-.venv/bin/python -m jampilot devices          # list devices
-.venv/bin/python -m jampilot analyze song.wav # analyse a WAV offline
-.venv/bin/python -m jampilot run --delay 4    # live, with 4 s of lead
-.venv/bin/python -m jampilot cleanup          # remove a null sink after a crash
-.venv/bin/python -m jampilot install          # desktop launcher (Linux, see below)
+```bash
+git clone https://github.com/jweigend/JamPilot.git && cd JamPilot
+./run.sh                     # sets everything up on the first call, then starts
+```
+
+**The first call takes about a minute** (it creates `.venv` and installs the
+locked dependencies). **Every call after that starts in well under a second.** A
+stamp inside `.venv` records which lock file and which Python it was built
+against; if that still matches and every package is present, there is nothing to
+do and the script gets out of the way.
+
+If it *doesn't* match, the script repairs it instead of failing at you — and that
+is the whole point. A lock file that changed, a Python that was upgraded out from
+under the venv, an install someone interrupted with Ctrl+C, a `site-packages`
+that lost a package: each of these used to end in a message that named the
+symptom (`No module named librosa`) and not the cause, days later. The stamp is
+written *only after* a successful install, so a half-built environment is never
+mistaken for a finished one.
+
+```bash
+./run.sh --delay 6           # any option of `jampilot run`
+./run.sh selftest            # any other command: devices, analyze, cleanup ...
+./run.sh --bundle            # standalone binary + double-click launcher -> dist/
+./run.sh --neu               # throw the environment away and start over
 ```
 
 `run` options: `--delay` (seconds), `--output` (target sink/device), `--input` +
 `--no-route` (direct mode without automatic routing), `--samplerate` (default
 48000), `--port` (web display, default 8765), `--no-web`.
+
+The one thing the script cannot install for you is **PortAudio**, because it is a
+system library and not a Python package (`sudo apt install libportaudio2`,
+`brew install portaudio`). It checks for it and says so, rather than letting
+`sounddevice` fail with "PortAudio library not found".
 
 ## The control window
 
@@ -153,10 +174,15 @@ display exists, that happens automatically.
 A single executable, no Python and no venv on the target machine:
 
 ```bash
-pip install pyinstaller
-packaging/build.sh                                # -> dist/jampilot + dist/JamPilot.desktop
-./dist/jampilot selftest                          # verifies the bundle
+./run.sh --bundle          # -> dist/jampilot + dist/JamPilot.desktop
+./dist/jampilot selftest   # verifies the bundle (the build already ran this)
 ```
+
+**It only builds when it has to.** A stamp in `dist/` holds the fingerprint of
+the sources the binary was made from (`jampilot/*.py`, the spec, the entry point,
+the lock file). Unchanged, `--bundle` returns in under a second instead of three
+minutes — and it would have produced the identical bytes anyway, which is exactly
+what `--check` below proves. `--force` builds regardless.
 
 ### Double-clicking it (Linux)
 
