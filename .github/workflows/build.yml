@@ -45,24 +45,25 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libportaudio2 portaudio19-dev
 
-      - name: Abhaengigkeiten
+      # Die Sperrdatei, nicht requirements.txt: Letzteres sagt "librosa>=0.10",
+      # und was daraus wird, entscheidet der Kalender. Reproduzierbar ist ein
+      # Bau nur gegen exakte Versionen.
+      - name: Abhaengigkeiten (exakt)
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          pip install -r requirements.lock
 
-      - name: Bauen
-        run: pyinstaller packaging/jampilot.spec --noconfirm
-
-      # Der eigentliche Test des Bundles - und er braucht keine Soundkarte.
-      # Der Selbsttest zieht librosa, numba und beide CQTs durch und faellt ueber
-      # jedes Modul, das PyInstaller nicht mitgenommen hat. Genau daran ist beim
-      # Kalibrieren der excludes mehrfach ein Build gescheitert; ohne diesen
-      # Schritt haette man das erst auf der Buehne gemerkt.
-      - name: Selbsttest aus dem Bundle
-        run: ./dist/jampilot selftest
+      # Baut, prueft den Selbsttest AUS DEM BUNDLE und baut dann ein zweites Mal,
+      # um die Bitgleichheit nachzuweisen. Genau das Skript, das auch lokal
+      # laeuft - die CI soll nichts anderes bauen als du.
+      - name: Bauen (+ Reproduzierbarkeit pruefen)
+        run: PY=python packaging/build.sh --check
 
       - name: Geraete auflisten (laedt PortAudio wirklich?)
         run: ./dist/jampilot devices || true   # CI-Runner haben keine Soundkarte
+
+      - name: Pruefsumme
+        run: sha256sum dist/jampilot || shasum -a 256 dist/jampilot
 
       - uses: actions/upload-artifact@v4
         with:
