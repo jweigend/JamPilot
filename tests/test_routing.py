@@ -1,6 +1,7 @@
 """Routing: ein Fehler darf den Rechner nicht stumm zuruecklassen."""
 
 import os
+import subprocess
 
 import pytest
 
@@ -149,3 +150,40 @@ class TestZweiteInstanz:
     def test_kaputte_lock_datei_blockiert_nicht(self, audio):
         routing.LOCK_FILE.write_text("kein-integer")
         assert routing.owner_pid() is None
+
+
+class TestSprache:
+    """pactl uebersetzt seine Ausgabe - wir lesen sie und muessen sie festnageln.
+
+    Aus einem englischen Terminal gestartet fiel das nie auf. Per Doppelklick
+    erbt JamPilot das Locale der Sitzung: in einer portugiesischen heisst der
+    Kopf einer Stream-Liste "Entrada do destino #7" statt "Sink Input #7", das
+    Muster greift nicht, und der eigene Stream bleibt unauffindbar.
+    """
+
+    def test_pactl_laeuft_immer_auf_englisch(self, monkeypatch):
+        gesehen = {}
+
+        def fake_run(cmd, **kwargs):
+            gesehen.update(kwargs.get("env") or {})
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setenv("LC_ALL", "pt_BR.UTF-8")
+        monkeypatch.setenv("LANGUAGE", "pt_BR:pt:en")
+        monkeypatch.setattr(routing.subprocess, "run", fake_run)
+
+        routing._pactl("list", "sink-inputs")
+
+        assert gesehen["LC_ALL"] == "C"
+        assert gesehen["LANGUAGE"] == "C"
+
+    def test_eigener_stream_wird_auch_in_fremder_sitzung_gefunden(self, monkeypatch):
+        # Die Ausgabe, die pactl unter LC_ALL=C liefert - also die, auf die wir
+        # uns mit dem Locale-Riegel wieder verlassen koennen.
+        monkeypatch.setattr(routing, "_pactl", lambda *a: (
+            'Sink Input #12\n'
+            '\tapplication.name = "spotify"\n'
+            'Sink Input #13\n'
+            f'\tapplication.name = "{routing.APP_NAME}"\n'
+        ))
+        assert routing.LinuxRouting._find_own_stream() == "13"

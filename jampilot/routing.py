@@ -48,8 +48,14 @@ def available() -> bool:
 
 
 def _pactl(*args: str) -> str:
+    # pactl uebersetzt seine Ausgabe: aus "Sink Input #7" wird in einer
+    # portugiesischen Sitzung "Entrada do destino #7". Wir LESEN diese Ausgabe
+    # (siehe _find_own_stream), also muss sie englisch bleiben. Sonst laeuft
+    # JamPilot aus einem englischen Terminal - und stirbt per Doppelklick, weil
+    # es dann das Locale der Sitzung erbt.
     result = subprocess.run(
-        ["pactl", *args], capture_output=True, text=True, timeout=5
+        ["pactl", *args], capture_output=True, text=True, timeout=5,
+        env={**os.environ, "LC_ALL": "C", "LANGUAGE": "C"},
     )
     if result.returncode != 0:
         raise RuntimeError(f"pactl {' '.join(args)}: {result.stderr.strip()}")
