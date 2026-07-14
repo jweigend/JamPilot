@@ -395,6 +395,21 @@ PAGE = r"""<!DOCTYPE html>
 
   #hint { position: fixed; bottom: 24.5vh; right: 2.6vmin; color: #333;
           font-size: 1.7vmin; z-index: 5; }
+
+  /* Die Credits. Sie stehen in der RECHTEN unteren Ecke der Zeitleiste - links
+     sitzt bei 14% das NOW-Label, dort stiessen sie dagegen. Die Chips ziehen
+     weiter oben durch (42% der Spur), unter ihnen ist frei. Dunkler als jeder
+     andere Text der Seite: wer auf die Akkorde schaut, soll sie nicht sehen;
+     wer danach sucht, findet sie. Beim Ueberfahren hellen sie auf. */
+  #credits {
+    position: fixed; bottom: 1vh; right: 2.6vmin; z-index: 5;
+    display: flex; align-items: center; gap: .9vmin;
+    color: #2b2f34; font-size: max(1.5vmin, 10px); letter-spacing: .06em;
+    transition: color .3s;
+  }
+  #credits:hover { color: #4a5158; }
+  #credits .sep { opacity: .55; }
+  #credits svg { width: 1.5em; height: 1.5em; display: block; }
 </style>
 </head>
 <body>
@@ -510,6 +525,19 @@ PAGE = r"""<!DOCTYPE html>
     Muted <small>&mdash; the source keeps playing, you just hear nothing</small>
   </div>
   <div id="hint">Click = fullscreen &middot; Space = mute</div>
+  <div id="credits">
+    <span>Johannes Weigend</span>
+    <span class="sep">&middot;</span>
+    <svg viewBox="0 0 24 24" role="img" aria-label="Built with Claude">
+      <title>Built with Claude</title>
+      <g stroke="currentColor" stroke-width="2.1" stroke-linecap="round">
+        <line x1="12" y1="4"   x2="12" y2="20"/>
+        <line x1="4"  y1="12"  x2="20" y2="12"/>
+        <line x1="6.3" y1="6.3" x2="17.7" y2="17.7"/>
+        <line x1="17.7" y1="6.3" x2="6.3" y2="17.7"/>
+      </g>
+    </svg>
+  </div>
 
 <script>
 "use strict";
