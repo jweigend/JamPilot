@@ -11,9 +11,9 @@ Onset-Suche dreht.
 import numpy as np
 import pytest
 
-from chordify.chords import ChordSmoother, find_onset_frame, match_chord
-from chordify.chroma import FRAME_SECONDS, HAVE_LIBROSA, analyze_window
-from chordify.selftest import SAMPLERATE, _realistic
+from jampilot.chords import ChordSmoother, find_onset_frame, match_chord
+from jampilot.chroma import FRAME_SECONDS, HAVE_LIBROSA, analyze_window
+from jampilot.selftest import SAMPLERATE, _realistic
 
 pytestmark = pytest.mark.skipif(not HAVE_LIBROSA,
                                 reason="Onset-Suche braucht das CQT-Frame-Chroma")

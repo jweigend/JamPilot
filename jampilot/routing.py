@@ -20,25 +20,25 @@ import tempfile
 import time
 from pathlib import Path
 
-SINK_NAME = "chordify"
-APP_NAME = "chordify"
+SINK_NAME = "jampilot"
+APP_NAME = "jampilot"
 
 # Merkt sich, WER den Null-Sink angelegt hat. Ohne diesen Besitzvermerk kann
 # eine zweite Instanz den Sink einer noch laufenden ersten nicht von der Waise
 # eines abgestuerzten Laufs unterscheiden.
-LOCK_FILE = Path(tempfile.gettempdir()) / f"chordify-{os.getuid()}.pid"
+LOCK_FILE = Path(tempfile.gettempdir()) / f"jampilot-{os.getuid()}.pid"
 
 _UNSET = object()
 
 
 class InstanceRunning(RuntimeError):
-    """Eine andere Chordify-Instanz haelt das Audio-Routing."""
+    """Eine andere JamPilot-Instanz haelt das Audio-Routing."""
 
     def __init__(self, pid: int):
         super().__init__(
-            f"Eine andere Chordify-Instanz laeuft bereits (PID {pid}). "
-            f"Erst beenden - zwei Instanzen wuerden sich das Routing "
-            f"gegenseitig zerlegen."
+            f"Another JamPilot instance is already running (PID {pid}). "
+            f"Stop it first - two instances would tear each other's audio "
+            f"routing apart."
         )
         self.pid = pid
 
@@ -149,7 +149,7 @@ class LinuxRouting:
             self.module_id = _pactl(
                 "load-module", "module-null-sink",
                 f"sink_name={SINK_NAME}",
-                "sink_properties=device.description=Chordify-Systemaudio",
+                "sink_properties=device.description=JamPilot-Systemaudio",
             )
             self._undo.append(lambda: _pactl("unload-module", self.module_id))
 
@@ -188,7 +188,7 @@ class LinuxRouting:
             if stream_id is not None:
                 break
             if time.monotonic() > deadline:
-                raise RuntimeError("Eigener Wiedergabe-Stream nicht gefunden.")
+                raise RuntimeError("Could not find our own playback stream.")
             time.sleep(0.2)
         _pactl("move-sink-input", stream_id, target)
 
@@ -213,8 +213,8 @@ class LinuxRouting:
             try:
                 step()
             except Exception as exc:
-                print(f"Warnung: Aufraeumen unvollstaendig ({exc}). "
-                      f"'chordify cleanup' setzt den Rest zurueck.",
+                print(f"Warning: cleanup incomplete ({exc}). "
+                      f"'jampilot cleanup' resets the rest.",
                       file=sys.stderr)
 
     def __exit__(self, *exc):

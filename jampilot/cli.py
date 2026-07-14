@@ -44,10 +44,10 @@ def _bounded(kind, low, high, unit=""):
         try:
             value = kind(text)
         except ValueError:
-            raise argparse.ArgumentTypeError(f"'{text}' ist keine Zahl")
+            raise argparse.ArgumentTypeError(f"'{text}' is not a number")
         if not low <= value <= high:
             raise argparse.ArgumentTypeError(
-                f"{value}{unit} liegt ausserhalb von {low}{unit}..{high}{unit}")
+                f"{value}{unit} is outside {low}{unit}..{high}{unit}")
         return value
     return parse
 
@@ -63,21 +63,21 @@ def _check_devices(input_device, output_device):
             sd.query_devices(device, kind)
         except (ValueError, sd.PortAudioError) as exc:
             raise SystemExit(
-                f"Geraet {device!r} nicht nutzbar ({kind}): {exc}\n"
-                f"'chordify devices' zeigt die verfuegbaren Geraete."
+                f"Device {device!r} not usable ({kind}): {exc}\n"
+                f"'jampilot devices' lists the available devices."
             )
 
 
 def cmd_devices(_args):
     import sounddevice as sd
 
-    print("PortAudio-Geraete (--input/--output im Direktmodus):\n")
+    print("PortAudio devices (--input/--output in direct mode):\n")
     print(sd.query_devices())
     if shutil.which("pactl"):
         out = subprocess.run(
             ["pactl", "list", "short", "sinks"], capture_output=True, text=True
         ).stdout
-        print("\nPulseAudio/PipeWire-Ausgaenge (--output im Routing-Modus):")
+        print("\nPulseAudio/PipeWire outputs (--output in routing mode):")
         for line in out.strip().splitlines():
             print("  " + line.split("\t")[1])
 
@@ -92,7 +92,7 @@ def cmd_cleanup(args):
     from . import routing
 
     if not routing.available():
-        print("pactl nicht gefunden - hier gibt es nichts aufzuraeumen.")
+        print("pactl not found - nothing to clean up here.")
         return
     # Ein SIGKILL laesst sich nicht abfangen; danach bleibt der Null-Sink als
     # Standard-Ausgang stehen und der Rechner ist stumm. Das raeumt das weg -
@@ -100,10 +100,10 @@ def cmd_cleanup(args):
     try:
         removed = routing.cleanup(force=args.force)
     except routing.InstanceRunning as exc:
-        raise SystemExit(f"{exc}\n'chordify cleanup --force' raeumt trotzdem auf.")
-    print(f"{removed} verwaiste chordify-Sink(s) entfernt." if removed
-          else "Keine verwaisten chordify-Sinks gefunden.")
-    print(f"Standard-Ausgang: {routing._pactl('get-default-sink')}")
+        raise SystemExit(f"{exc}\n'jampilot cleanup --force' cleans up anyway.")
+    print(f"Removed {removed} orphaned jampilot sink(s)." if removed
+          else "No orphaned jampilot sinks found.")
+    print(f"Default output: {routing._pactl('get-default-sink')}")
 
 
 def _load_wav_mono(path: str) -> tuple[np.ndarray, int]:
@@ -117,7 +117,7 @@ def _load_wav_mono(path: str) -> tuple[np.ndarray, int]:
     elif width == 4:
         data = np.frombuffer(raw, dtype=np.int32).astype(np.float32) / 2147483648.0
     else:
-        raise ValueError(f"Nicht unterstuetzte Sample-Breite: {width * 8} Bit")
+        raise ValueError(f"Unsupported sample width: {width * 8} bit")
     return data.reshape(-1, channels).mean(axis=1), samplerate
 
 
@@ -132,7 +132,7 @@ def cmd_analyze(args):
 
     print(f"{args.file}: {len(samples) / samplerate:.1f}s @ {samplerate} Hz\n")
     if len(samples) < window:
-        print(f"  Datei ist kuerzer als das Analysefenster ({ANALYSIS_WINDOW}s).")
+        print(f"  File is shorter than the analysis window ({ANALYSIS_WINDOW}s).")
         return
 
     # Offline liegt die ganze Datei vor: die Tonart darf ueber das gesamte
@@ -156,8 +156,8 @@ def cmd_analyze(args):
 
     key = keys.key
     accidental = key.accidental if key else SHARP
-    print(f"  Tonart: {key.label} ({'b' if accidental != SHARP else '#'})\n" if key
-          else "  Tonart: unbestimmt (zu wenig Musik) - Akkorde mit Kreuz\n")
+    print(f"  Key: {key.label} ({'b' if accidental != SHARP else '#'})\n" if key
+          else "  Key: undetermined (too little music) - chords spelled with sharps\n")
 
     last = None
     for zeit, name in erkannt:
@@ -192,14 +192,14 @@ def cmd_run(args):
 
         try:
             web_display = web.start(args.port)
-            print(f"Anzeige: {web_display.url}  "
-                  f"(QR-Code auf der Seite; Smartphone ins gleiche WLAN)")
+            print(f"Display: {web_display.url}  "
+                  f"(QR code on the page; put your phone on the same Wi-Fi)")
         except OSError as exc:
-            print(f"Web-Anzeige nicht verfuegbar ({exc}) - weiter ohne.")
+            print(f"Web display unavailable ({exc}) - continuing without it.")
 
     from .chroma import warmup
 
-    print("Initialisiere Analyse...", end="", flush=True)
+    print("Initialising analysis...", end="", flush=True)
     warmup(args.samplerate, ANALYSIS_WINDOW)
     print(" ok", flush=True)   # ohne flush landet das "ok" hinter einem Traceback
 
@@ -215,16 +215,16 @@ def cmd_run(args):
                 loop.start()
                 try:
                     route.move_own_playback_to(args.output)
-                    print(f"Systemaudio wird abgegriffen (Null-Sink "
-                          f"'{routing.SINK_NAME}'), Ausgabe auf: "
+                    print(f"Capturing system audio (null sink "
+                          f"'{routing.SINK_NAME}'), output to: "
                           f"{args.output or route.previous_sink}")
                     _display_loop(loop, args, broadcaster)
                 finally:
                     loop.stop()
         else:
             if args.input is None:
-                print("Direktmodus: Standard-Eingang wird verwendet.")
-                print("(macOS: BlackHole installieren und mit --input waehlen.)")
+                print("Direct mode: using the default input.")
+                print("(macOS: install BlackHole and select it with --input.)")
             loop = DelayedLoopback(args.input or "default", args.output,
                                    args.delay, samplerate=args.samplerate)
             loop.start()
@@ -260,12 +260,12 @@ def _display_loop(loop, args, broadcaster=None):
     current: str | None = None
     lead = args.delay - 1.0  # Startschaetzung, unten aus echten Onsets gemessen
 
-    print(f"Laeuft: Ausgabe um {loop.delay_seconds:.1f}s verzoegert. Strg+C beendet.")
+    print(f"Running: output delayed by {loop.delay_seconds:.1f}s. Ctrl+C quits.")
     if lead < 1.0:
-        print("Hinweis: --delay ist knapp; fuer nutzbaren Vorlauf >= 3s waehlen.")
+        print("Note: --delay is tight; choose >= 3s for a useful lead.")
     print()
 
-    debug_path = os.environ.get("CHORDIFY_DEBUG")
+    debug_path = os.environ.get("JAMPILOT_DEBUG")
     debug = open(debug_path, "w") if debug_path else None
     if debug:
         debug.write(f"# latency in={loop._stream.latency[0]:.3f} "
@@ -364,19 +364,19 @@ def _display_loop(loop, args, broadcaster=None):
             # Tonart, und solange keine feststeht, das Kreuz.
             accidental = key.accidental if key else SHARP
             sys.stdout.write(
-                f"\r  Kommt in {max(lead, 0.0):3.1f}s: "
+                f"\r  In {max(lead, 0.0):3.1f}s: "
                 f"{spell(current or '-', accidental):<6s} "
-                f"| Jetzt hoerbar: {spell(audible, accidental):<6s} "
-                f"| Tonart: {key.label if key else '...':<8s}"
+                f"| Now playing: {spell(audible, accidental):<6s} "
+                f"| Key: {key.label if key else '...':<9s}"
             )
             sys.stdout.flush()
     except KeyboardInterrupt:
-        print("\nBeendet.")
+        print("\nStopped.")
     finally:
         if debug:
             debug.close()
     if loop.xruns:
-        print(f"Stream-Warnungen: {loop.xruns} (zuletzt: {loop.last_status})")
+        print(f"Stream warnings: {loop.xruns} (last: {loop.last_status})")
 
 
 def _locate_onset(chord, previous, history, window_end, last_onset):
@@ -450,42 +450,42 @@ def _commit(timeline, onset, chord, audible_pos):
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="chordify",
-        description="Verzoegertes Systemaudio-Loopback mit Akkordanzeige (Vorlauf).",
+        prog="jampilot",
+        description="Delayed system-audio loopback with a chord display that runs ahead.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("devices", help="Audio-Geraete anzeigen").set_defaults(func=cmd_devices)
-    sub.add_parser("selftest", help="Erkennung ohne Audiohardware testen").set_defaults(
+    sub.add_parser("devices", help="List audio devices").set_defaults(func=cmd_devices)
+    sub.add_parser("selftest", help="Test detection without audio hardware").set_defaults(
         func=cmd_selftest
     )
     p_cleanup = sub.add_parser(
-        "cleanup", help="Verwaiste Null-Sinks nach einem Absturz entfernen")
+        "cleanup", help="Remove orphaned null sinks after a crash")
     p_cleanup.add_argument("--force", action="store_true",
-                           help="Auch aufraeumen, wenn kein Besitzer eingetragen ist")
+                           help="Clean up even if no owner is registered")
     p_cleanup.set_defaults(func=cmd_cleanup)
 
-    p_analyze = sub.add_parser("analyze", help="WAV-Datei offline analysieren")
+    p_analyze = sub.add_parser("analyze", help="Analyse a WAV file offline")
     p_analyze.add_argument("file")
     p_analyze.set_defaults(func=cmd_analyze)
 
-    p_run = sub.add_parser("run", help="Live-Loopback mit Akkordanzeige")
+    p_run = sub.add_parser("run", help="Live loopback with chord display")
     # Grenzen fachlich, nicht technisch: unter ~1s Delay bleibt kein Vorlauf
     # uebrig, ueber 30s laeuft der Ringpuffer aus dem Ruder.
     p_run.add_argument("--delay", type=_bounded(float, 0.5, 30.0, "s"), default=4.0,
-                       help="Verzoegerung in Sekunden (0.5..30, Standard 4)")
+                       help="Delay in seconds (0.5..30, default 4)")
     p_run.add_argument("--input", default=None,
-                       help="Eingabegeraet (Index/Name); schaltet in den Direktmodus")
+                       help="Input device (index/name); switches to direct mode")
     p_run.add_argument("--output", default=None,
-                       help="Ausgabe: Sink-Name (Routing-Modus) bzw. Geraet (Direktmodus)")
+                       help="Output: sink name (routing mode) or device (direct mode)")
     p_run.add_argument("--no-route", action="store_true",
-                       help="Kein automatisches Null-Sink-Routing (Linux)")
+                       help="No automatic null-sink routing (Linux)")
     p_run.add_argument("--no-web", action="store_true",
-                       help="Ohne Web-Anzeige starten")
+                       help="Start without the web display")
     p_run.add_argument("--port", type=_bounded(int, 1024, 65535), default=8765,
-                       help="Port der Web-Anzeige (1024..65535, Standard 8765)")
+                       help="Port of the web display (1024..65535, default 8765)")
     p_run.add_argument("--samplerate", type=_bounded(int, 8000, 192000, " Hz"),
-                       default=48000, help="Abtastrate (8000..192000, Standard 48000)")
+                       default=48000, help="Sample rate (8000..192000, default 48000)")
     p_run.set_defaults(func=cmd_run)
 
     args = parser.parse_args()

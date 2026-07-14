@@ -92,7 +92,7 @@ class Key:
 
     @property
     def label(self) -> str:
-        return f"{self.tonic_name}-{'Moll' if self.minor else 'Dur'}"
+        return f"{self.tonic_name} {'minor' if self.minor else 'major'}"
 
     def as_dict(self) -> dict:
         # Was der Browser braucht: den Grundton kanonisch (er schreibt selbst),

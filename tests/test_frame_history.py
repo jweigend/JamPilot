@@ -12,9 +12,9 @@ bis zu 600 ms zu spaet.
 import numpy as np
 import pytest
 
-from chordify.chords import find_onset_frame
-from chordify.chroma import FRAME_SECONDS, FrameHistory
-from chordify.cli import MAX_ONSET_SEARCH, _locate_onset
+from jampilot.chords import find_onset_frame
+from jampilot.chroma import FRAME_SECONDS, FrameHistory
+from jampilot.cli import MAX_ONSET_SEARCH, _locate_onset
 
 TAKT = 0.28          # so schnell folgen die Analysen aufeinander
 FENSTER = 1.5
@@ -22,7 +22,7 @@ FENSTER = 1.5
 
 def _fenster_frames(akkord_bei, window_start, window_laenge=FENSTER):
     """Frame-Chroma eines Fensters: vor `akkord_bei` klingt C, danach G."""
-    from chordify.chroma import NOTE_NAMES
+    from jampilot.chroma import NOTE_NAMES
 
     def chroma(*noten):
         vec = np.zeros(12)

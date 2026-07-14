@@ -5,7 +5,7 @@ from unittest.mock import PropertyMock, patch
 import numpy as np
 import pytest
 
-from chordify.delay_stream import DelayedLoopback
+from jampilot.delay_stream import DelayedLoopback
 
 
 class Zeit:

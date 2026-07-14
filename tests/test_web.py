@@ -7,7 +7,7 @@ die Schreibweise entscheidet der Browser aus Tonart + Einstellung.
 import json
 import queue
 
-from chordify.web import PAGE, ChordBroadcaster
+from jampilot.web import PAGE, ChordBroadcaster
 
 
 def _leeren(q):
@@ -97,7 +97,7 @@ class TestSeite:
             assert f'data-mode="{modus}"' in PAGE, modus
 
     def test_wahl_wird_gemerkt(self):
-        assert "localStorage" in PAGE and "chordify.accidental" in PAGE
+        assert "localStorage" in PAGE and "jampilot.accidental" in PAGE
 
     def test_die_seite_kann_beide_schreibweisen(self):
         # Die Umschreibung passiert im Browser - beide Tabellen muessen da sein.
