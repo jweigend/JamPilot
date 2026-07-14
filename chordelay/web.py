@@ -197,12 +197,26 @@ PAGE = r"""<!DOCTYPE html>
   }
   #current .suffix { font-size: 45%; font-weight: 550; color: #6ea8ff;
                      vertical-align: baseline; }
-  #current.silent { color: #2a2a2a; }
   #current.pop { animation: pop .45s ease-out; }
   @keyframes pop {
     0% { transform: scale(.94); opacity: .4; }
     100% { transform: scale(1); opacity: 1; }
   }
+
+  /* Ohne Akkord stand hier frueher ein Gedankenstrich in 52vh Groesse - das sah
+     aus wie ein grauer Balken und bedeutete gleichzeitig "keine Musik", "nicht
+     verbunden" und "startet noch". Diese Zustaende werden jetzt benannt. */
+  #idle { display: none; text-align: center; padding: 0 6vmin; }
+  #idleTitle { font-size: min(7vw, 9vh); font-weight: 700; color: #565e66;
+               line-height: 1.15; }
+  #idleHint { margin-top: 2.6vh; font-size: min(2.4vw, 3.2vh); line-height: 1.55;
+              color: #4a5158; font-weight: 400; }
+  #idleHint b { color: #6ea8ff; font-weight: 600; }
+  /* Pulsierende Punkte, solange wir auf etwas warten. */
+  #idle.waiting #idleTitle::after {
+    content: "…"; animation: blink 1.3s ease-in-out infinite;
+  }
+  @keyframes blink { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
 
   #lane {
     position: absolute; left: 0; right: 0; bottom: 0; height: 22vh;
@@ -245,7 +259,10 @@ PAGE = r"""<!DOCTYPE html>
     </div>
   </div>
 
-  <div id="stage"><div id="current" class="silent">&ndash;</div></div>
+  <div id="stage">
+    <div id="current"></div>
+    <div id="idle"><div id="idleTitle"></div><div id="idleHint"></div></div>
+  </div>
 
   <div id="lane"><div id="nowline"></div><div id="nowlabel">JETZT</div></div>
   <div id="hint">Klick = Vollbild</div>
@@ -266,6 +283,7 @@ let horizon = 4;             // Sekunden von rechts bis JETZT-Linie
 let offset = null;           // browserZeit(s) - streamPosition(s)
 let offsetSamples = [];
 let chips = new Map();       // key -> {el, at, chord}
+let link = "connecting";     // connecting | live | lost
 
 // Uhrabgleich nach NTP-Prinzip: die Zustellzeit eines SSE-Pakets ist immer
 // positiv, also ist das MINIMUM der beobachteten Offsets der wahre Versatz.
@@ -293,13 +311,44 @@ function chordHtml(name) {
   return f.root + (f.suffix ? '<span class="suffix">' + f.suffix + "</span>" : "");
 }
 
+// Was gerade los ist, wenn KEIN Akkord dasteht. Ohne diese Unterscheidung sieht
+// "der Rechner spielt keine Musik" genauso aus wie "die Anzeige ist tot".
+function idleText() {
+  if (link === "connecting") return ["Verbinde", "Suche die chordelay-Anzeige."];
+  if (link === "lost")
+    return ["Verbindung verloren",
+            "chordelay antwortet nicht mehr. Läuft es noch im Terminal?"];
+  if (offset === null) return ["Startet", "Die Analyse läuft an."];
+  return ["Keine Musik",
+          "Spiel etwas ab &ndash; der Akkord steht hier, "
+          + "<b>bevor</b> du ihn hörst."];
+}
+
+function showIdle() {
+  const [titel, hinweis] = idleText();
+  $("current").style.display = "none";
+  $("current").dataset.shown = "";     // damit ein neuer Akkord wieder aufploppt
+
+  const idle = $("idle");
+  idle.style.display = "block";
+  idle.classList.toggle("waiting", link !== "live" || offset === null);
+  if (idle.dataset.shown === titel) return;
+  idle.dataset.shown = titel;
+  $("idleTitle").textContent = titel;
+  $("idleHint").innerHTML = hinweis;
+}
+
 function setCurrent(name) {
+  const html = chordHtml(name);
+  if (html === null) { showIdle(); return; }   // Stille oder kein Akkord
+
   const el = $("current");
-  const html = chordHtml(name) || "&ndash;";
+  $("idle").style.display = "none";
+  $("idle").dataset.shown = "";
+  el.style.display = "block";
   if (el.dataset.shown === html) return;
   el.dataset.shown = html;
   el.innerHTML = html;
-  el.classList.toggle("silent", !name || name === "-" || name === "?");
   el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
   // Der Blitz auf der JETZT-Linie macht sichtbar, dass beide dieselbe Uhr
   // benutzen: er faellt mit dem Wechsel des grossen Akkords zusammen.
@@ -332,7 +381,15 @@ function syncChips(now) {
 
 function animate() {
   requestAnimationFrame(animate);
-  if (offset === null) return;
+
+  // Ohne Verbindung oder ohne Uhr gibt es nichts anzuzeigen - dann sagen wir das,
+  // statt eine eingefrorene Zeitleiste weiterlaufen zu lassen.
+  if (link !== "live" || offset === null) {
+    showIdle();
+    for (const chip of chips.values()) chip.el.remove();
+    chips.clear();
+    return;
+  }
   const now = streamNow();
 
   // Hoerbar ist der letzte Akkord, dessen Onset erreicht ist.
@@ -362,10 +419,10 @@ function apply(state) {
 }
 
 function connect() {
-  const es = new EventSource("/events");
-  es.onopen = () => $("dot").classList.add("on");
-  es.onerror = () => $("dot").classList.remove("on");
-  es.onmessage = e => apply(JSON.parse(e.data));
+  const es = new EventSource("/events");   // EventSource verbindet selbst neu
+  es.onopen = () => { link = "live"; $("dot").classList.add("on"); };
+  es.onerror = () => { link = "lost"; $("dot").classList.remove("on"); };
+  es.onmessage = e => { link = "live"; apply(JSON.parse(e.data)); };
 }
 
 document.body.addEventListener("click", () => {
@@ -376,6 +433,7 @@ document.body.addEventListener("click", () => {
 if (new URLSearchParams(location.search).has("demo")) {
   const prog = ["C", "G", "Am", "F", "C", "G7", "Am7", "F"];
   const start = performance.now() / 1000;
+  link = "live";
   setInterval(() => {
     const t = performance.now() / 1000 - start;   // "hoerbare" Position
     const list = [];
