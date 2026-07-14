@@ -6,10 +6,22 @@ Zwei Stufen:
 
 Vergleicht den FFT-Fallback (V1) mit der librosa-Pipeline (HPSS + CQT +
 Bass-Chroma), um Verbesserungen der Erkennung messbar zu machen.
+
+Zwei Gruppen von Faellen, und die zweite gab es lange nicht:
+
+  GRUNDSTELLUNGEN   Der Bass spielt den Grundton. Das ist der bequeme Fall.
+  UMKEHRUNGEN       Der Bass spielt einen anderen Akkordton (C/E, F/A, Bm/D).
+
+Solange nur Grundstellungen geprueft wurden, war der Selbsttest blind fuer den
+teuersten Fehler der Akkorderkennung: den Grundton auf die Bassnote zu ziehen.
+Ein BASS_BONUS tat genau das und machte aus C/E ein Em - der Test sah 8/8, weil
+er den Fall nie stellte. Ein Massstab, der die unangenehme Frage nicht stellt,
+misst nichts. Die Umkehrungen stellen sie.
 """
 
 import numpy as np
 
+from . import bass as bassmodul
 from .chroma import HAVE_LIBROSA, analyze_window, chroma_from_audio
 from .chords import match_chord
 
@@ -65,13 +77,37 @@ TEST_CASES = [
     ("Bm", [35, 47, 50, 54, 59]),
 ]
 
+# Umkehrungen: unten ein Akkordton, der NICHT der Grundton ist. Gesetzt wie eine
+# Band es spielt - der Bass nimmt die Umkehrungsnote einmal, tief; die Gitarre
+# greift den Akkord in Grundstellung darueber. (Die Bassnote oben nochmal zu
+# verdoppeln waere ein anderer Test: dann zieht die Tonklasse das Chroma so weit
+# zu sich, dass schon die Tonklassen-MENGE mehrdeutig wird. So spielt das aber
+# niemand.)
+#
+# Erwartet wird der volle Slash-Name: Akkord aus dem Chroma, Bassnote gemessen.
+INVERSIONS = [
+    ("C/E",  [28, 48, 52, 55]),     # E1 | C3 E3 G3
+    ("C/G",  [31, 48, 52, 55]),
+    ("F/A",  [33, 53, 57, 60]),     # A1 | F3 A3 C4
+    ("F/C",  [36, 53, 57, 60]),
+    ("G/B",  [35, 55, 59, 62]),
+    ("G/D",  [38, 55, 59, 62]),
+    ("Dm/F", [29, 50, 53, 57]),
+    ("Am/E", [28, 45, 48, 52]),
+    ("Em/G", [31, 52, 55, 59]),     # teilt G und B mit G-Dur
+    ("Bm/D", [38, 47, 50, 54]),
+]
 
-def _realistic(notes, rng) -> np.ndarray:
-    root = notes[0]
+
+def _realistic(notes, rng, root_pc: int | None = None) -> np.ndarray:
+    # Die Melodie laeuft ueber dem AKKORD-Grundton. Bei Umkehrungen ist der
+    # nicht notes[0]: unten liegt dann ein anderer Akkordton.
+    if root_pc is None:
+        root_pc = notes[0] % 12
     mix = (
         1.0 * _chord(notes)
         + 0.8 * _drums(CHORD_SECONDS, rng)
-        + 0.5 * _melody(root % 12 + 48, CHORD_SECONDS)
+        + 0.5 * _melody(root_pc + 48, CHORD_SECONDS)
     )
     return (mix / np.abs(mix).max() * 0.8).astype(np.float32)
 
@@ -82,14 +118,30 @@ def _detect_fft(audio: np.ndarray) -> str:
 
 def _detect_full(audio: np.ndarray) -> str:
     analysis = analyze_window(audio, SAMPLERATE)
-    return match_chord(analysis.chroma, analysis.bass).name
+    return match_chord(analysis.chroma, cqt=analysis.cqt).name
+
+
+def _detect_slash(audio: np.ndarray) -> str:
+    """Akkord + gemessene Bassnote - was die Anzeige tatsaechlich zeigt.
+
+    Beide muessen ueber denselben Zeitraum reden: das Chroma wird nur aus der
+    juengeren Fensterhaelfte gepoolt, also darf auch der Bass nur von dort
+    kommen (genau wie in cli.py).
+    """
+    analysis = analyze_window(audio, SAMPLERATE)
+    chord = match_chord(analysis.chroma, cqt=analysis.cqt).name
+    frames = analysis.bass_frames
+    juengere = frames[:, frames.shape[1] // 2:] if frames is not None else None
+    return bassmodul.slash(chord, bassmodul.name(bassmodul.dominant(juengere)))
 
 
 def run() -> bool:
     rng = np.random.default_rng(42)
-    print(f"Selftest: {len(TEST_CASES)} chords @ {SAMPLERATE} Hz, "
+    print(f"Selftest: {len(TEST_CASES)} root-position chords, "
+          f"{len(INVERSIONS)} inversions @ {SAMPLERATE} Hz, "
           f"librosa: {'yes' if HAVE_LIBROSA else 'NO (FFT fallback only)'}\n")
 
+    print("  Root position - the bass plays the root")
     header = f"  {'':6s} {'FFT clean':>12s} {'FFT noisy':>12s}"
     if HAVE_LIBROSA:
         header += f" {'CQT clean':>12s} {'CQT noisy':>12s}"
@@ -100,9 +152,7 @@ def run() -> bool:
         clean = _chord(notes)
         real = _realistic(notes, rng)
 
-        row = {}
-        row["fft_clean"] = _detect_fft(clean)
-        row["fft_real"] = _detect_fft(real)
+        row = {"fft_clean": _detect_fft(clean), "fft_real": _detect_fft(real)}
         if HAVE_LIBROSA:
             row["cqt_clean"] = _detect_full(clean)
             row["cqt_real"] = _detect_full(real)
@@ -122,5 +172,36 @@ def run() -> bool:
     if HAVE_LIBROSA:
         print(f"  CQT: clean {scores['cqt_clean']}/{total}, "
               f"noisy {scores['cqt_real']}/{total}")
-        return scores["cqt_clean"] == total and scores["cqt_real"] >= total - 1
-    return scores["fft_clean"] == total
+
+    if not HAVE_LIBROSA:
+        # Ohne librosa gibt es kein Tiefband-Chroma und damit keine Bassnote -
+        # Umkehrungen sind nicht messbar. Der FFT-Fallback kann C/E nicht von C
+        # unterscheiden, und das ist ehrlicher, als es zu behaupten.
+        print("\n  Inversions: skipped (no librosa, no bass measurement)")
+        return scores["fft_clean"] == total
+
+    # Umkehrungen. Der Akkord kommt aus dem Chroma, die Bassnote aus dem
+    # Tiefband - erst zusammen ergeben sie C/E statt C oder (frueher) Em.
+    print("\n  Inversions - the bass plays a chord tone that is NOT the root")
+    print(f"  {'':6s} {'CQT clean':>12s} {'CQT noisy':>12s}")
+
+    inv = {"clean": 0, "noisy": 0}
+    for expected, notes in INVERSIONS:
+        root_pc = bassmodul.chord_root(expected.split("/")[0])
+        got = {
+            "clean": _detect_slash(_chord(notes)),
+            "noisy": _detect_slash(_realistic(notes, rng, root_pc)),
+        }
+        line = f"  {expected:6s}"
+        for key in ("clean", "noisy"):
+            hit = got[key] == expected
+            inv[key] += hit
+            line += f" {got[key] + (' +' if hit else ' -'):>12s}"
+        print(line)
+
+    inv_total = len(INVERSIONS)
+    print(f"\n  Inversions: clean {inv['clean']}/{inv_total}, "
+          f"noisy {inv['noisy']}/{inv_total}")
+
+    return (scores["cqt_clean"] == total and scores["cqt_real"] >= total - 1
+            and inv["clean"] == inv_total and inv["noisy"] >= inv_total - 1)

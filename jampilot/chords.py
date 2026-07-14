@@ -25,9 +25,26 @@ MATCH_THRESHOLD = 0.55
 COMPLEXITY_PENALTY_FFT = 0.08
 COMPLEXITY_PENALTY_CQT = 0.02
 
-# Bonus, wenn der Akkord-Grundton auch die staerkste Bassnote ist -
-# unterscheidet z.B. C von Am7 (gleiche Tonklassen C-E-G-A).
-BASS_BONUS = 0.12
+# Hier stand ein BASS_BONUS: Akkorde, deren Grundton die staerkste Bassnote war,
+# bekamen 0.12 auf den Score. Er sollte C von Am7 unterscheiden (gleiche
+# Tonklassen C-E-G-A) - und tat das, indem er den Grundton auf die Bassnote zog.
+# Genau das ist bei jeder UMKEHRUNG falsch: Der Bassist spielt dort einen
+# Akkordton, der nicht der Grundton ist. Gemessen (Selbsttest, Gruppe
+# "inversions"): Der Bonus machte aus C/E ein Em und aus Bm/D ein D - Namen, die
+# Toene versprechen, die im Stueck nicht klingen (das H in Em, das A in D). Wer
+# danach greift, spielt daneben.
+#
+# Die Rechtfertigung des Bonus ist mit der Bassmessung weggefallen. Er sollte
+# eine Information ins Matching holen, die dort gar nicht hingehoert: WELCHE Note
+# unten liegt. Die messen wir jetzt direkt (bass.py) und schreiben sie in den
+# Slash-Namen. Das Chroma darf sich wieder auf das beschraenken, was es kann -
+# die Tonklassen-MENGE - und der Bass sagt, welche davon unten liegt.
+#
+# Der Fall, fuer den der Bonus gebaut war, verliert dabei nichts: C6 und Am7
+# bestehen aus DENSELBEN Tonklassen. Faellt die Wahl auf Am7 und liegt ein C
+# unten, steht "Am7/C" da - dieselben Toene, dieselbe Bassnote, andere
+# Schreibweise. Kein Falschton. Nachgemessen: 0 Falschtoene in der Gruppe
+# "ambiguous", mit und ohne Bonus.
 
 # Unterhalb dieses RMS-Pegels gilt das Signal als Stille.
 SILENCE_RMS = 1e-4
@@ -107,31 +124,29 @@ def find_onset_frame(frames: np.ndarray, prev_name: str | None, new_name: str) -
     return int(np.argmax(suffix_sums))
 
 
-def match_chord(chroma: np.ndarray, bass_chroma: np.ndarray | None = None) -> ChordResult:
+def match_chord(chroma: np.ndarray, cqt: bool = False) -> ChordResult:
     """Findet den Akkord-Template mit der hoechsten Cosinus-Aehnlichkeit.
 
-    Mit `bass_chroma` bekommen Akkorde einen Bonus, deren Grundton im Bass
-    tatsaechlich klingt (Grundton-Fehler waren das Hauptproblem der V1).
+    Entscheidet allein ueber die Tonklassen-MENGE. Welche Note davon unten
+    liegt, ist eine andere Frage und wird anderswo beantwortet - gemessen im
+    Tiefband (bass.py), nicht aus dem Akkord erraten. Solange die Bassnote hier
+    mitzureden hatte, riss sie den Grundton bei jeder Umkehrung an sich (siehe
+    den Block oben, wo der BASS_BONUS stand).
+
+    `cqt` sagt, ob das sauberere librosa-Chroma vorliegt - dann genuegt die
+    kleinere Komplexitaetsmarge.
     """
     norm = np.linalg.norm(chroma)
     if norm < 1e-9:
         return ChordResult("N", 0.0)
     unit = chroma / norm
 
-    bass = None
-    if bass_chroma is not None and bass_chroma.max() > 1e-9:
-        bass = bass_chroma / bass_chroma.max()
-
-    # Bass-Chroma gibt es nur in der CQT-Pipeline; sie liefert auch das
-    # sauberere Chroma und kommt daher mit der kleineren Marge aus.
-    penalty_rate = COMPLEXITY_PENALTY_FFT if bass is None else COMPLEXITY_PENALTY_CQT
+    penalty_rate = COMPLEXITY_PENALTY_CQT if cqt else COMPLEXITY_PENALTY_FFT
 
     best = None
     best_score = 0.0
     for name, template, extra_notes, root, suffix in _TEMPLATES:
         score = float(np.dot(unit, template)) - penalty_rate * extra_notes
-        if bass is not None:
-            score += BASS_BONUS * float(bass[root])
         if score > best_score:
             best, best_score = (name, root, suffix), score
 

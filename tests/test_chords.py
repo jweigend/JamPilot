@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from jampilot.bass import slash
 from jampilot.chords import (
     ChordResult,
     ChordSmoother,
@@ -28,14 +29,24 @@ class TestMatchChord:
         assert match_chord(np.zeros(12)).name == "N"
         assert not match_chord(np.zeros(12)).is_chord
 
-    def test_bass_entscheidet_zwischen_c_und_am7(self):
-        # Gleiche Tonklassen C-E-G-A: erst der Bass macht daraus C bzw. Am7.
-        chroma = _chroma("C", "E", "G", "A")
-        auf_c = match_chord(chroma, bass_chroma=_chroma("C"))
-        auf_a = match_chord(chroma, bass_chroma=_chroma("A"))
-        assert auf_c.name != auf_a.name
-        assert auf_c.name.startswith("C")
-        assert auf_a.name.startswith("A")
+    def test_umkehrung_verbiegt_den_akkord_nicht(self):
+        # F-A-C bleibt F, auch wenn unten das A liegt. Ein BASS_BONUS zog hier
+        # frueher den Grundton auf die Bassnote und machte ein Am daraus - und
+        # Am verspricht ein E, das im Stueck gar nicht klingt. Der Akkord
+        # entscheidet sich an der Tonklassen-MENGE, sonst an nichts.
+        assert match_chord(_chroma("F", "A", "C"), cqt=True).name == "F"
+        assert match_chord(_chroma("C", "E", "G"), cqt=True).name == "C"
+
+    def test_der_bass_redet_bei_der_akkordwahl_nicht_mit(self):
+        # C-E-G-A ist als C6 dieselbe Tonklassenmenge wie als Am7. Welche davon
+        # unten liegt, kann und soll das Chroma nicht entscheiden - die Bassnote
+        # wird gemessen (bass.py) und erst im Slash-Namen sichtbar. Genau diese
+        # Trennung macht Umkehrungen ueberhaupt erst erkennbar.
+        akkord = match_chord(_chroma("C", "E", "G", "A"), cqt=True).name
+        assert slash(akkord, "C") != slash(akkord, "A")
+        # Beide Lesarten sind musikalisch dieselbe Menge - egal, welche das
+        # Matching waehlt: mit dem gemessenen Bass steht die Umkehrung da.
+        assert akkord in ("C", "Am7")
 
 
 class TestChordSmoother:

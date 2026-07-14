@@ -7,9 +7,17 @@ wenigsten einig (Koops et al. 2019: Umkehrungen sind der groesste Streitpunkt).
 
 Gemessen wird im TIEFBAND-CHROMA, das die Pipeline ohnehin berechnet:
 `chroma.analyze_window` zieht eine zweite CQT ueber 32..260 Hz (`bass_frames`).
-Bisher wurde sie gepoolt, auf ein einziges Skalar eingedampft
-(`BASS_BONUS * bass[root]` in chords.py) und dann weggeworfen. Sie aufzuheben
-kostet Speicher, aber KEINE Rechenzeit - die CQT laeuft so oder so.
+Bisher wurde sie gepoolt, auf ein einziges Skalar eingedampft und dann
+weggeworfen. Sie aufzuheben kostet Speicher, aber KEINE Rechenzeit - die CQT
+laeuft so oder so.
+
+Dieses Skalar war ein BASS_BONUS in der Akkordwahl: Akkorde, deren Grundton
+unten klang, bekamen Punkte dazu. Das war der Versuch, aus dem Bass auf den
+Akkord zu schliessen - und er ging bei jeder Umkehrung schief, weil dort unten
+gerade NICHT der Grundton liegt (aus C/E wurde Em, aus F/A ein Am). Mit der
+Messung ist er ersatzlos entfallen: Der Akkord kommt aus der Tonklassen-Menge,
+die Bassnote aus dem Tiefband, und der Slash-Name setzt beides zusammen. Zwei
+Fragen, zwei Signale - statt eines Signals, das beide Fragen halb beantwortet.
 
 Warum nicht pYIN/YIN, wie es die Bass-Transkriptionsliteratur empfiehlt?
 Ausprobiert und verworfen, mit Zahlen:

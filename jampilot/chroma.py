@@ -41,12 +41,18 @@ FMAX = 2000.0
 
 class WindowAnalysis(NamedTuple):
     chroma: np.ndarray               # gepoolt: entscheidet, WELCHER Akkord klingt
-    bass: np.ndarray | None          # gepoolt: Grundton-Gewichtung
+    bass: np.ndarray | None          # gepoolt (nur noch fuer die Tonart-Statistik)
     frames: np.ndarray | None        # 12 x F Frame-Chroma: WANN der Akkord einsetzt
     # 12 x F im Tiefband. Wurde frueher berechnet und weggeworfen - dabei steht
     # genau hier, WELCHE NOTE unten liegt (bass.py). Das ist die Information,
     # die der Akkordname nicht enthaelt: bei C/E steht im Akkord ein C.
     bass_frames: np.ndarray | None
+
+    @property
+    def cqt(self) -> bool:
+        """Lief die librosa-Pipeline? Ihr Chroma ist sauberer als das rohe FFT -
+        die Akkordwahl kommt damit mit einer kleineren Komplexitaetsmarge aus."""
+        return self.frames is not None
 
 
 def chroma_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:

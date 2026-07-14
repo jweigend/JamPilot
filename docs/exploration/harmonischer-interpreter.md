@@ -173,6 +173,21 @@ Das ist bereits ein winziger Interpreter — der Bassbonus *ist* Kontextwissen
 („der Grundton sollte im Bass liegen"). Aber er ist der einzige, und er sieht
 vom 12-dimensionalen Bassvektor genau **eine Zahl**: `bass[root]`.
 
+> **Nachtrag — der Bassbonus ist weg.** Er stand hier als Beispiel für „Kontext,
+> den es schon gibt". Nachgemessen war er Kontext, der *schadet*: Sein
+> Kontextwissen lautet „der Grundton liegt im Bass", und das ist bei jeder
+> **Umkehrung** falsch. Er machte aus `C/E` ein `Em` und aus `F/A` ein `Am` —
+> Akkorde, die Töne versprechen (das H in Em, das E in Am), die im Stück nicht
+> klingen. Sobald die Bassnote *gemessen* statt geraten wird, ist er ersatzlos
+> entfallen: Der Akkord kommt aus der Tonklassen-Menge, die Bassnote aus dem
+> Tiefband, der Slash-Name setzt beides zusammen. Der Fall, für den er gebaut
+> war (C6 gegen Am7), verliert dabei nichts — beide bestehen aus denselben
+> Tonklassen, und mit gemessenem Bass steht `Am7/C` da, dieselben Töne. Der
+> Selbsttest kannte bis dahin **nur Grundstellungen** und konnte den Schaden
+> darum nicht sehen; er hat jetzt eine Gruppe `INVERSIONS`. Damit ist auch die
+> Einschätzung aus „Der Realitätscheck" unten am eigenen Code reproduziert:
+> *den Bass zu verstärken machte die Akkorderkennung schlechter.*
+
 ## Wo die Evidenz vernichtet wird
 
 Der eigentliche Befund der Code-Durchsicht ist nicht, dass Kontext fehlt. Er ist,
@@ -195,7 +210,8 @@ nutzt es nicht.
 ## Was es definitiv nicht gibt
 
 Tempo, Beat, Taktposition, Genre, Stimmentrennung, Akkord-Übergangs­wahr­schein­lich­keiten,
-Umkehrungen/Slash-Akkorde, sus/dim/aug. Der Akkordvorrat sind
+~~Umkehrungen/Slash-Akkorde~~ (siehe Nachtrag oben — es gibt sie inzwischen,
+gemessen im Tiefband-Chroma), sus/dim/aug. Der Akkordvorrat sind
 **fünf Typen × 12 Grundtöne = 60 Templates**
 ([chords.py:10-16](../../jampilot/chords.py#L10-L16)). Und die Zeitleiste wird
 zwei Sekunden hinter der hörbaren Position gelöscht
@@ -634,13 +650,29 @@ Ohne Zeitangaben, nach Erkenntnisgewinn pro Aufwand. Der Bass steht jetzt vorn,
 weil er das **billigste sichtbare Ergebnis** ist — und weil er die These des
 Dokuments am schnellsten testet.
 
-1. **Die Bassnote messen, statt sie zu erraten.** Heute wird eine vollständige
-   Bass-CQT berechnet ([chroma.py:128](../../jampilot/chroma.py#L128)) und auf
-   *ein Skalar* eingedampft: `BASS_BONUS * bass[root]`
-   ([chords.py:134](../../jampilot/chords.py#L134)). Die Frames werden gar nicht
-   erst aufgehoben. Stattdessen: Tiefband + **pYIN** (nicht CREPE, Teil IV) →
-   Bassnote pro Frame, zeitlich geglättet. Kostet Millisekunden, kein Modell,
-   keine GPU.
+1. ~~**Die Bassnote messen, statt sie zu erraten.**~~ **Erledigt** (`bass.py`) —
+   aber *nicht* so, wie hier vorgeschlagen. Der Vorschlag lautete Tiefband +
+   **pYIN**; beides wurde gebaut und gemessen, und beides ist falsch:
+
+   * **pYIN kostet ~150 ms pro Fenster**, unabhängig von der Abtastrate — die
+     Kosten stecken im Viterbi-Decoder, nicht im Signal. Bei 250 ms Takt, von
+     dem die Akkordanalyse schon ~230 ms braucht: unbezahlbar. „Kostet
+     Millisekunden" war falsch.
+   * **Rohes YIN** kostet 2 ms, ist aber ungenau, wo es drauf ankommt: Es
+     schätzt die Periode der *Mischung*. Liegen Akkordtöne dicht über dem Bass —
+     der Normalfall in echter Musik — zieht deren Periodizität die Schätzung weg
+     (gemessen: 56,6 Hz für ein A1 = 55,0 Hz). Trefferquote 50/60, beim dichten
+     Voicing 4/12.
+   * Was funktioniert: das **Tiefband-Chroma**, das `analyze_window` ohnehin
+     berechnet und bisher weggeworfen hat. 60/60 auf demselben Material, Kosten
+     **0,03 ms** — die CQT läuft so oder so. Sie misst spektral statt periodisch
+     (Polyphonie stört nicht) und nimmt bei tiefen Frequenzen lange Fenster.
+
+   Die pYIN-Empfehlung der Literatur gilt einem *anderen* Problem: monophone
+   Transkription aus einem isolierten Stem. Wir brauchen die **Tonklasse im
+   Mix**. Anderes Problem, anderes Werkzeug. Und der `BASS_BONUS`, den dieser
+   Punkt zitiert, ist bei der Gelegenheit ersatzlos entfallen — siehe den
+   Nachtrag unter „Die Entscheidungsstelle".
 
 2. **Instrumentenauswahl ins Zahnrad** — der Dialog steht schon
    ([web.py](../../jampilot/web.py)). Modus **Bass**: Bassnote groß, Akkord als

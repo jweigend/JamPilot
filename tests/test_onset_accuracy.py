@@ -81,11 +81,11 @@ def test_erkennung_und_onset_greifen_ineinander():
     analyse = analyze_window(audio, SAMPLERATE)
 
     # Gepoolt wird die juengere Fensterhaelfte -> dort klingt bereits G.
-    assert match_chord(analyse.chroma, analyse.bass).name == "G"
+    assert match_chord(analyse.chroma, cqt=analyse.cqt).name == "G"
 
     smoother = ChordSmoother(window=3)
     for _ in range(3):
-        name = smoother.update(match_chord(analyse.chroma, analyse.bass))
+        name = smoother.update(match_chord(analyse.chroma, cqt=analyse.cqt))
     assert name == "G"
 
     index = find_onset_frame(analyse.frames, "C", "G")

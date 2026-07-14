@@ -162,7 +162,7 @@ def cmd_analyze(args):
             juengere = (bass_frames[:, bass_frames.shape[1] // 2 :]
                         if bass_frames is not None else None)
             name = bassmodul.slash(
-                match_chord(analysis.chroma, analysis.bass).name,
+                match_chord(analysis.chroma, cqt=analysis.cqt).name,
                 bassmodul.name(bassmodul.dominant(juengere)))
             keys.add(analysis.chroma)
         # Gepoolt wird die juengere Fensterhaelfte -> Zeitstempel mittig.
@@ -322,7 +322,7 @@ def _display_loop(loop, args, broadcaster=None):
                 chord = "-"
             else:
                 analysis = analyze_window(audio, sr)
-                result = match_chord(analysis.chroma, analysis.bass)
+                result = match_chord(analysis.chroma, cqt=analysis.cqt)
                 raw = result.name
                 history.add(analysis.frames, window_start)
                 keys.add(analysis.chroma)

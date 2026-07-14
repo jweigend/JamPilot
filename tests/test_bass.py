@@ -66,6 +66,42 @@ class TestBassnote:
         assert dominant(analyze_window(stille, SAMPLERATE).bass_frames) is None
 
 
+class TestUmkehrungAmSignal:
+    """Der Befund, der den BASS_BONUS gekippt hat - am echten Signal.
+
+    Ein Chroma-Test allein wuerde das verfehlen: Der Bonus griff erst, wenn ein
+    Bass-Chroma dabei war, also nur in der vollen Pipeline. Deshalb hier vom
+    Audio bis zum angezeigten Namen.
+    """
+
+    @staticmethod
+    def _anzeige(midi_noten) -> str:
+        """Genau das, was die Anzeige zeigt: Akkord aus dem Chroma, Bass gemessen."""
+        from jampilot.chords import match_chord
+
+        audio = _chord(midi_noten, 1.5)
+        analyse = analyze_window(audio, SAMPLERATE)
+        akkord = match_chord(analyse.chroma, cqt=analyse.cqt).name
+        frames = analyse.bass_frames
+        juengere = frames[:, frames.shape[1] // 2:]
+        return slash(akkord, name(dominant(juengere)))
+
+    def test_f_dur_mit_a_im_bass_ist_nicht_am(self):
+        # A1 unten, F-Dur darueber. Der BASS_BONUS zog den Grundton auf das A und
+        # machte daraus ein Am - ein Akkord, der ein E verspricht, das hier nicht
+        # klingt. Wer danach greift, spielt daneben.
+        assert self._anzeige([33, 53, 57, 60]) == "F/A"
+
+    def test_c_dur_mit_e_im_bass_ist_nicht_em(self):
+        # Dieselbe Falle eine Stufe weiter: E1 unten, C-Dur darueber -> frueher Em,
+        # das ein H verspricht, das nirgends klingt.
+        assert self._anzeige([28, 48, 52, 55]) == "C/E"
+
+    def test_grundstellung_bleibt_ohne_slash(self):
+        # Die Gegenprobe: Liegt der Grundton unten, darf kein Slash erscheinen.
+        assert self._anzeige([36, 48, 52, 55]) == "C"
+
+
 class TestDominant:
     def test_klarer_gewinner(self):
         pooled = np.zeros((12, 3))
