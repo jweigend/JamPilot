@@ -2,16 +2,30 @@
 
 **Ever wanted to just grab your instrument and play along with whatever is coming
 out of your computer?** Spotify, YouTube, the MP3s on your disk — the live take
-nobody ever wrote a chord sheet for, the song in the Netflix episode you just
-heard. Not "find a tutorial, learn it, come back next week". *Now.*
+nobody ever wrote a chord sheet for, the B-side that no tutorial will ever cover.
+Not "look it up, learn it, come back next week". *Now.*
 
 That is the whole idea. Whatever plays on your machine, JamPilot listens to it
 and **shows you the chords while it runs** — and it shows them **before you hear
 them**, so you are never a beat behind. Practise, learn a tune, or just play
 along for the fun of it.
 
-**No more googling for chords or tabs.** No transcription, no tutorial, no
-waiting a week. Press play, and play.
+**No more googling for chords.** No transcription, no tutorial, no waiting a
+week. Press play, and play.
+
+Two things worth knowing before you start, because you would find them out anyway:
+
+- **You hear the song a few seconds late.** That is not a glitch, it is the deal:
+  those seconds are what the analysis spends on the part you have not heard yet,
+  and they are what gets the chord onto your screen *before* your ears get the
+  music. The price is that JamPilot is for playing along with your machine — not
+  for jamming with someone else in the room, and not for staying in sync with a
+  video you are also watching.
+- **Chords, not tabs.** JamPilot names the harmony — `Bm`, `C`, `D`, and the bass
+  note under it if you want (`C/E`). It does not give you riffs, fingerings or
+  solos. And it hears triads and sevenths: pop, rock, blues, folk are its home.
+  Dense jazz voicings are not — `sus`, `dim` and `aug` are still on the roadmap,
+  and on a Real Book standard it will simplify what it hears.
 
 Linux and macOS. It all happens on your own machine — no account, no cloud,
 nothing uploaded anywhere.
