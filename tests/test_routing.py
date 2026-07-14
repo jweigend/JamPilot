@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from chordify import routing
+from jampilot import routing
 
 
 class FakeAudioSystem:
@@ -59,7 +59,7 @@ class FakeAudioSystem:
 def audio(monkeypatch, tmp_path):
     system = FakeAudioSystem()
     monkeypatch.setattr(routing, "_pactl", system)
-    monkeypatch.setattr(routing, "LOCK_FILE", tmp_path / "chordify.pid")
+    monkeypatch.setattr(routing, "LOCK_FILE", tmp_path / "jampilot.pid")
     monkeypatch.delenv("PIPEWIRE_PROPS", raising=False)
     return system
 

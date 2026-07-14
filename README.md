@@ -1,185 +1,184 @@
-# Chordify — Realtime Chord Analyzer mit Vorlauf
+# JamPilot — jam along with anything, in real time
 
-Ein Werkzeug für Musiker: Systemaudio (YouTube, Spotify, eigene Dateien, …)
-wird ein paar Sekunden gepuffert und dann **unverändert verzögert**
-wiedergegeben. Analysiert wird das *frische* Signal — dadurch zeigt das Tool
-den Akkord an, **bevor** man ihn hört. Man kann mitspielen, ohne hinterherzulaufen.
+A tool for musicians: system audio (YouTube, Spotify, your own files, …) is
+buffered for a few seconds and then played back **delayed but unchanged**. The
+*fresh* signal is what gets analysed — so the chord is on screen **before you
+hear it**. You can play along instead of chasing the song.
 
 ```
-Systemaudio ──► Ringpuffer (N s) ──► Lautsprecher (verzögert, unverändert)
+System audio ──► ring buffer (N s) ──► speakers (delayed, unchanged)
       │
-      └──► Chroma-Analyse ──► Akkord-Anzeige (N s Vorlauf)
+      └──► chroma analysis ──► chord display (N s of lead)
 ```
 
-## Funktionsweise
+The delay is not a defect to be minimised. It is the feature: it buys the
+analysis a few seconds of the future, and it buys the player time to react.
 
-1. **Capture**: Das Systemaudio wird abgegriffen — unter Linux über den
-   Monitor eines PipeWire/PulseAudio-Null-Sinks, unter macOS über einen
-   Loopback-Treiber (BlackHole).
-2. **Delay**: Ein Ringpuffer exakt in Delay-Länge; an der Schreibposition wird
-   der alte Wert ausgegeben und der neue geschrieben. Das Signal wird nicht
-   verändert, nur verschoben.
-3. **Analyse** (Pipeline aus `docs/exploration/first-draft.md`): Ein
-   1,5-s-Fenster des frischen Signals durchläuft **harmonische Trennung**
-   (HPSS — entfernt Drums/Percussion) und eine **Constant-Q-Chroma**-Analyse
-   (librosa, 36 Bins/Oktave — logarithmische Auflösung trifft auch tiefe
-   Grundtöne). Ein separates **Bass-Chroma** (32–260 Hz) gibt Akkorden einen
-   Bonus, deren Grundton wirklich im Bass klingt (unterscheidet C von Am7).
-   Verglichen wird gegen Akkord-Templates (Dur, Moll, 7, maj7, m7 × 12
-   Grundtöne); Vierklänge müssen die Triade um eine kalibrierte Marge
-   schlagen, weil Obertöne scheinbare Septimen erzeugen. Ein
-   Mehrheitsentscheid über die letzten drei Erkennungen unterdrückt Flackern.
-   Der Selbsttest misst beide Pipelines auf synthetischem Material mit
-   Drums + Melodie: FFT-Fallback 1/8, HPSS+CQT 8/8.
-4. **Timing**: Eine Erkennung sagt, *was* klingt — nicht, *seit wann*. Den
-   Einsatzzeitpunkt aus der Erkennungslatenz zurückzurechnen scheitert daran,
-   dass die je nach Signal schwankt. Der Wechsel wird deshalb *gesucht*: das
-   CQT-Frame-Chroma (23-ms-Raster, fällt ohnehin an) wird an der Stelle
-   geschnitten, die es am besten in „davor = alter Akkord" / „ab hier = neuer"
-   teilt. Damit liegt der Onset auf ±30 ms statt auf dem Analysetakt (~500 ms).
-   Gesucht wird dabei in einer **Frame-Historie** (`FrameHistory`), nicht nur im
-   aktuellen 1,5-s-Fenster: wie lange die Erkennung braucht, hängt vom Material
-   ab — bei mehrdeutigen Wechseln (C/Am, G/Em) über 1,5 s. Reicht die Suche
-   nicht bis zum Einsatz zurück, klemmt sie auf den Fensteranfang, und dieser
-   Fehler ist **einseitig**: die Anzeige wird zu spät, nie zu früh. Gemessen:
-   bei 2 s Erkennungslatenz meldete die reine Fenstersuche den Wechsel um bis zu
-   600 ms zu spät; mit Historie bleibt der Fehler bei −30 ms, unabhängig von der
-   Latenz. Die Frames werden dafür nur aufgehoben — keine zusätzliche CQT
-   (9 µs und 13 KB pro Takt).
-   Wie weit die Ausgabe hinterherhinkt, kommt aus PortAudios
-   **DAC-Zeitstempeln**, nicht aus der gemeldeten Latenz — die lag im Test um
-   60 ms daneben. Analysefenster enden immer auf einem festen Stream-Raster;
-   dauert eine Analyse zu lang, fällt ein Rasterpunkt aus, das Raster bleibt.
-   Ein Segment unter **250 ms** ist kein Akkord, sondern ein Fehlgriff der
-   Erkennung. Weil der Vorlauf ihn Sekunden vor dem Hörbarwerden zeigt, wird er
-   *zurückgenommen* statt als Blitz durchgereicht; der nachrückende Akkord erbt
-   den früheren Onset (*wann* gewechselt wurde, stand fest — nur *was* gespielt
-   wird, korrigiert sich). Eine Kette von Fehlgriffen konvergiert dadurch auf
-   einen einzigen Wechsel, ohne den Zeitpunkt zu verschieben.
-5. **Anzeige**: `Kommt in 2.9s: G | Jetzt hörbar: C`. Der Browser bekommt die
-   Akkorde mit ihrer Onset-Position in Stream-Sekunden plus die gerade hörbare
-   Position, gleicht seine Uhr per Minimum-Filter dagegen ab (NTP-Prinzip: die
-   Zustellzeit ist immer positiv) und leitet **großen Akkord und Laufband aus
-   derselben Uhr** ab. Sie können deshalb nicht auseinanderlaufen: der Akkord
-   springt exakt in dem Frame um, in dem sein Chip die JETZT-Linie berührt.
+## How it works
 
-### Audio-Routing unter Linux (automatisch)
+1. **Capture**: System audio is tapped — on Linux through the monitor of a
+   PipeWire/PulseAudio null sink, on macOS through a loopback driver
+   (BlackHole).
+2. **Delay**: A ring buffer exactly one delay long; at the write position the
+   old value is played out and the new one written. The signal is not altered,
+   only shifted.
+3. **Analysis**: A 1.5 s window of the fresh signal goes through **harmonic
+   separation** (HPSS — removes drums/percussion) and a **constant-Q chroma**
+   analysis (librosa, 36 bins/octave — logarithmic resolution also catches low
+   roots). A separate **bass chroma** (32–260 Hz) gives a bonus to chords whose
+   root is actually sounding in the bass (this is what tells C from Am7). The
+   result is matched against chord templates (major, minor, 7, maj7, m7 × 12
+   roots); four-note chords must beat the triad by a calibrated margin, because
+   overtones fake sevenths. A majority vote over the last three detections
+   suppresses flicker. The selftest measures both pipelines on synthetic
+   material with drums and a melody: FFT fallback 1/8, HPSS+CQT 8/8.
+4. **Timing**: A detection says *what* is sounding — not *since when*.
+   Back-computing the onset from the detection latency fails, because that
+   latency varies with the material. So the change is *searched for*: the CQT
+   frame chroma (23 ms grid, computed anyway) is cut at the point that best
+   splits it into "before = old chord" / "from here = new chord". That puts the
+   onset within ±30 ms instead of on the analysis tick (~500 ms).
+   The search runs over a **frame history**, not just the current 1.5 s window:
+   how long detection takes depends on the material — for ambiguous changes
+   (C/Am, G/Em) it exceeds 1.5 s. If the search cannot reach back to the onset,
+   it clamps to the start of the window, and that error is **one-sided**: the
+   display is late, never early. Measured: at 2 s of detection latency, the
+   window-only search reported the change up to 600 ms late; with the history
+   the error stays at −30 ms, regardless of latency. The frames are merely kept
+   — no extra CQT (9 µs and 13 KB per tick).
+   How far the output lags is taken from PortAudio's **DAC timestamps**, not
+   from the reported latency — which was off by 60 ms in testing. Analysis
+   windows always end on a fixed stream grid; if an analysis takes too long, a
+   grid point is dropped and the grid stays exact.
+   A segment shorter than **250 ms** is not a chord, it is a misfire of the
+   detector. Because the lead shows it seconds before it becomes audible, it is
+   *withdrawn* rather than flashed on screen; the chord that takes its place
+   inherits the earlier onset (*when* the change happened was already settled —
+   only *what* is played gets corrected). A chain of misfires therefore
+   converges on a single change without moving its time.
+5. **Display**: `In 2.9s: G | Now playing: C`. The browser receives the chords
+   with their onset in stream seconds plus the currently audible position, syncs
+   its clock against it with a minimum filter (NTP principle: delivery time is
+   always positive) and derives **the big chord and the running lane from the
+   same clock**. They cannot drift apart: the chord flips in exactly the frame
+   in which its chip touches the NOW line.
 
-Würde man den Monitor des normalen Ausgangs abgreifen und verzögert auf
-denselben Ausgang ausgeben, hörte man Original + Verzögerung + Echo-Kaskade.
-`chordify run` richtet deshalb temporär einen **Null-Sink** als
-Standard-Ausgang ein: Player spielen unhörbar dorthin, Chordify liest dessen
-Monitor und gibt nur das verzögerte Signal auf die echte Hardware aus. Beim
-Beenden (auch per `kill`) wird alles zurückgesetzt.
+### Audio routing on Linux (automatic)
 
-Das Einrichten läuft **transaktional**: jeder Schritt wird registriert, bevor
-der nächste läuft; scheitert einer, wird rückwärts aufgeräumt. Sonst bliebe der
-stumme Null-Sink als Standard-Ausgang stehen — `with` ruft `__exit__` nämlich
-nicht auf, wenn `__enter__` fliegt. Ein `SIGKILL` lässt sich prinzipbedingt
-nicht abfangen; dafür gibt es **`chordify cleanup`**, das verwaiste Sinks
-entfernt und den Standard-Ausgang zurückholt. `run` räumt beim Start selbst
-auf, bevor es sich den bisherigen Ausgang merkt — sonst würde es die
-Stummschaltung eines abgestürzten Vorlaufs als "vorherigen Zustand" sichern
-und beim Beenden wiederherstellen.
+Tapping the monitor of the normal output and playing the delayed signal back to
+that same output would give you the original plus the delay plus an echo
+cascade. So `jampilot run` temporarily installs a **null sink** as the default
+output: players play into it inaudibly, JamPilot reads its monitor and sends
+only the delayed signal to the real hardware. On exit (including `kill`)
+everything is restored.
 
-Verwaist ist ein Sink allerdings nur, wenn sein **Besitzerprozess nicht mehr
-lebt**. Wer ihn angelegt hat, steht in `/tmp/chordify-<uid>.pid`; ohne diese
-Prüfung würde eine zweite Instanz den Sink einer noch laufenden ersten
-entladen, und beide rissen sich gegenseitig das Routing weg. Ein zweiter Start
-bricht deshalb verständlich ab, statt Schaden anzurichten
-(`cleanup --force` überstimmt das, falls nötig).
+Setup is **transactional**: every step is registered before the next one runs;
+if one fails, everything unwinds backwards. Otherwise the silent null sink would
+be left behind as the default output — `with` does not call `__exit__` if
+`__enter__` throws. A `SIGKILL` cannot be caught by design; that is what
+**`jampilot cleanup`** is for: it removes orphaned sinks and restores the
+default output. `run` cleans up at startup, *before* it remembers the current
+output — otherwise it would save the muted state left by a crashed predecessor
+as the "previous state" and restore that on exit.
+
+A sink counts as orphaned only if its **owner process is dead**. Who created it
+is recorded in `/tmp/jampilot-<uid>.pid`; without that check a second instance
+would unload the sink of a running first one, and the two would tear each
+other's routing apart. A second start therefore fails with a clear message
+instead of doing damage (`cleanup --force` overrides it if needed).
 
 ### macOS
 
-[BlackHole (2ch)](https://existential.audio/blackhole/) installieren, dann:
+Install [BlackHole (2ch)](https://existential.audio/blackhole/), then:
 
-- Systemausgabe auf „BlackHole 2ch“ stellen (übernimmt die Rolle des Null-Sinks),
-- `chordify run --no-route --input "BlackHole 2ch" --output "MacBook Pro Speakers"`.
+- set the system output to "BlackHole 2ch" (it takes the role of the null sink),
+- `jampilot run --no-route --input "BlackHole 2ch" --output "MacBook Pro Speakers"`.
 
-Gerätenamen zeigt `chordify devices`.
+`jampilot devices` lists the device names.
 
-## Installation & Benutzung
+## Install & use
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 
-.venv/bin/python -m chordify selftest          # Erkennung ohne Audio testen
-.venv/bin/python -m chordify devices           # Geräte anzeigen
-.venv/bin/python -m chordify analyze lied.wav  # WAV offline analysieren
-.venv/bin/python -m chordify run --delay 4     # Live mit 4 s Vorlauf
-.venv/bin/python -m chordify cleanup           # Null-Sink nach Absturz entfernen
+.venv/bin/python -m jampilot selftest         # test detection without audio
+.venv/bin/python -m jampilot devices          # list devices
+.venv/bin/python -m jampilot analyze song.wav # analyse a WAV offline
+.venv/bin/python -m jampilot run --delay 4    # live, with 4 s of lead
+.venv/bin/python -m jampilot cleanup          # remove a null sink after a crash
 ```
 
-`run`-Optionen: `--delay` (Sekunden), `--output` (Ziel-Sink/Gerät),
-`--input` + `--no-route` (Direktmodus ohne automatisches Routing),
-`--samplerate` (Standard 48000), `--port` (Web-Anzeige, Standard 8765),
-`--no-web`.
+`run` options: `--delay` (seconds), `--output` (target sink/device), `--input` +
+`--no-route` (direct mode without automatic routing), `--samplerate` (default
+48000), `--port` (web display, default 8765), `--no-web`.
 
-## Web-Anzeige
+## Web display
 
-`run` startet automatisch eine Vollbild-Webanzeige (`http://<rechner>:8765/`,
-URL steht beim Start im Terminal): schwarzer Hintergrund, der gerade
-**hörbare** Akkord groß in der Mitte, die **kommenden** Akkorde laufen unten
-als Band auf die JETZT-Linie zu. Rechts oben ein QR-Code — Smartphone im
-gleichen WLAN scannt ihn und zeigt dieselbe Anzeige (Architektur aus dem
-Explorationsdokument: der Rechner analysiert, alle Geräte sind reine
-Fernanzeigen). Klick/Tipp = Vollbild. Technik: eingebetteter HTTP-Server mit
-Server-Sent-Events, komplett offlinefähig (kein CDN); `?demo=1` zeigt die
-Seite mit Beispielakkorden ohne laufende Analyse.
+`run` automatically starts a fullscreen web display (`http://<machine>:8765/`,
+the URL is printed at startup): black background, the currently **audible**
+chord large in the centre, the **upcoming** chords running along the bottom lane
+towards the NOW line. Top right a QR code — a phone on the same Wi-Fi scans it
+and shows the same display (the computer analyses, every device is a pure remote
+display). Click/tap = fullscreen. Under the hood: an embedded HTTP server with
+server-sent events, fully offline-capable (no CDN); `?demo=1` shows the page with
+example chords and no running analysis.
 
-## Schreibweise: ♯ oder ♭ (Tonart-Erkennung)
+## Chord spelling: ♯ or ♭ (key detection)
 
-Dieselbe Taste heißt je nach Stück **A♯ oder B♭** — die Tonklasse allein sagt
-das nicht, erst die **Tonart** entscheidet: in D-Dur steht ein A♯, in F-Dur ein
-B♭. Und sobald die Tonart feststeht, gibt es genau *eine* schöne Schreibweise
-für alle Akkorde; man muss sie nicht pro Akkord neu erfinden.
+The same key on the piano is called **A♯ or B♭** depending on the song — the
+pitch class alone does not decide that, the **key** does: in D major it is an
+A♯, in F major a B♭. And once the key is known, there is exactly *one* good
+spelling for every chord; it does not have to be reinvented per chord.
 
-Deshalb sind Erkennung und Benennung **zwei getrennte Schritte**:
+So detection and naming are **two separate steps**:
 
-1. **Signal** (`chords.py`) → Tonklasse als Zahl 0..11 plus Akkordart. Der
-   Name, den `ChordResult` trägt, ist eine kanonische **ID** (immer mit Kreuz),
-   keine Anzeige — er hält die Zeitleiste vergleichbar.
-2. **Musik** (`tonality.py`) → über ein Tonklassen-Histogramm (Krumhansl-
-   Schmuckler, 24 Dur-/Moll-Profile) die wahrscheinlichste Tonart, und daraus
-   **einmal** die Schreibweise für die ganze Anzeige.
+1. **Signal** (`chords.py`) → pitch class as a number 0..11 plus chord quality.
+   The name carried by `ChordResult` is a canonical **ID** (always spelled with
+   sharps), not a display string — it keeps the timeline comparable.
+2. **Music** (`tonality.py`) → the most likely key from a pitch-class histogram
+   (Krumhansl-Schmuckler, 24 major/minor profiles), and from it **one** spelling
+   decision for the whole display.
 
-Die ersten ~12 Sekunden Musik meldet die Erkennung bewusst **gar keine**
-Tonart: ein Histogramm aus zwei Akkorden passt auf ein halbes Dutzend Tonarten,
-und eine geratene Tonart wäre schlimmer als keine — sie schriebe die Akkorde
-falsch und wechselte die Schreibweise mitten im Stück. Bis dahin gilt das Kreuz.
-Danach folgt die Erkennung auch einer **Modulation** (das Histogramm verfällt
-mit ~30 s Halbwertszeit), bleibt aber träge genug, um nicht zwischen
-verwandten Tonarten (C-Dur/a-Moll) zu flackern.
+For the first ~12 seconds of music, detection deliberately reports **no key at
+all**: a histogram built from two chords fits half a dozen keys, and a guessed
+key would be worse than none — it would spell the chords wrong and then switch
+spelling mid-song. Until then, sharps apply. After that, detection also follows
+a **modulation** (the histogram decays with a ~30 s half-life), but stays
+sluggish enough not to flicker between relative keys (C major / A minor).
 
-Der Browser bekommt die Akkorde kanonisch plus die erkannte Tonart und
-schreibt selbst — **über das Zahnrad rechts oben**:
+The browser receives the chords canonically plus the detected key and does the
+spelling itself — **via the gear icon in the top right**:
 
-| Einstellung | Wirkung |
+| Setting | Effect |
 |---|---|
-| **Automatisch** (Vorgabe) | nach erkannter Tonart; die Tonart steht links oben |
-| **Immer Kreuz** | C♯ · D♯ · F♯ · G♯ · A♯ |
-| **Immer b** | D♭ · E♭ · G♭ · A♭ · B♭ |
+| **Automatic** (default) | follows the detected key; the key is shown top left |
+| **Always sharps** | C♯ · D♯ · F♯ · G♯ · A♯ |
+| **Always flats** | D♭ · E♭ · G♭ · A♭ · B♭ |
 
-Die Wahl wirkt sofort und rückwirkend auf alles, was schon auf dem Laufband
-steht, überdauert einen Reload (`localStorage`) und gilt **pro Gerät** — Laptop
-und Smartphone dürfen verschieden eingestellt sein. Terminal und `analyze`
-folgen immer der erkannten Tonart.
+The choice takes effect immediately and retroactively on everything already on
+the lane, survives a reload (`localStorage`) and applies **per device** — laptop
+and phone may be set differently. Terminal and `analyze` always follow the
+detected key.
 
-## Projektstruktur
+## Project layout
 
 ```
-chordify/
-  chroma.py        FFT → Chroma-Vektor (12 Tonklassen), CQT-Frame-Chroma
-  chords.py        Akkord-Templates, Matching, Glättung, Onset-Suche
-  tonality.py      Tonart-Erkennung → Schreibweise (♯ oder ♭)
-  delay_stream.py  Duplex-Stream mit Delay-Ringpuffer (sounddevice/PortAudio)
-  routing.py       Null-Sink-Routing für Linux (pactl), transaktional
-  web.py           SSE-Server + Vollbildanzeige mit Zeitleiste
-  selftest.py      Synthetische Akkorde als Pipeline-Test
-  cli.py           Kommandozeilen-Frontend, Zeitleisten-Logik
-tests/             pytest-Suite (155 Tests)
+jampilot/
+  chroma.py        FFT → chroma vector (12 pitch classes), CQT frame chroma
+  chords.py        chord templates, matching, smoothing, onset search
+  tonality.py      key detection → spelling (♯ or ♭)
+  delay_stream.py  duplex stream with the delay ring buffer (sounddevice/PortAudio)
+  routing.py       null-sink routing for Linux (pactl), transactional
+  web.py           SSE server + fullscreen display with the timeline
+  selftest.py      synthetic chords as a pipeline test
+  cli.py           command-line frontend, timeline logic
+tests/             pytest suite (155 tests)
+docs/exploration/  design documents (in German)
 ```
+
+Code comments, tests and the design documents are written in **German**;
+everything a user sees is English.
 
 ## Tests
 
@@ -188,29 +187,34 @@ tests/             pytest-Suite (155 Tests)
 .venv/bin/python -m pytest
 ```
 
-Abgedeckt sind vor allem die Stellen, an denen sich Fehler *leise* einschleichen:
+The suite covers the places where bugs creep in *quietly*:
 
-- **Onset-Genauigkeit** (`test_onset_accuracy.py`, `test_frame_history.py`) — hält
-  fest, dass ein
-  Akkordwechsel auf < 100 ms genau und mit < 50 ms Streuung gefunden wird.
-  Schlägt an, sobald jemand am Fenster, am Pooling oder an der Onset-Suche dreht.
-- **Zeitleiste** (`test_timeline.py`) — kein Segment unter 250 ms; Fehlgriffe
-  werden zurückgenommen, echte 0,5-s-Wechsel überleben.
-- **Glätter** (`test_chords.py`) — bei Gleichstand `"?"` statt raten (früher
-  entschied der `PYTHONHASHSEED`).
-- **Ringpuffer & DAC-Uhr** (`test_delay_stream.py`) — Wraparound, Grenzen,
-  Rückfall auf die Latenzschätzung bei unbrauchbaren Zeitstempeln.
-- **Routing** (`test_routing.py`) — Rollback bei Fehlern in *jedem* Schritt,
-  Waisen-Erkennung, Schutz gegen eine zweite Instanz.
-- **SSE-Rückstau** (`test_web.py`) — ein langsamer Client bekommt den
-  *neuesten* Zustand, nicht die ältesten.
+- **Onset accuracy** (`test_onset_accuracy.py`, `test_frame_history.py`) — pins
+  down that a chord change is found to within < 100 ms and with < 50 ms spread.
+  Fires as soon as anyone touches the window, the pooling or the onset search.
+- **Timeline** (`test_timeline.py`) — no segment under 250 ms; misfires are
+  withdrawn, genuine 0.5 s changes survive.
+- **Smoother** (`test_chords.py`) — a tie yields `"?"` instead of a guess
+  (this used to be decided by `PYTHONHASHSEED`).
+- **Key detection** (`test_tonality.py`) — F major spells B♭, not A♯; no key is
+  reported before there is enough music; a modulation is followed, but relative
+  keys do not flicker.
+- **Ring buffer & DAC clock** (`test_delay_stream.py`) — wraparound, bounds,
+  fallback to the latency estimate when timestamps are unusable.
+- **Routing** (`test_routing.py`) — rollback on failure in *every* step, orphan
+  detection, protection against a second instance.
+- **SSE backpressure** (`test_web.py`) — a slow client gets the *newest* state,
+  not the oldest.
 
 ## Roadmap
 
-- Weitere Bedienelemente in der Web-Anzeige: Vorlauf-Regler, Ein/Aus,
-  Geräteauswahl (bisher gibt es dort nur die Schreibweise; der Rest der
-  Steuerung läuft über die CLI).
-- Bessere Erkennung: sus/dim/aug-Templates, Umkehrungen (Slash-Akkorde),
-  Beat-synchrone Segmentierung; später Essentia (fertige HPCP/Akkord-/
-  Tonarterkennung, siehe Explorationsdokument) oder ein gelerntes Modell.
-- macOS-Komfort: automatische Geräteerkennung von BlackHole.
+- More controls in the web display: lead slider, on/off, device selection (right
+  now only the spelling lives there; the rest of the control is in the CLI).
+- Better detection: sus/dim/aug templates, inversions (slash chords),
+  beat-synchronous segmentation.
+- Turn the last stage from a chord *detector* into a **harmonic interpreter** —
+  one that decides from key, bass, chord history, metre and genre which chord is
+  most *useful to the player*, and that uses the lead to revise its own display
+  before anyone has seen it. See
+  [`docs/exploration/harmonischer-interpreter.md`](docs/exploration/harmonischer-interpreter.md).
+- macOS convenience: automatic BlackHole device detection.

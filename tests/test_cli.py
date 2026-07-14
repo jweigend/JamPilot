@@ -7,8 +7,8 @@ import wave
 import numpy as np
 import pytest
 
-from chordify import cli
-from chordify.selftest import SAMPLERATE, _chord
+from jampilot import cli
+from jampilot.selftest import SAMPLERATE, _chord
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ class TestAnalyze:
 
     def test_zu_kurze_datei_meldet_das_verstaendlich(self, wav, capsys):
         cli.cmd_analyze(argparse.Namespace(file=str(wav(0.5))))
-        assert "kuerzer als das Analysefenster" in capsys.readouterr().out
+        assert "shorter than the analysis window" in capsys.readouterr().out
 
     def test_zu_wenig_musik_raet_die_tonart_nicht(self, wav, capsys):
         # Ein einzelner Akkord ueber 2.5s legt keine Tonart fest. Statt eine zu
@@ -51,7 +51,7 @@ class TestAnalyze:
         # Ausgabe, dass sie unbestimmt ist - und bleibt beim Kreuz.
         cli.cmd_analyze(argparse.Namespace(file=str(wav(2.5))))
         ausgabe = capsys.readouterr().out
-        assert "Tonart: unbestimmt" in ausgabe
+        assert "Key: undetermined" in ausgabe
 
 
 class TestArgumentGrenzen:
@@ -74,7 +74,7 @@ class TestArgumentGrenzen:
 
     def test_keine_zahl_wird_verstaendlich_gemeldet(self):
         pruefer = cli._bounded(float, 0.5, 30.0, "s")
-        with pytest.raises(argparse.ArgumentTypeError, match="keine Zahl"):
+        with pytest.raises(argparse.ArgumentTypeError, match="is not a number"):
             pruefer("viel")
 
     @pytest.mark.parametrize("wert", ["7999", "200000"])
@@ -93,7 +93,7 @@ class TestGeraetepruefung:
         monkeypatch.setattr(sd, "query_devices", explodiere)
 
         # Muss VOR dem teuren Warmup zuschlagen und verstaendlich sein.
-        with pytest.raises(SystemExit, match="nicht nutzbar"):
+        with pytest.raises(SystemExit, match="not usable"):
             cli._check_devices("gibtsnicht", None)
 
     def test_kein_geraet_angegeben_ist_in_ordnung(self):

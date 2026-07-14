@@ -156,7 +156,7 @@ PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>Chordify</title>
+<title>JamPilot</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; }
@@ -305,11 +305,11 @@ PAGE = r"""<!DOCTYPE html>
 <body>
   <div id="topbar">
     <div id="brandbox">
-      <div id="brand"><div id="dot"></div>Chordify</div>
+      <div id="brand"><div id="dot"></div>JamPilot</div>
       <div id="keybadge"></div>
     </div>
     <div id="right">
-      <button id="gear" aria-label="Einstellungen" aria-haspopup="dialog">
+      <button id="gear" aria-label="Settings" aria-haspopup="dialog">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"></circle>
@@ -330,29 +330,29 @@ PAGE = r"""<!DOCTYPE html>
       </button>
       <div id="qrbox">
         <div id="qrcard"><img src="/qr.svg" alt="QR"></div>
-        <div id="qrlabel">Smartphone verbinden</div>
+        <div id="qrlabel">Connect your phone</div>
       </div>
     </div>
   </div>
 
   <div id="backdrop" hidden>
-    <div id="dialog" role="dialog" aria-modal="true" aria-label="Einstellungen">
-      <h2>Schreibweise der Akkorde</h2>
-      <p class="sub">Dieselbe Taste heisst je nach Tonart A&#9839; oder B&#9837;.
-         Chordify erkennt die Tonart und schreibt danach &ndash; oder du legst
-         es fest.</p>
+    <div id="dialog" role="dialog" aria-modal="true" aria-label="Settings">
+      <h2>Chord spelling</h2>
+      <p class="sub">The same key is called A&#9839; or B&#9837;, depending on
+         the key of the song. JamPilot detects the key and spells accordingly
+         &ndash; or you decide.</p>
       <button class="opt" data-mode="auto" role="radio">
         <span class="glyph">&#9839;&#9837;</span>
         <span class="text">
-          <span class="label">Automatisch <span id="autokey"></span></span>
-          <span class="desc">Nach erkannter Tonart. Die ersten Sekunden gilt
-                             das Kreuz, bis die Tonart feststeht.</span>
+          <span class="label">Automatic <span id="autokey"></span></span>
+          <span class="desc">Follows the detected key. Sharps apply for the
+                             first few seconds, until the key is settled.</span>
         </span>
       </button>
       <button class="opt" data-mode="sharp" role="radio">
         <span class="glyph">&#9839;</span>
         <span class="text">
-          <span class="label">Immer Kreuz</span>
+          <span class="label">Always sharps</span>
           <span class="desc">C&#9839; &middot; D&#9839; &middot; F&#9839;
                              &middot; G&#9839; &middot; A&#9839;</span>
         </span>
@@ -360,7 +360,7 @@ PAGE = r"""<!DOCTYPE html>
       <button class="opt" data-mode="flat" role="radio">
         <span class="glyph">&#9837;</span>
         <span class="text">
-          <span class="label">Immer b</span>
+          <span class="label">Always flats</span>
           <span class="desc">D&#9837; &middot; E&#9837; &middot; G&#9837;
                              &middot; A&#9837; &middot; B&#9837;</span>
         </span>
@@ -373,8 +373,8 @@ PAGE = r"""<!DOCTYPE html>
     <div id="idle"><div id="idleTitle"></div><div id="idleHint"></div></div>
   </div>
 
-  <div id="lane"><div id="nowline"></div><div id="nowlabel">JETZT</div></div>
-  <div id="hint">Klick = Vollbild</div>
+  <div id="lane"><div id="nowline"></div><div id="nowlabel">NOW</div></div>
+  <div id="hint">Click = fullscreen</div>
 
 <script>
 "use strict";
@@ -400,7 +400,7 @@ let link = "connecting";     // connecting | live | lost
 // aus der festen Vorgabe des Benutzers (`modus`). Deshalb wirkt eine Umstellung
 // sofort und rueckwirkend auf alles, was gerade auf dem Laufband steht - und
 // Laptop und Handy duerfen verschieden eingestellt sein.
-const MODUS_KEY = "chordify.accidental";
+const MODUS_KEY = "jampilot.accidental";
 const FLAT_OF  = { "C#": "D♭", "D#": "E♭", "F#": "G♭",
                    "G#": "A♭", "A#": "B♭" };
 const SHARP_OF = { "C#": "C♯", "D#": "D♯", "F#": "F♯",
@@ -452,14 +452,14 @@ function chordHtml(name) {
 // Was gerade los ist, wenn KEIN Akkord dasteht. Ohne diese Unterscheidung sieht
 // "der Rechner spielt keine Musik" genauso aus wie "die Anzeige ist tot".
 function idleText() {
-  if (link === "connecting") return ["Verbinde", "Suche die Chordify-Anzeige."];
+  if (link === "connecting") return ["Connecting", "Looking for the JamPilot display."];
   if (link === "lost")
-    return ["Verbindung verloren",
-            "Chordify antwortet nicht mehr. Läuft es noch im Terminal?"];
-  if (offset === null) return ["Startet", "Die Analyse läuft an."];
-  return ["Keine Musik",
-          "Spiel etwas ab &ndash; der Akkord steht hier, "
-          + "<b>bevor</b> du ihn hörst."];
+    return ["Connection lost",
+            "JamPilot stopped responding. Is it still running in the terminal?"];
+  if (offset === null) return ["Starting up", "The analysis is spinning up."];
+  return ["No music",
+          "Play something &ndash; the chord appears here "
+          + "<b>before</b> you hear it."];
 }
 
 function showIdle() {
@@ -569,11 +569,17 @@ function zeigeTonart() {
   // Die Tonart steht auch dann da, wenn der Benutzer die Schreibweise fest
   // vorgegeben hat - sie ist eine Aussage ueber das Stueck, keine ueber die
   // Anzeige. Nur der Zusatz sagt, was gerade wirklich geschrieben wird.
+  //
+  // Das Label wird HIER gebaut, nicht vom Server uebernommen: der Grundton der
+  // Tonart braucht dieselbe Glyphen-Schreibweise wie die Akkorde (B♭, nicht Bb),
+  // und zwar in der Schreibweise der TONART selbst - Bb-Moll heisst nie A#-Moll,
+  // auch wenn der Benutzer Kreuze erzwungen hat.
   const zeichen = schreibweise === "flat" ? "♭" : "♯";
-  const label = tonart ? tonart.label.replace("b-", "♭-").replace("#-", "♯-")
-                       : null;
-  $("keybadge").innerHTML = label ? label + " · <b>" + zeichen + "</b>"
-                                  : "";
+  const label = tonart
+    ? schreibeGrundton(tonart.tonic, tonart.acc)
+      + (tonart.minor ? " minor" : " major")
+    : null;
+  $("keybadge").innerHTML = label ? label + " · <b>" + zeichen + "</b>" : "";
   $("autokey").textContent = tonart ? "· " + label : "";
 }
 

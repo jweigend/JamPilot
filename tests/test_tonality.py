@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from chordify.chroma import NOTE_NAMES
-from chordify.tonality import (
+from jampilot.chroma import NOTE_NAMES
+from jampilot.tonality import (
     FLAT,
     MIN_KEY_SECONDS,
     SHARP,
@@ -27,15 +27,15 @@ def _chroma(*notes: str) -> np.ndarray:
 # dem, was ueber mehrere Akkorde hinweg klingt - genau das wird hier gefuettert.
 KADENZEN = {
     # C-Dur: C  F  G  Am
-    "C-Dur": [("C", "E", "G"), ("F", "A", "C"), ("G", "B", "D"), ("A", "C", "E")],
+    "C major": [("C", "E", "G"), ("F", "A", "C"), ("G", "B", "D"), ("A", "C", "E")],
     # F-Dur: F  Bb  C  Dm   (Bb = die Tonklasse, die als A# falsch geschrieben waere)
-    "F-Dur": [("F", "A", "C"), ("A#", "D", "F"), ("C", "E", "G"), ("D", "F", "A")],
+    "F major": [("F", "A", "C"), ("A#", "D", "F"), ("C", "E", "G"), ("D", "F", "A")],
     # D-Dur: D  G  A  Bm    (mit F# und C#)
-    "D-Dur": [("D", "F#", "A"), ("G", "B", "D"), ("A", "C#", "E"), ("B", "D", "F#")],
+    "D major": [("D", "F#", "A"), ("G", "B", "D"), ("A", "C#", "E"), ("B", "D", "F#")],
     # a-Moll: Am  Dm  E  Am
-    "A-Moll": [("A", "C", "E"), ("D", "F", "A"), ("E", "G#", "B"), ("A", "C", "E")],
+    "A minor": [("A", "C", "E"), ("D", "F", "A"), ("E", "G#", "B"), ("A", "C", "E")],
     # d-Moll: Dm  Gm  A  Dm
-    "D-Moll": [("D", "F", "A"), ("G", "A#", "D"), ("A", "C#", "E"), ("D", "F", "A")],
+    "D minor": [("D", "F", "A"), ("G", "A#", "D"), ("A", "C#", "E"), ("D", "F", "A")],
 }
 
 
@@ -50,17 +50,17 @@ def _hoere(kadenz, sekunden: float = 40.0, hop: float = 0.25) -> KeyEstimator:
 
 class TestAccidentalForKey:
     @pytest.mark.parametrize("tonart,tonika,moll,erwartet", [
-        ("C-Dur", 0, False, SHARP),     # keine Vorzeichen -> Kreuze als Vorgabe
-        ("G-Dur", 7, False, SHARP),
-        ("D-Dur", 2, False, SHARP),
-        ("F-Dur", 5, False, FLAT),
-        ("Bb-Dur", 10, False, FLAT),
-        ("Eb-Dur", 3, False, FLAT),
-        ("A-Moll", 9, True, SHARP),     # Paralleltonart C-Dur
-        ("E-Moll", 4, True, SHARP),     # Paralleltonart G-Dur
-        ("D-Moll", 2, True, FLAT),      # Paralleltonart F-Dur
-        ("G-Moll", 7, True, FLAT),      # Paralleltonart Bb-Dur
-        ("C-Moll", 0, True, FLAT),      # Paralleltonart Eb-Dur
+        ("C major", 0, False, SHARP),     # keine Vorzeichen -> Kreuze als Vorgabe
+        ("G major", 7, False, SHARP),
+        ("D major", 2, False, SHARP),
+        ("F major", 5, False, FLAT),
+        ("Bb major", 10, False, FLAT),
+        ("Eb major", 3, False, FLAT),
+        ("A minor", 9, True, SHARP),     # Paralleltonart C-Dur
+        ("E minor", 4, True, SHARP),     # Paralleltonart G-Dur
+        ("D minor", 2, True, FLAT),      # Paralleltonart F-Dur
+        ("G minor", 7, True, FLAT),      # Paralleltonart Bb-Dur
+        ("C minor", 0, True, FLAT),      # Paralleltonart Eb-Dur
     ])
     def test_vorzeichen_der_tonart(self, tonart, tonika, moll, erwartet):
         assert accidental_for_key(tonika, moll) == erwartet, tonart
@@ -99,16 +99,16 @@ class TestSpell:
 class TestKey:
     def test_grundton_in_der_eigenen_schreibweise(self):
         # Dieselbe Tonklasse (10), zwei Tonarten: einmal Bb, einmal A#.
-        assert Key(tonic=10, minor=False, confidence=0.9).label == "Bb-Dur"
-        assert Key(tonic=10, minor=True, confidence=0.9).label == "Bb-Moll"
+        assert Key(tonic=10, minor=False, confidence=0.9).label == "Bb major"
+        assert Key(tonic=10, minor=True, confidence=0.9).label == "Bb minor"
         # In H-Dur (11) waere es ein Kreuz - der Grundton selbst hat keins.
-        assert Key(tonic=6, minor=False, confidence=0.9).label == "F#-Dur"
+        assert Key(tonic=6, minor=False, confidence=0.9).label == "F# major"
 
     def test_as_dict_liefert_den_grundton_kanonisch(self):
         # Der Browser schreibt selbst - er braucht die kanonische Form.
         payload = Key(tonic=10, minor=False, confidence=0.9).as_dict()
         assert payload == {"tonic": "A#", "minor": False,
-                           "acc": FLAT, "label": "Bb-Dur"}
+                           "acc": FLAT, "label": "Bb major"}
 
 
 class TestKeyEstimator:
@@ -121,7 +121,7 @@ class TestKeyEstimator:
         assert estimator.key is None
 
     def test_meldet_nach_genug_musik(self):
-        estimator = _hoere(KADENZEN["C-Dur"], sekunden=MIN_KEY_SECONDS + 1.0)
+        estimator = _hoere(KADENZEN["C major"], sekunden=MIN_KEY_SECONDS + 1.0)
         assert estimator.key is not None
         assert estimator.heard_seconds >= MIN_KEY_SECONDS
 
@@ -130,8 +130,8 @@ class TestKeyEstimator:
         assert _hoere(KADENZEN[erwartet]).key.label == erwartet
 
     @pytest.mark.parametrize("kadenz,erwartet", [
-        ("F-Dur", FLAT), ("D-Moll", FLAT),   # b-Tonarten
-        ("D-Dur", SHARP), ("A-Moll", SHARP),  # Kreuz-Tonarten
+        ("F major", FLAT), ("D minor", FLAT),   # b-Tonarten
+        ("D major", SHARP), ("A minor", SHARP),  # Kreuz-Tonarten
     ])
     def test_liefert_die_schreibweise(self, kadenz, erwartet):
         assert _hoere(KADENZEN[kadenz]).key.accidental == erwartet
@@ -139,11 +139,11 @@ class TestKeyEstimator:
     def test_f_dur_schreibt_die_zehnte_tonklasse_als_bb(self):
         # Der eigentliche Zweck des ganzen Moduls: in F-Dur heisst der Akkord
         # auf Tonklasse 10 "Bb", nicht "A#".
-        key = _hoere(KADENZEN["F-Dur"]).key
+        key = _hoere(KADENZEN["F major"]).key
         assert spell("A#", key.accidental) == "Bb"
 
     def test_d_dur_laesst_das_kreuz_stehen(self):
-        key = _hoere(KADENZEN["D-Dur"]).key
+        key = _hoere(KADENZEN["D major"]).key
         assert spell("F#", key.accidental) == "F#"
 
     def test_stille_zaehlt_nicht_als_musik(self):
@@ -156,29 +156,29 @@ class TestKeyEstimator:
     def test_bleibt_bei_verwandter_tonart_stabil(self):
         # C-Dur und a-Moll teilen alle Toene; ohne Traegheit flackert die
         # Erkennung zwischen beiden - und mit ihr die Schreibweise.
-        estimator = _hoere(KADENZEN["C-Dur"], sekunden=60.0)
+        estimator = _hoere(KADENZEN["C major"], sekunden=60.0)
         stabil = estimator.key.label
         gemeldet = set()
         for i in range(200):
-            estimator.add(_chroma(*KADENZEN["C-Dur"][i // 8 % 4]))
+            estimator.add(_chroma(*KADENZEN["C major"][i // 8 % 4]))
             gemeldet.add(estimator.key.label)
         assert gemeldet == {stabil}
 
     def test_folgt_einer_modulation(self):
         # Das Histogramm verfaellt, damit ein Stueck die Tonart wechseln darf.
-        estimator = _hoere(KADENZEN["C-Dur"], sekunden=40.0)
-        assert estimator.key.label == "C-Dur"
+        estimator = _hoere(KADENZEN["C major"], sekunden=40.0)
+        assert estimator.key.label == "C major"
         for i in range(int(90.0 / 0.25)):
-            estimator.add(_chroma(*KADENZEN["D-Dur"][i // 8 % 4]))
-        assert estimator.key.label == "D-Dur"
+            estimator.add(_chroma(*KADENZEN["D major"][i // 8 % 4]))
+        assert estimator.key.label == "D major"
 
 
 class TestEstimateKey:
     def test_offline_ohne_verfall(self):
         # Offline zaehlt die ganze Datei gleich - nicht nur ihr Ende.
         chromas = [_chroma(*akkord)
-                   for akkord in KADENZEN["F-Dur"] for _ in range(10)]
-        assert estimate_key(chromas, hop_seconds=1.0).label == "F-Dur"
+                   for akkord in KADENZEN["F major"] for _ in range(10)]
+        assert estimate_key(chromas, hop_seconds=1.0).label == "F major"
 
     def test_zu_wenig_material_liefert_keine_tonart(self):
         assert estimate_key([_chroma("C", "E", "G")], hop_seconds=1.0) is None

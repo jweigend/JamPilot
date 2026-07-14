@@ -87,12 +87,12 @@ def _detect_full(audio: np.ndarray) -> str:
 
 def run() -> bool:
     rng = np.random.default_rng(42)
-    print(f"Selbsttest: {len(TEST_CASES)} Akkorde @ {SAMPLERATE} Hz, "
-          f"librosa: {'ja' if HAVE_LIBROSA else 'NEIN (nur FFT-Fallback)'}\n")
+    print(f"Selftest: {len(TEST_CASES)} chords @ {SAMPLERATE} Hz, "
+          f"librosa: {'yes' if HAVE_LIBROSA else 'NO (FFT fallback only)'}\n")
 
-    header = f"  {'':6s} {'FFT sauber':>12s} {'FFT real.':>12s}"
+    header = f"  {'':6s} {'FFT clean':>12s} {'FFT noisy':>12s}"
     if HAVE_LIBROSA:
-        header += f" {'CQT sauber':>12s} {'CQT real.':>12s}"
+        header += f" {'CQT clean':>12s} {'CQT noisy':>12s}"
     print(header)
 
     scores = {"fft_clean": 0, "fft_real": 0, "cqt_clean": 0, "cqt_real": 0}
@@ -117,10 +117,10 @@ def run() -> bool:
         print(line)
 
     total = len(TEST_CASES)
-    print(f"\n  FFT: sauber {scores['fft_clean']}/{total}, "
-          f"realistisch {scores['fft_real']}/{total}")
+    print(f"\n  FFT: clean {scores['fft_clean']}/{total}, "
+          f"noisy {scores['fft_real']}/{total}")
     if HAVE_LIBROSA:
-        print(f"  CQT: sauber {scores['cqt_clean']}/{total}, "
-              f"realistisch {scores['cqt_real']}/{total}")
+        print(f"  CQT: clean {scores['cqt_clean']}/{total}, "
+              f"noisy {scores['cqt_real']}/{total}")
         return scores["cqt_clean"] == total and scores["cqt_real"] >= total - 1
     return scores["fft_clean"] == total
