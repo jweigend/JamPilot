@@ -124,6 +124,7 @@ def _load_wav_mono(path: str) -> tuple[np.ndarray, int]:
 def cmd_analyze(args):
     from .chroma import analyze_window, rms
     from .chords import SILENCE_RMS, match_chord
+    from .tonality import SHARP, KeyEstimator, spell
 
     samples, samplerate = _load_wav_mono(args.file)
     window = int(ANALYSIS_WINDOW * samplerate)
@@ -134,7 +135,12 @@ def cmd_analyze(args):
         print(f"  Datei ist kuerzer als das Analysefenster ({ANALYSIS_WINDOW}s).")
         return
 
-    last = None
+    # Offline liegt die ganze Datei vor: die Tonart darf ueber das gesamte
+    # Material bestimmt werden (kein Verfall), statt nur ueber ihr Ende. Deshalb
+    # erst alles erkennen, dann die Tonart, dann ausgeben - die Schreibweise der
+    # ersten Zeile haengt schliesslich von Akkorden ab, die spaeter kommen.
+    keys = KeyEstimator(hop / samplerate, half_life=None)
+    erkannt = []
     # +1, sonst faellt das letzte vollstaendige Fenster raus - und eine Datei
     # von genau Fensterlaenge wuerde ueberhaupt nicht analysiert.
     for start in range(0, len(samples) - window + 1, hop):
@@ -144,9 +150,19 @@ def cmd_analyze(args):
         else:
             analysis = analyze_window(chunk, samplerate)
             name = match_chord(analysis.chroma, analysis.bass).name
+            keys.add(analysis.chroma)
         # Gepoolt wird die juengere Fensterhaelfte -> Zeitstempel mittig.
+        erkannt.append(((start + 0.75 * window) / samplerate, name))
+
+    key = keys.key
+    accidental = key.accidental if key else SHARP
+    print(f"  Tonart: {key.label} ({'b' if accidental != SHARP else '#'})\n" if key
+          else "  Tonart: unbestimmt (zu wenig Musik) - Akkorde mit Kreuz\n")
+
+    last = None
+    for zeit, name in erkannt:
         if name != last:
-            print(f"  {(start + 0.75 * window) / samplerate:6.1f}s  {name}")
+            print(f"  {zeit:6.1f}s  {spell(name, accidental)}")
             last = name
 
 
@@ -224,6 +240,7 @@ def cmd_run(args):
 def _display_loop(loop, args, broadcaster=None):
     from .chroma import FrameHistory, analyze_window, rms
     from .chords import SILENCE_RMS, ChordSmoother, match_chord
+    from .tonality import SHARP, KeyEstimator, spell
 
     sr = args.samplerate
     window_frames = int(round(ANALYSIS_WINDOW * sr))
@@ -231,6 +248,10 @@ def _display_loop(loop, args, broadcaster=None):
     smoother = ChordSmoother(window=3)
     # Frame-Chroma laenger aufheben als ein Fenster - siehe _locate_onset.
     history = FrameHistory(MAX_ONSET_SEARCH + ANALYSIS_WINDOW + 1.0)
+    # Die Tonart entscheidet ueber die Schreibweise (# oder b). Sie braucht
+    # laengeres Material als ein Akkord und meldet sich die ersten ~12s Musik
+    # gar nicht - bis dahin gelten Kreuze.
+    keys = KeyEstimator(ANALYSIS_HOP)
 
     # Die Zeitleiste: (Onset-Position im Stream, Akkord). Die Onsets werden im
     # Frame-Chroma gemessen, nicht aus dem Erkennungszeitpunkt zurueckgerechnet
@@ -285,6 +306,7 @@ def _display_loop(loop, args, broadcaster=None):
                 result = match_chord(analysis.chroma, analysis.bass)
                 raw = result.name
                 history.add(analysis.frames, window_start)
+                keys.add(analysis.chroma)
                 chord = smoother.update(result)
                 if chord == "N":
                     chord = "?"
@@ -318,20 +340,34 @@ def _display_loop(loop, args, broadcaster=None):
                             f"{audible_pos:.3f}\n")
                 debug.flush()
 
+            key = keys.key
             if broadcaster:
                 # Der Browser bekommt die Zeitleiste in Stream-Sekunden plus
                 # die gerade hoerbare Position. Er leitet daraus Akkordanzeige
                 # UND Laufband aus derselben Uhr ab - deshalb koennen sie nicht
                 # auseinanderlaufen.
+                #
+                # Die Akkorde gehen kanonisch raus (immer mit Kreuz); wie sie
+                # geschrieben werden, entscheidet der Browser aus `key` und der
+                # dort eingestellten Vorliebe. So wirkt eine Umstellung sofort
+                # und rueckwirkend, ohne Runde ueber den Server - und Laptop und
+                # Handy duerfen verschieden eingestellt sein.
                 broadcaster.publish({
                     "t": round(audible_pos, 3),
                     "chords": [{"c": name, "at": round(pos, 3)}
                                for pos, name in timeline],
                     "lead": round(lead, 2),
+                    "key": key.as_dict() if key else None,
                 })
+
+            # Im Terminal gibt es keinen Dialog - hier gilt immer die erkannte
+            # Tonart, und solange keine feststeht, das Kreuz.
+            accidental = key.accidental if key else SHARP
             sys.stdout.write(
-                f"\r  Kommt in {max(lead, 0.0):3.1f}s: {current or '-':<6s} "
-                f"| Jetzt hoerbar: {audible:<6s}"
+                f"\r  Kommt in {max(lead, 0.0):3.1f}s: "
+                f"{spell(current or '-', accidental):<6s} "
+                f"| Jetzt hoerbar: {spell(audible, accidental):<6s} "
+                f"| Tonart: {key.label if key else '...':<8s}"
             )
             sys.stdout.flush()
     except KeyboardInterrupt:

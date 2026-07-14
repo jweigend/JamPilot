@@ -35,8 +35,21 @@ SILENCE_RMS = 1e-4
 
 @dataclass
 class ChordResult:
-    name: str        # z.B. "G", "Am", "C7" - oder "N" fuer kein Akkord
+    """Was klingt - als Tonklasse plus Akkordart, nicht als Notenname.
+
+    Die Signalstufe kann gar nicht wissen, ob Tonklasse 10 in diesem Stueck
+    "A#" oder "Bb" heisst: das entscheidet die Tonart, und die steht erst nach
+    Sekunden fest (siehe tonality.py). `root` ist deshalb die Zahl 0..11, und
+    `name` ist eine kanonische ID - immer mit Kreuz geschrieben, damit sie
+    stabil vergleichbar ist (Zeitleiste, Onset-Suche, Uebertragung zum
+    Browser). `name` ist NICHT die Anzeige. Angezeigt wird, was
+    tonality.spell() daraus in der erkannten Tonart macht.
+    """
+
+    name: str        # kanonische ID: "G", "Am", "A#m7" - oder "N" (kein Akkord)
     confidence: float
+    root: int | None = None   # Tonklasse 0..11, None bei "N"
+    quality: str = ""         # "", "m", "7", "maj7", "m7"
 
     @property
     def is_chord(self) -> bool:
@@ -53,12 +66,12 @@ def _build_templates():
                 vec[(root + interval) % 12] = 1.0 if k == 0 else 0.8
             vec /= np.linalg.norm(vec)
             extra_notes = len(intervals) - 3
-            templates.append((NOTE_NAMES[root] + suffix, vec, extra_notes, root))
+            templates.append((NOTE_NAMES[root] + suffix, vec, extra_notes, root, suffix))
     return templates
 
 
 _TEMPLATES = _build_templates()
-_TEMPLATE_BY_NAME = {name: vec for name, vec, _, _ in _TEMPLATES}
+_TEMPLATE_BY_NAME = {name: vec for name, vec, _, _, _ in _TEMPLATES}
 
 
 def find_onset_frame(frames: np.ndarray, prev_name: str | None, new_name: str) -> int | None:
@@ -113,17 +126,19 @@ def match_chord(chroma: np.ndarray, bass_chroma: np.ndarray | None = None) -> Ch
     # sauberere Chroma und kommt daher mit der kleineren Marge aus.
     penalty_rate = COMPLEXITY_PENALTY_FFT if bass is None else COMPLEXITY_PENALTY_CQT
 
-    best_name, best_score = "N", 0.0
-    for name, template, extra_notes, root in _TEMPLATES:
+    best = None
+    best_score = 0.0
+    for name, template, extra_notes, root, suffix in _TEMPLATES:
         score = float(np.dot(unit, template)) - penalty_rate * extra_notes
         if bass is not None:
             score += BASS_BONUS * float(bass[root])
         if score > best_score:
-            best_name, best_score = name, score
+            best, best_score = (name, root, suffix), score
 
-    if best_score < MATCH_THRESHOLD:
+    if best is None or best_score < MATCH_THRESHOLD:
         return ChordResult("N", best_score)
-    return ChordResult(best_name, best_score)
+    name, root, suffix = best
+    return ChordResult(name, best_score, root=root, quality=suffix)
 
 
 class ChordSmoother:

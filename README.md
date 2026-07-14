@@ -128,18 +128,57 @@ Fernanzeigen). Klick/Tipp = Vollbild. Technik: eingebetteter HTTP-Server mit
 Server-Sent-Events, komplett offlinefähig (kein CDN); `?demo=1` zeigt die
 Seite mit Beispielakkorden ohne laufende Analyse.
 
+## Schreibweise: ♯ oder ♭ (Tonart-Erkennung)
+
+Dieselbe Taste heißt je nach Stück **A♯ oder B♭** — die Tonklasse allein sagt
+das nicht, erst die **Tonart** entscheidet: in D-Dur steht ein A♯, in F-Dur ein
+B♭. Und sobald die Tonart feststeht, gibt es genau *eine* schöne Schreibweise
+für alle Akkorde; man muss sie nicht pro Akkord neu erfinden.
+
+Deshalb sind Erkennung und Benennung **zwei getrennte Schritte**:
+
+1. **Signal** (`chords.py`) → Tonklasse als Zahl 0..11 plus Akkordart. Der
+   Name, den `ChordResult` trägt, ist eine kanonische **ID** (immer mit Kreuz),
+   keine Anzeige — er hält die Zeitleiste vergleichbar.
+2. **Musik** (`tonality.py`) → über ein Tonklassen-Histogramm (Krumhansl-
+   Schmuckler, 24 Dur-/Moll-Profile) die wahrscheinlichste Tonart, und daraus
+   **einmal** die Schreibweise für die ganze Anzeige.
+
+Die ersten ~12 Sekunden Musik meldet die Erkennung bewusst **gar keine**
+Tonart: ein Histogramm aus zwei Akkorden passt auf ein halbes Dutzend Tonarten,
+und eine geratene Tonart wäre schlimmer als keine — sie schriebe die Akkorde
+falsch und wechselte die Schreibweise mitten im Stück. Bis dahin gilt das Kreuz.
+Danach folgt die Erkennung auch einer **Modulation** (das Histogramm verfällt
+mit ~30 s Halbwertszeit), bleibt aber träge genug, um nicht zwischen
+verwandten Tonarten (C-Dur/a-Moll) zu flackern.
+
+Der Browser bekommt die Akkorde kanonisch plus die erkannte Tonart und
+schreibt selbst — **über das Zahnrad rechts oben**:
+
+| Einstellung | Wirkung |
+|---|---|
+| **Automatisch** (Vorgabe) | nach erkannter Tonart; die Tonart steht links oben |
+| **Immer Kreuz** | C♯ · D♯ · F♯ · G♯ · A♯ |
+| **Immer b** | D♭ · E♭ · G♭ · A♭ · B♭ |
+
+Die Wahl wirkt sofort und rückwirkend auf alles, was schon auf dem Laufband
+steht, überdauert einen Reload (`localStorage`) und gilt **pro Gerät** — Laptop
+und Smartphone dürfen verschieden eingestellt sein. Terminal und `analyze`
+folgen immer der erkannten Tonart.
+
 ## Projektstruktur
 
 ```
 chordify/
   chroma.py        FFT → Chroma-Vektor (12 Tonklassen), CQT-Frame-Chroma
   chords.py        Akkord-Templates, Matching, Glättung, Onset-Suche
+  tonality.py      Tonart-Erkennung → Schreibweise (♯ oder ♭)
   delay_stream.py  Duplex-Stream mit Delay-Ringpuffer (sounddevice/PortAudio)
   routing.py       Null-Sink-Routing für Linux (pactl), transaktional
   web.py           SSE-Server + Vollbildanzeige mit Zeitleiste
   selftest.py      Synthetische Akkorde als Pipeline-Test
   cli.py           Kommandozeilen-Frontend, Zeitleisten-Logik
-tests/             pytest-Suite (108 Tests)
+tests/             pytest-Suite (155 Tests)
 ```
 
 ## Tests
@@ -168,8 +207,9 @@ Abgedeckt sind vor allem die Stellen, an denen sich Fehler *leise* einschleichen
 
 ## Roadmap
 
-- Bedienelemente in der Web-Anzeige: Vorlauf-Regler, Ein/Aus, Geräteauswahl
-  (bisher nur Anzeige; Steuerung läuft über die CLI).
+- Weitere Bedienelemente in der Web-Anzeige: Vorlauf-Regler, Ein/Aus,
+  Geräteauswahl (bisher gibt es dort nur die Schreibweise; der Rest der
+  Steuerung läuft über die CLI).
 - Bessere Erkennung: sus/dim/aug-Templates, Umkehrungen (Slash-Akkorde),
   Beat-synchrone Segmentierung; später Essentia (fertige HPCP/Akkord-/
   Tonarterkennung, siehe Explorationsdokument) oder ein gelerntes Modell.

@@ -45,6 +45,14 @@ class TestAnalyze:
         cli.cmd_analyze(argparse.Namespace(file=str(wav(0.5))))
         assert "kuerzer als das Analysefenster" in capsys.readouterr().out
 
+    def test_zu_wenig_musik_raet_die_tonart_nicht(self, wav, capsys):
+        # Ein einzelner Akkord ueber 2.5s legt keine Tonart fest. Statt eine zu
+        # raten (und die Akkorde womoeglich falsch zu schreiben), sagt die
+        # Ausgabe, dass sie unbestimmt ist - und bleibt beim Kreuz.
+        cli.cmd_analyze(argparse.Namespace(file=str(wav(2.5))))
+        ausgabe = capsys.readouterr().out
+        assert "Tonart: unbestimmt" in ausgabe
+
 
 class TestArgumentGrenzen:
     @pytest.mark.parametrize("wert", ["-5", "0.1", "999"])

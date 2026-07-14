@@ -171,12 +171,64 @@ PAGE = r"""<!DOCTYPE html>
     display: flex; justify-content: space-between; align-items: flex-start;
     z-index: 10;
   }
+  #brandbox { display: flex; flex-direction: column; gap: .9vmin; }
   #brand { display: flex; align-items: center; gap: 1vmin;
            color: #666; font-size: 2.2vmin; letter-spacing: .35em;
            text-transform: uppercase; }
   #dot { width: 1.1vmin; height: 1.1vmin; border-radius: 50%;
          background: #e2483d; transition: background .3s; }
   #dot.on { background: #3ddc7f; }
+
+  /* Die erkannte Tonart - der Grund, warum die Akkorde so geschrieben werden,
+     wie sie geschrieben werden. Ohne diese Anzeige wirkt die Schreibweise
+     willkuerlich; mit ihr ist sie nachvollziehbar. */
+  #keybadge { color: #4a5158; font-size: max(1.9vmin, 13px);
+              letter-spacing: .08em; padding-left: 2.1vmin; min-height: 2.4vmin; }
+  #keybadge b { color: #6ea8ff; font-weight: 600;
+                font-size: 1.35em; line-height: 1; }   /* ♭/♯ lesbar gross */
+
+  #right { display: flex; align-items: flex-start; gap: 1.8vmin; }
+  #gear {
+    background: none; border: 0; padding: .6vmin; cursor: pointer;
+    color: #555; transition: color .2s, transform .2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #gear:hover, #gear.open { color: #6ea8ff; transform: rotate(45deg); }
+  #gear svg { width: 3.4vmin; height: 3.4vmin; display: block;
+              min-width: 22px; min-height: 22px; }
+
+  #backdrop {
+    position: fixed; inset: 0; background: #000c; z-index: 20;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #backdrop[hidden] { display: none; }
+  #dialog {
+    background: #14161a; border: 1px solid #262a30; border-radius: 1.6vmin;
+    padding: 3.4vmin; width: min(46rem, 88vw); cursor: default;
+  }
+  #dialog h2 { font-size: max(2.6vmin, 17px); font-weight: 650;
+               letter-spacing: .02em; }
+  #dialog p.sub { color: #6b7280; font-size: max(1.9vmin, 13px);
+                  margin-top: .8vmin; line-height: 1.5; }
+  .opt {
+    display: flex; align-items: center; gap: 1.6vmin; width: 100%;
+    margin-top: 1.6vmin; padding: 1.8vmin 2vmin; cursor: pointer;
+    background: #1b1e23; border: 1px solid #2a2f36; border-radius: 1vmin;
+    color: #c8cdd4; text-align: left; font: inherit;
+    transition: border-color .15s, background .15s;
+  }
+  .opt:hover { background: #202429; border-color: #3a414a; }
+  .opt[aria-checked="true"] { border-color: #6ea8ff; background: #1a2130; }
+  .opt .glyph { font-size: max(3.4vmin, 22px); width: 2.2em; flex: none;
+                text-align: center; color: #6ea8ff; font-weight: 600;
+                letter-spacing: .08em; }
+  .opt .text { display: block; }   /* sonst laeuft die Beschreibung in die Zeile
+                                      des Labels hinein statt darunter */
+  .opt .label { display: block; font-size: max(2.1vmin, 15px);
+                font-weight: 600; color: #e6e9ed; }
+  .opt .desc { display: block; font-size: max(1.7vmin, 12px); color: #6b7280;
+               margin-top: .5vmin; line-height: 1.45; }
+  #autokey { color: #6ea8ff; }
 
   #qrbox { text-align: center; }
   #qrcard { background: #fff; border-radius: 1.2vmin; padding: .9vmin;
@@ -252,10 +304,67 @@ PAGE = r"""<!DOCTYPE html>
 </head>
 <body>
   <div id="topbar">
-    <div id="brand"><div id="dot"></div>Chordify</div>
-    <div id="qrbox">
-      <div id="qrcard"><img src="/qr.svg" alt="QR"></div>
-      <div id="qrlabel">Smartphone verbinden</div>
+    <div id="brandbox">
+      <div id="brand"><div id="dot"></div>Chordify</div>
+      <div id="keybadge"></div>
+    </div>
+    <div id="right">
+      <button id="gear" aria-label="Einstellungen" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0
+                   0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0
+                   0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0
+                   9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0
+                   0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0
+                   0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0
+                   4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2
+                   0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0
+                   1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1
+                   1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0
+                   0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0
+                   1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0
+                   0-1.51 1z"></path>
+        </svg>
+      </button>
+      <div id="qrbox">
+        <div id="qrcard"><img src="/qr.svg" alt="QR"></div>
+        <div id="qrlabel">Smartphone verbinden</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="backdrop" hidden>
+    <div id="dialog" role="dialog" aria-modal="true" aria-label="Einstellungen">
+      <h2>Schreibweise der Akkorde</h2>
+      <p class="sub">Dieselbe Taste heisst je nach Tonart A&#9839; oder B&#9837;.
+         Chordify erkennt die Tonart und schreibt danach &ndash; oder du legst
+         es fest.</p>
+      <button class="opt" data-mode="auto" role="radio">
+        <span class="glyph">&#9839;&#9837;</span>
+        <span class="text">
+          <span class="label">Automatisch <span id="autokey"></span></span>
+          <span class="desc">Nach erkannter Tonart. Die ersten Sekunden gilt
+                             das Kreuz, bis die Tonart feststeht.</span>
+        </span>
+      </button>
+      <button class="opt" data-mode="sharp" role="radio">
+        <span class="glyph">&#9839;</span>
+        <span class="text">
+          <span class="label">Immer Kreuz</span>
+          <span class="desc">C&#9839; &middot; D&#9839; &middot; F&#9839;
+                             &middot; G&#9839; &middot; A&#9839;</span>
+        </span>
+      </button>
+      <button class="opt" data-mode="flat" role="radio">
+        <span class="glyph">&#9837;</span>
+        <span class="text">
+          <span class="label">Immer b</span>
+          <span class="desc">D&#9837; &middot; E&#9837; &middot; G&#9837;
+                             &middot; A&#9837; &middot; B&#9837;</span>
+        </span>
+      </button>
     </div>
   </div>
 
@@ -285,6 +394,34 @@ let offsetSamples = [];
 let chips = new Map();       // key -> {el, at, chord}
 let link = "connecting";     // connecting | live | lost
 
+// SCHREIBWEISE. Der Server schickt die Akkorde kanonisch, immer mit Kreuz
+// ("A#m7") - das ist eine ID, keine Anzeige. Wie sie GESCHRIEBEN werden,
+// entscheidet sich hier: aus der erkannten Tonart (`tonart`, vom Server) oder
+// aus der festen Vorgabe des Benutzers (`modus`). Deshalb wirkt eine Umstellung
+// sofort und rueckwirkend auf alles, was gerade auf dem Laufband steht - und
+// Laptop und Handy duerfen verschieden eingestellt sein.
+const MODUS_KEY = "chordify.accidental";
+const FLAT_OF  = { "C#": "D♭", "D#": "E♭", "F#": "G♭",
+                   "G#": "A♭", "A#": "B♭" };
+const SHARP_OF = { "C#": "C♯", "D#": "D♯", "F#": "F♯",
+                   "G#": "G♯", "A#": "A♯" };
+
+let modus = localStorage.getItem(MODUS_KEY) || "auto";   // auto | sharp | flat
+let tonart = null;           // {tonic, minor, acc, label} - oder null
+let schreibweise = "sharp";  // was daraus gerade folgt
+
+// Ohne erkannte Tonart gilt das Kreuz: das ist die Schreibweise ohne Vorzeichen
+// und die einzige ehrliche Vorgabe, solange wir die Tonart nicht kennen.
+function gewaehlteSchreibweise() {
+  if (modus === "sharp" || modus === "flat") return modus;
+  return tonart ? tonart.acc : "sharp";
+}
+
+function schreibeGrundton(root, acc) {
+  if (!root.includes("#")) return root;
+  return (acc === "flat" ? FLAT_OF : SHARP_OF)[root] || root;
+}
+
 // Uhrabgleich nach NTP-Prinzip: die Zustellzeit eines SSE-Pakets ist immer
 // positiv, also ist das MINIMUM der beobachteten Offsets der wahre Versatz.
 // Ohne diesen Filter wandert die Zeitleiste mit dem Netz- und Tick-Jitter.
@@ -301,8 +438,9 @@ function streamNow() { return performance.now() / 1000 - offset; }
 function fmtChord(name) {
   if (!name || name === "-" || name === " ") return null;
   if (name === "?") return { root: "…", suffix: "" };
-  const m = name.match(/^([A-G][#b]?)(.*)$/);
-  return m ? { root: m[1], suffix: m[2] } : { root: name, suffix: "" };
+  const m = name.match(/^([A-G]#?)(.*)$/);
+  if (!m) return { root: name, suffix: "" };
+  return { root: schreibeGrundton(m[1], schreibweise), suffix: m[2] };
 }
 
 function chordHtml(name) {
@@ -412,9 +550,51 @@ function animate() {
   }
 }
 
+// Aendert sich die Schreibweise, muss ALLES neu geschrieben werden, was schon
+// dasteht - der grosse Akkord und jeder Chip auf dem Laufband. Beide cachen
+// ihr gerendertes HTML, also wird der Cache verworfen; die Chips baut
+// syncChips() im naechsten Frame ohnehin neu auf.
+function neuSchreibenFallsNoetig() {
+  const acc = gewaehlteSchreibweise();
+  const geaendert = acc !== schreibweise;
+  schreibweise = acc;          // erst setzen, dann anzeigen: zeigeTonart liest es
+  zeigeTonart();
+  if (!geaendert) return;
+  $("current").dataset.shown = "";
+  for (const chip of chips.values()) chip.el.remove();
+  chips.clear();
+}
+
+function zeigeTonart() {
+  // Die Tonart steht auch dann da, wenn der Benutzer die Schreibweise fest
+  // vorgegeben hat - sie ist eine Aussage ueber das Stueck, keine ueber die
+  // Anzeige. Nur der Zusatz sagt, was gerade wirklich geschrieben wird.
+  const zeichen = schreibweise === "flat" ? "♭" : "♯";
+  const label = tonart ? tonart.label.replace("b-", "♭-").replace("#-", "♯-")
+                       : null;
+  $("keybadge").innerHTML = label ? label + " · <b>" + zeichen + "</b>"
+                                  : "";
+  $("autokey").textContent = tonart ? "· " + label : "";
+}
+
+function setzeModus(neu) {
+  modus = neu;
+  try { localStorage.setItem(MODUS_KEY, neu); } catch (e) {}  // Privatmodus
+  for (const opt of document.querySelectorAll(".opt"))
+    opt.setAttribute("aria-checked", String(opt.dataset.mode === neu));
+  neuSchreibenFallsNoetig();
+}
+
+function dialog(offen) {
+  $("backdrop").hidden = !offen;
+  $("gear").classList.toggle("open", offen);
+}
+
 function apply(state) {
   chords = state.chords || [];
   horizon = Math.max(1.5, (state.lead || 3) + 0.8);
+  tonart = state.key || null;
+  neuSchreibenFallsNoetig();
   syncClock(state.t);
 }
 
@@ -425,13 +605,32 @@ function connect() {
   es.onmessage = e => { link = "live"; apply(JSON.parse(e.data)); };
 }
 
-document.body.addEventListener("click", () => {
+// Ein Klick irgendwohin schaltet Vollbild. Das Zahnrad und der Dialog sind
+// davon ausgenommen - sonst wuerde jede Einstellung nebenbei das Vollbild
+// umschalten. Der Klick NEBEN den Dialog (auf den Hintergrund) schliesst ihn,
+// ohne das Vollbild anzufassen.
+document.body.addEventListener("click", ev => {
+  if (ev.target.closest("#gear")) { dialog($("backdrop").hidden); return; }
+  if (ev.target.closest("#dialog")) return;
+  if (!$("backdrop").hidden) { dialog(false); return; }
+
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen().catch(() => {});
 });
 
+for (const opt of document.querySelectorAll(".opt"))
+  opt.addEventListener("click", () => setzeModus(opt.dataset.mode));
+
+document.addEventListener("keydown", ev => {
+  if (ev.key === "Escape") dialog(false);
+});
+
+setzeModus(modus);   // gespeicherte Wahl anwenden und im Dialog markieren
+
 if (new URLSearchParams(location.search).has("demo")) {
-  const prog = ["C", "G", "Am", "F", "C", "G7", "Am7", "F"];
+  // Demo in F-Dur: die Progression enthaelt A# (= Bb), damit man die
+  // Schreibweise umschalten sieht.
+  const prog = ["F", "A#", "C", "Dm", "F", "Gm", "C7", "A#"];
   const start = performance.now() / 1000;
   link = "live";
   setInterval(() => {
@@ -439,7 +638,10 @@ if (new URLSearchParams(location.search).has("demo")) {
     const list = [];
     for (let i = Math.floor(t / 2) - 1; i < t / 2 + 3; i++)
       if (i >= 0) list.push({ c: prog[i % prog.length], at: i * 2 });
-    apply({ t, chords: list, lead: 3 });
+    // Die Tonart faellt erst nach ein paar Sekunden - wie im echten Betrieb.
+    const key = t < 8 ? null
+      : { tonic: "F", minor: false, acc: "flat", label: "F-Dur" };
+    apply({ t, chords: list, lead: 3, key });
   }, 250);
   $("dot").classList.add("on");
 } else {
