@@ -161,19 +161,46 @@ the lane, survives a reload (`localStorage`) and applies **per device** — lapt
 and phone may be set differently. Terminal and `analyze` always follow the
 detected key.
 
+## Your instrument: chords or bass
+
+The chord says what the **band** plays. It does not say what a **bass player**
+plays: in C/E the chord is C, and the bass sits on E. That difference is not in
+the chord name — and it is the one thing human annotators disagree about most.
+
+So JamPilot **measures** the bass rather than deriving it from the chord. The
+gear menu switches the display:
+
+| Mode | Large on screen | Lane |
+|---|---|---|
+| **Chords** (default) | the audible chord | `C` |
+| **Bass** | the **measured bass note**, chord as context | `C/E` |
+
+The measurement is free: the analysis already computes a low-band chroma
+(32–260 Hz) and used to throw it away. Keeping it costs memory, not CPU —
+**0.03 ms** per analysis tick.
+
+*On the method:* the bass-transcription literature recommends pYIN on a
+band-passed mix. That was tried and rejected, with numbers: on dense voicings —
+chord tones sitting right above the bass, i.e. the normal case in real music —
+YIN drops to 4/12, because it estimates the period of the *mixture*. The low-band
+CQT chroma gets 60/60 on the same material and costs nothing, because a
+constant-Q transform uses long windows at low frequencies by construction. See
+`bass.py`.
+
 ## Project layout
 
 ```
 jampilot/
   chroma.py        FFT → chroma vector (12 pitch classes), CQT frame chroma
   chords.py        chord templates, matching, smoothing, onset search
+  bass.py          the measured bass note → inversions / slash chords
   tonality.py      key detection → spelling (♯ or ♭)
   delay_stream.py  duplex stream with the delay ring buffer (sounddevice/PortAudio)
   routing.py       null-sink routing for Linux (pactl), transactional
   web.py           SSE server + fullscreen display with the timeline
   selftest.py      synthetic chords as a pipeline test
   cli.py           command-line frontend, timeline logic
-tests/             pytest suite (155 tests)
+tests/             pytest suite (220 tests)
 docs/exploration/  design documents (in German)
 ```
 

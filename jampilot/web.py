@@ -208,6 +208,9 @@ PAGE = r"""<!DOCTYPE html>
   }
   #dialog h2 { font-size: max(2.6vmin, 17px); font-weight: 650;
                letter-spacing: .02em; }
+  #dialog h2.second { margin-top: 3.4vmin; padding-top: 2.8vmin;
+                      border-top: 1px solid #262a30; }
+  #dialog { max-height: 88vh; overflow-y: auto; }
   #dialog p.sub { color: #6b7280; font-size: max(1.9vmin, 13px);
                   margin-top: .8vmin; line-height: 1.5; }
   .opt {
@@ -250,6 +253,18 @@ PAGE = r"""<!DOCTYPE html>
   #current .suffix { font-size: 45%; font-weight: 550; color: #6ea8ff;
                      vertical-align: baseline; }
   #current.pop { animation: pop .45s ease-out; }
+
+  /* Bass-Modus: der gemessene Basston gross, der Akkord als Kontext darunter.
+     Der Bassist will wissen, was ER spielt - der Akkord sagt ihm das nicht. */
+  #stage { flex-direction: column; }
+  #context { display: none; margin-top: 1.2vh; text-align: center;
+             font-size: min(6vw, 7vh); font-weight: 600; color: #565e66;
+             line-height: 1; white-space: nowrap; }
+  #context .suffix { font-size: 55%; font-weight: 500; }
+  #context .over { font-size: 46%; font-weight: 400; color: #444b52;
+                   letter-spacing: .12em; text-transform: uppercase;
+                   margin-right: .5em; }
+  body.bass #current { font-size: min(34vw, 44vh); }
   @keyframes pop {
     0% { transform: scale(.94); opacity: .4; }
     100% { transform: scale(1); opacity: 1; }
@@ -295,6 +310,7 @@ PAGE = r"""<!DOCTYPE html>
     white-space: nowrap; will-change: left, opacity;
   }
   .chip .suffix { font-size: 55%; color: #567da3; }
+  .chip .bassnote { color: #6ea8ff; }   /* das /E in C/E - die eigentliche Info */
   .chip .eta { display: block; text-align: left; font-size: 2vmin;
                color: #4a5158; font-weight: 400; margin-top: .4vh; }
 
@@ -337,7 +353,28 @@ PAGE = r"""<!DOCTYPE html>
 
   <div id="backdrop" hidden>
     <div id="dialog" role="dialog" aria-modal="true" aria-label="Settings">
-      <h2>Chord spelling</h2>
+      <h2>Your instrument</h2>
+      <p class="sub">The chord says what the <em>band</em> plays. It does not say
+         what a <em>bass player</em> plays: in C/E the chord is C, and the bass is
+         on E. JamPilot measures the bass separately &ndash; it is not guessed
+         from the chord.</p>
+      <button class="opt" data-inst="chords" role="radio">
+        <span class="glyph">&#9835;</span>
+        <span class="text">
+          <span class="label">Chords</span>
+          <span class="desc">The audible chord, large. The classic display.</span>
+        </span>
+      </button>
+      <button class="opt" data-inst="bass" role="radio">
+        <span class="glyph">&#9836;</span>
+        <span class="text">
+          <span class="label">Bass</span>
+          <span class="desc">The <b>measured</b> bass note, large &ndash; with the
+                             chord as context. Inversions become visible.</span>
+        </span>
+      </button>
+
+      <h2 class="second">Chord spelling</h2>
       <p class="sub">The same key is called A&#9839; or B&#9837;, depending on
          the key of the song. JamPilot detects the key and spells accordingly
          &ndash; or you decide.</p>
@@ -370,6 +407,7 @@ PAGE = r"""<!DOCTYPE html>
 
   <div id="stage">
     <div id="current"></div>
+    <div id="context"></div>
     <div id="idle"><div id="idleTitle"></div><div id="idleHint"></div></div>
   </div>
 
@@ -410,6 +448,13 @@ let modus = localStorage.getItem(MODUS_KEY) || "auto";   // auto | sharp | flat
 let tonart = null;           // {tonic, minor, acc, label} - oder null
 let schreibweise = "sharp";  // was daraus gerade folgt
 
+// INSTRUMENT. Der Akkord sagt, was die BAND spielt - nicht, was DU spielst.
+// Bei C/E steht im Akkord ein C, und der Bassist greift ein E. Der Server misst
+// den Bass separat und schickt ihn pro Segment mit (`b`); ob er gezeigt wird,
+// entscheidet - wie die Schreibweise - allein der Browser.
+const INSTRUMENT_KEY = "jampilot.instrument";
+let instrument = localStorage.getItem(INSTRUMENT_KEY) || "chords";  // chords | bass
+
 // Ohne erkannte Tonart gilt das Kreuz: das ist die Schreibweise ohne Vorzeichen
 // und die einzige ehrliche Vorgabe, solange wir die Tonart nicht kennen.
 function gewaehlteSchreibweise() {
@@ -449,6 +494,20 @@ function chordHtml(name) {
   return f.root + (f.suffix ? '<span class="suffix">' + f.suffix + "</span>" : "");
 }
 
+// Kanonischer Grundton eines Akkords ("A#m7" -> "A#") - zum Vergleich mit der
+// gemessenen Bassnote. Beide kommen kanonisch vom Server, also vergleichbar.
+function wurzelVon(name) {
+  const m = name ? name.match(/^([A-G]#?)/) : null;
+  return m ? m[1] : null;
+}
+
+// Die Umkehrung: liegt unten etwas anderes als der Grundton? Nur dann ist der
+// Bass eine eigene Information - sonst sagt der Akkordname schon alles.
+function umkehrung(seg) {
+  if (!seg || !seg.b) return null;
+  return wurzelVon(seg.c) === seg.b ? null : seg.b;
+}
+
 // Was gerade los ist, wenn KEIN Akkord dasteht. Ohne diese Unterscheidung sieht
 // "der Rechner spielt keine Musik" genauso aus wie "die Anzeige ist tot".
 function idleText() {
@@ -466,6 +525,7 @@ function showIdle() {
   const [titel, hinweis] = idleText();
   $("current").style.display = "none";
   $("current").dataset.shown = "";     // damit ein neuer Akkord wieder aufploppt
+  $("context").style.display = "none";
 
   const idle = $("idle");
   idle.style.display = "block";
@@ -476,14 +536,32 @@ function showIdle() {
   $("idleHint").innerHTML = hinweis;
 }
 
-function setCurrent(name) {
-  const html = chordHtml(name);
-  if (html === null) { showIdle(); return; }   // Stille oder kein Akkord
+// Im Bass-Modus steht der GEMESSENE Basston gross und der Akkord als Kontext
+// darunter. Wurde kein Bass gemessen (Mehrheit fehlt, kein Bass im Stueck),
+// faellt die Anzeige auf den Akkord zurueck - wir zeigen, was wir wissen, und
+// erfinden nichts.
+function setCurrent(seg) {
+  const akkord = seg ? seg.c : null;
+  if (chordHtml(akkord) === null) { showIdle(); return; }  // Stille/kein Akkord
+
+  const bass = instrument === "bass" && seg.b ? seg.b : null;
+  const html = bass ? schreibeGrundton(bass, schreibweise) : chordHtml(akkord);
+  // Kontext nur, wenn der Akkord mehr sagt als der grosse Ton allein.
+  const kontext = bass && akkord !== bass
+    ? '<span class="over">over</span>' + chordHtml(akkord) : "";
 
   const el = $("current");
   $("idle").style.display = "none";
   $("idle").dataset.shown = "";
   el.style.display = "block";
+
+  const ctx = $("context");
+  ctx.style.display = kontext ? "block" : "none";
+  if (ctx.dataset.shown !== kontext) {
+    ctx.dataset.shown = kontext;
+    ctx.innerHTML = kontext;
+  }
+
   if (el.dataset.shown === html) return;
   el.dataset.shown = html;
   el.innerHTML = html;
@@ -494,16 +572,30 @@ function setCurrent(name) {
   line.classList.remove("hit"); void line.offsetWidth; line.classList.add("hit");
 }
 
+// Auf dem Laufband steht im Bass-Modus der Slash-Akkord: C/E. Genau das ist die
+// Information, die im Akkordnamen allein fehlt.
+function chipHtml(seg) {
+  const html = chordHtml(seg.c);
+  if (html === null) return null;
+  const bass = instrument === "bass" ? umkehrung(seg) : null;
+  return bass
+    ? html + '<span class="bassnote">/' + schreibeGrundton(bass, schreibweise)
+             + "</span>"
+    : html;
+}
+
 function syncChips(now) {
   const wanted = new Map();
   for (const c of chords) {
     if (c.c === "-" || c.c === "?") continue;
     if (c.at < now - 0.7) continue;        // schon durchgelaufen
-    wanted.set(c.at.toFixed(2) + "|" + c.c, c);
+    // Die Bassnote gehoert in den Schluessel: aendert sie sich, muss der Chip
+    // neu gezeichnet werden - sonst bliebe ein "C" stehen, wo "C/E" hingehoert.
+    wanted.set(c.at.toFixed(2) + "|" + c.c + "|" + (c.b || ""), c);
   }
   for (const [key, c] of wanted) {
     if (chips.has(key)) continue;
-    const html = chordHtml(c.c);
+    const html = chipHtml(c);
     if (!html) continue;
     const el = document.createElement("div");
     el.className = "chip";
@@ -530,11 +622,12 @@ function animate() {
   }
   const now = streamNow();
 
-  // Hoerbar ist der letzte Akkord, dessen Onset erreicht ist.
+  // Hoerbar ist das letzte Segment, dessen Onset erreicht ist. Es traegt den
+  // Akkord UND die dort gemessene Bassnote.
   let audible = null;
   for (const c of chords) {
     if (c.at > now) break;
-    audible = c.c;
+    audible = c;
   }
   setCurrent(audible);
 
@@ -586,9 +679,22 @@ function zeigeTonart() {
 function setzeModus(neu) {
   modus = neu;
   try { localStorage.setItem(MODUS_KEY, neu); } catch (e) {}  // Privatmodus
-  for (const opt of document.querySelectorAll(".opt"))
+  for (const opt of document.querySelectorAll(".opt[data-mode]"))
     opt.setAttribute("aria-checked", String(opt.dataset.mode === neu));
   neuSchreibenFallsNoetig();
+}
+
+function setzeInstrument(neu) {
+  instrument = neu;
+  try { localStorage.setItem(INSTRUMENT_KEY, neu); } catch (e) {}
+  for (const opt of document.querySelectorAll(".opt[data-inst]"))
+    opt.setAttribute("aria-checked", String(opt.dataset.inst === neu));
+  document.body.classList.toggle("bass", neu === "bass");
+  // Alles neu zeichnen: der grosse Ton und jeder Chip sagen jetzt etwas anderes.
+  $("current").dataset.shown = "";
+  $("context").dataset.shown = "";
+  for (const chip of chips.values()) chip.el.remove();
+  chips.clear();
 }
 
 function dialog(offen) {
@@ -625,25 +731,32 @@ document.body.addEventListener("click", ev => {
 });
 
 for (const opt of document.querySelectorAll(".opt"))
-  opt.addEventListener("click", () => setzeModus(opt.dataset.mode));
+  opt.addEventListener("click", () => {
+    if (opt.dataset.mode) setzeModus(opt.dataset.mode);
+    else if (opt.dataset.inst) setzeInstrument(opt.dataset.inst);
+  });
 
 document.addEventListener("keydown", ev => {
   if (ev.key === "Escape") dialog(false);
 });
 
-setzeModus(modus);   // gespeicherte Wahl anwenden und im Dialog markieren
+setzeInstrument(instrument);   // gespeicherte Wahl anwenden und markieren
+setzeModus(modus);
 
 if (new URLSearchParams(location.search).has("demo")) {
   // Demo in F-Dur: die Progression enthaelt A# (= Bb), damit man die
-  // Schreibweise umschalten sieht.
-  const prog = ["F", "A#", "C", "Dm", "F", "Gm", "C7", "A#"];
+  // Schreibweise umschalten sieht - und zwei Umkehrungen (C/E, F/A), damit man
+  // im Bass-Modus sieht, wofuer die gemessene Bassnote gut ist.
+  const prog = [["F", "F"], ["A#", "A#"], ["C", "E"], ["Dm", "D"],
+                ["F", "A"], ["Gm", "G"], ["C7", "A#"], ["A#", "A#"]];
   const start = performance.now() / 1000;
   link = "live";
   setInterval(() => {
     const t = performance.now() / 1000 - start;   // "hoerbare" Position
     const list = [];
     for (let i = Math.floor(t / 2) - 1; i < t / 2 + 3; i++)
-      if (i >= 0) list.push({ c: prog[i % prog.length], at: i * 2 });
+      if (i >= 0) list.push({ c: prog[i % prog.length][0], at: i * 2,
+                              b: prog[i % prog.length][1] });
     // Die Tonart faellt erst nach ein paar Sekunden - wie im echten Betrieb.
     const key = t < 8 ? null
       : { tonic: "F", minor: false, acc: "flat", label: "F-Dur" };

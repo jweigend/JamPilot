@@ -69,7 +69,12 @@ def spell(name: str, accidental: str) -> str:
 
     Erwartet die kanonische Kreuz-Form ("A#m7") und liefert bei FLAT die
     b-Form ("Bbm7"). Nicht-Akkorde ("N", "-", "?") gehen unveraendert durch.
+
+    Ein Slash-Akkord traegt ZWEI Notennamen ("C#/A#"), und beide muessen
+    umgeschrieben werden - sonst stuende in F-Dur ein halb richtiges "Db/A#" da.
     """
+    if "/" in name:
+        return "/".join(spell(teil, accidental) for teil in name.split("/"))
     if accidental != FLAT or len(name) < 2 or name[1] != "#":
         return name
     return FLAT_NAMES[name[:2]] + name[2:]

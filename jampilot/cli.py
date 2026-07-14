@@ -122,6 +122,7 @@ def _load_wav_mono(path: str) -> tuple[np.ndarray, int]:
 
 
 def cmd_analyze(args):
+    from . import bass as bassmodul
     from .chroma import analyze_window, rms
     from .chords import SILENCE_RMS, match_chord
     from .tonality import SHARP, KeyEstimator, spell
@@ -149,7 +150,20 @@ def cmd_analyze(args):
             name = "-"
         else:
             analysis = analyze_window(chunk, samplerate)
-            name = match_chord(analysis.chroma, analysis.bass).name
+            # Zwei Fragen, zwei Signale: der Akkord aus der vollen Harmonie, die
+            # Bassnote aus dem Tiefband. Zusammen ergeben sie C/E statt nur C.
+            #
+            # Beide muessen ueber DENSELBEN Zeitraum reden: Das Chroma wird nur
+            # aus der juengeren Fensterhaelfte gepoolt (chroma._pool), also darf
+            # auch der Bass nur von dort kommen. Sonst klebt an jedem Wechsel der
+            # Bass des VORIGEN Akkords am neuen, und die Anzeige erfindet
+            # Umkehrungen, die nie gespielt wurden ("Bb/F", "C/Bb").
+            bass_frames = analysis.bass_frames
+            juengere = (bass_frames[:, bass_frames.shape[1] // 2 :]
+                        if bass_frames is not None else None)
+            name = bassmodul.slash(
+                match_chord(analysis.chroma, analysis.bass).name,
+                bassmodul.name(bassmodul.dominant(juengere)))
             keys.add(analysis.chroma)
         # Gepoolt wird die juengere Fensterhaelfte -> Zeitstempel mittig.
         erkannt.append(((start + 0.75 * window) / samplerate, name))
@@ -238,6 +252,7 @@ def cmd_run(args):
 
 
 def _display_loop(loop, args, broadcaster=None):
+    from . import bass as bassmodul
     from .chroma import FrameHistory, analyze_window, rms
     from .chords import SILENCE_RMS, ChordSmoother, match_chord
     from .tonality import SHARP, KeyEstimator, spell
@@ -252,6 +267,10 @@ def _display_loop(loop, args, broadcaster=None):
     # laengeres Material als ein Akkord und meldet sich die ersten ~12s Musik
     # gar nicht - bis dahin gelten Kreuze.
     keys = KeyEstimator(ANALYSIS_HOP)
+    # Die Bassnote wird gemessen, nicht aus dem Akkord abgeleitet - erst dadurch
+    # werden Umkehrungen sichtbar (C/E). Die Spur muss die ganze Zeitleiste
+    # abdecken: von 2s hinter der hoerbaren Position bis zur Analysefront.
+    bass_track = bassmodul.BassTrack(args.delay + ANALYSIS_WINDOW + 4.0)
 
     # Die Zeitleiste: (Onset-Position im Stream, Akkord). Die Onsets werden im
     # Frame-Chroma gemessen, nicht aus dem Erkennungszeitpunkt zurueckgerechnet
@@ -307,6 +326,11 @@ def _display_loop(loop, args, broadcaster=None):
                 raw = result.name
                 history.add(analysis.frames, window_start)
                 keys.add(analysis.chroma)
+                # Die Bassnote laeuft NEBEN der Akkorderkennung, nicht in ihr:
+                # zwei Fragen, zwei Signale. Der Akkord braucht die volle
+                # Harmonie, der Bass nur das Tiefband - und dessen Frames fallen
+                # in derselben Analyse ohnehin an (siehe bass.py).
+                bass_track.add(analysis.bass_frames, window_start)
                 chord = smoother.update(result)
                 if chord == "N":
                     chord = "?"
@@ -341,6 +365,16 @@ def _display_loop(loop, args, broadcaster=None):
                 debug.flush()
 
             key = keys.key
+            # Zu jedem Segment die Bassnote, die WAEHREND seiner Dauer gemessen
+            # wurde - auch fuer Segmente, die noch niemand gehoert hat. Der
+            # Vorlauf gilt fuer den Bass genauso wie fuer den Akkord.
+            basslinie = _bass_per_segment(timeline, bass_track, window_end / sr)
+            bass_jetzt = None
+            for (pos, _), gemessen in zip(timeline, basslinie):
+                if pos > audible_pos:
+                    break
+                bass_jetzt = gemessen      # der letzte, der schon erklungen ist
+
             if broadcaster:
                 # Der Browser bekommt die Zeitleiste in Stream-Sekunden plus
                 # die gerade hoerbare Position. Er leitet daraus Akkordanzeige
@@ -352,10 +386,13 @@ def _display_loop(loop, args, broadcaster=None):
                 # dort eingestellten Vorliebe. So wirkt eine Umstellung sofort
                 # und rueckwirkend, ohne Runde ueber den Server - und Laptop und
                 # Handy duerfen verschieden eingestellt sein.
+                # Die Bassnote faehrt pro Segment mit; ob sie gezeigt wird,
+                # entscheidet der Browser (Modus "Bass") - wie bei der
+                # Schreibweise ist das eine Anzeige-, keine Serverfrage.
                 broadcaster.publish({
                     "t": round(audible_pos, 3),
-                    "chords": [{"c": name, "at": round(pos, 3)}
-                               for pos, name in timeline],
+                    "chords": [{"c": name, "at": round(pos, 3), "b": bassnote}
+                               for (pos, name), bassnote in zip(timeline, basslinie)],
                     "lead": round(lead, 2),
                     "key": key.as_dict() if key else None,
                 })
@@ -363,10 +400,13 @@ def _display_loop(loop, args, broadcaster=None):
             # Im Terminal gibt es keinen Dialog - hier gilt immer die erkannte
             # Tonart, und solange keine feststeht, das Kreuz.
             accidental = key.accidental if key else SHARP
+            # Der hoerbare Akkord mit gemessenem Bass: C/E statt C.
+            jetzt = bassmodul.slash(audible, bass_jetzt)
             sys.stdout.write(
                 f"\r  In {max(lead, 0.0):3.1f}s: "
                 f"{spell(current or '-', accidental):<6s} "
-                f"| Now playing: {spell(audible, accidental):<6s} "
+                f"| Now playing: {spell(jetzt, accidental):<8s} "
+                f"| Bass: {spell(bass_jetzt or '-', accidental):<3s} "
                 f"| Key: {key.label if key else '...':<9s}"
             )
             sys.stdout.flush()
@@ -416,6 +456,25 @@ def _locate_onset(chord, previous, history, window_end, last_onset):
     # k * FRAME_SECONDS - die Grenze also ein halbes Frame davor.
     onset = span_start + max(index - 0.5, 0.0) * FRAME_SECONDS
     return min(onset, window_end)   # gefunden werden kann nur Vergangenes
+
+
+def _bass_per_segment(timeline, track, front: float) -> list[str | None]:
+    """Zu jedem Zeitleisten-Segment die vorherrschende Bassnote (kanonisch).
+
+    Ein Segment reicht von seinem Onset bis zum naechsten; das letzte bis zur
+    Analysefront. Waehrend einer Stille gibt es keinen Bass - und wo die Messung
+    keine Mehrheit findet, steht None: lieber nichts anzeigen als raten.
+    """
+    from . import bass as bassmodul
+
+    noten = []
+    for i, (onset, chord) in enumerate(timeline):
+        ende = timeline[i + 1][0] if i + 1 < len(timeline) else front
+        if chord == "-" or ende <= onset:
+            noten.append(None)
+            continue
+        noten.append(bassmodul.name(track.note_between(onset, ende)))
+    return noten
 
 
 def _commit(timeline, onset, chord, audible_pos):

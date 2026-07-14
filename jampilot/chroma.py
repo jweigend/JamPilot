@@ -40,9 +40,13 @@ FMAX = 2000.0
 
 
 class WindowAnalysis(NamedTuple):
-    chroma: np.ndarray          # gepoolt: entscheidet, WELCHER Akkord klingt
-    bass: np.ndarray | None     # gepoolt: Grundton-Gewichtung
-    frames: np.ndarray | None   # 12 x F Frame-Chroma: entscheidet, WANN er einsetzt
+    chroma: np.ndarray               # gepoolt: entscheidet, WELCHER Akkord klingt
+    bass: np.ndarray | None          # gepoolt: Grundton-Gewichtung
+    frames: np.ndarray | None        # 12 x F Frame-Chroma: WANN der Akkord einsetzt
+    # 12 x F im Tiefband. Wurde frueher berechnet und weggeworfen - dabei steht
+    # genau hier, WELCHE NOTE unten liegt (bass.py). Das ist die Information,
+    # die der Akkordname nicht enthaelt: bei C/E steht im Akkord ein C.
+    bass_frames: np.ndarray | None
 
 
 def chroma_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
@@ -108,13 +112,15 @@ def _pool(frames: np.ndarray) -> np.ndarray:
 
 
 def analyze_window(samples: np.ndarray, samplerate: int) -> WindowAnalysis:
-    """Chroma, Bass-Chroma und Frame-Chroma eines Fensters (>= ~1.5s).
+    """Chroma, Bass-Chroma und beide Frame-Chromas eines Fensters (>= ~1.5s).
 
-    `bass` und `frames` sind None im FFT-Fallback; ohne `frames` faellt die
-    Onset-Bestimmung auf eine Konstante zurueck (siehe chords.find_onset_frame).
+    Alle Felder ausser `chroma` sind None im FFT-Fallback; ohne `frames` faellt
+    die Onset-Bestimmung auf eine Konstante zurueck (siehe chords.find_onset_frame),
+    ohne `bass_frames` gibt es keine Bassnote.
     """
     if not HAVE_LIBROSA:
-        return WindowAnalysis(chroma_from_audio(samples, samplerate), None, None)
+        return WindowAnalysis(chroma_from_audio(samples, samplerate),
+                              None, None, None)
 
     y = np.ascontiguousarray(samples, dtype=np.float32)
     if samplerate != ANALYSIS_SR:
@@ -126,7 +132,10 @@ def analyze_window(samples: np.ndarray, samplerate: int) -> WindowAnalysis:
 
     frames = _cqt_frames(y, "C2", 6)       # 65 Hz .. ~4.2 kHz: Akkordklang
     bass_frames = _cqt_frames(y, "C1", 3)  # 32 .. ~260 Hz: wo der Grundton liegt
-    return WindowAnalysis(_pool(frames), _pool(bass_frames), frames)
+    # Beide Frame-Chromas gehen raus: das obere sagt, WANN der Akkord wechselt,
+    # das untere, WELCHE Note dabei unten liegt. Das Bass-Chroma wurde bisher
+    # gepoolt und weggeworfen - dabei kostet es nichts, es aufzuheben.
+    return WindowAnalysis(_pool(frames), _pool(bass_frames), frames, bass_frames)
 
 
 class FrameHistory:
