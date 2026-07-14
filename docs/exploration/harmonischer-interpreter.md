@@ -256,15 +256,194 @@ bis ins Handy.
 > Dieses hier kann es — und es ist das Einzige, das es kann, weil alle anderen
 > ihre Latenz minimieren wollen.
 
-Das ist die eigentliche Forschungsfrage dieses Projekts. Nicht „Interpreter statt
-Detektor" (das ist bekannt), sondern:
+Das ist die eine Hälfte der Forschungsfrage dieses Projekts. Nicht „Interpreter
+statt Detektor" (das ist bekannt), sondern:
 
 > **Was wird möglich, wenn ein Echtzeit-Interpreter vier Sekunden Zukunft hat und
 > seine Anzeige rückwirkend widerrufen darf, bevor sie jemand gehört hat?**
 
+Die andere Hälfte steht im nächsten Teil.
+
 ---
 
-# Teil IV — Was ein Interpreter konkret wäre
+# Teil IV — Die Wende, die 2012 nicht möglich war: messen statt modellieren
+
+## Warum es die Grammatik überhaupt gab
+
+Chordifys Harmoniegrammatik (HarmTrace) war **keine Erkenntnis, sondern eine
+Kompensation**. 2012 gab es genau *eine* Evidenzquelle: das Chroma des
+Gesamtmixes. Ist die Evidenz dünn, muss das Modell dick werden — daher die
+kontextfreie Grammatik, daher das Bayes-Netz über Tonart, Metrum und Bass. Man
+hat mit **Priors** bezahlt, was man an **Messung** nicht bekommen konnte.
+
+Und genau das ist der Grund für das Plateau aus Teil I: Zwanzig Jahre lang wurde
+am *Modell* geschraubt, während die *Evidenz* konstant blieb. Deshalb bringt ein
+Transformer gegenüber einem CNN 0,9 Punkte. Die ganze Disziplin optimiert auf
+einer Achse, die ausgereizt ist.
+
+Seit ein paar Jahren gibt es eine zweite Achse: **Quellentrennung.** Was man
+früher aus dem Mix erschließen musste, kann man heute teilweise *herausziehen*.
+Naheliegende Folgerung: Evidenz kaufen statt Priors bauen.
+
+**Diese Folgerung ist zur Hälfte falsch.** Und das genau zu wissen, ist der
+wertvollste Teil dieses Dokuments.
+
+## Der Realitätscheck: Trennung verbessert die Akkorderkennung NICHT
+
+Das ist gemessen, und zwar gegen die naheliegende Hoffnung:
+
+> **Mitoma & Furuya, APSIPA ASC 2025** —
+> [PDF](http://www.apsipa.org/proceedings/2025/papers/APSIPA2025_P307.pdf)
+> HTDemucs-Trennung, einzelne Stems verstärkt, remixt, dann Akkorderkennung
+> (BTC). 485 Songs. WCSR, großes Vokabular:
+
+| Variante | triads | root | maj-min | tetrads |
+|---|---|---|---|---|
+| konventionell (keine Trennung) | 75.52 | 82.51 | 81.59 | 67.44 |
+| **Bass** verstärkt | **75.06** | 82.21 | 81.09 | 66.83 |
+| Vocals verstärkt | 74.75 | 81.81 | 80.82 | 66.48 |
+| bestes Ergebnis (`other` verstärkt) | 75.67 | 82.66 | 81.78 | 67.45 |
+
+**Den Bass zu verstärken machte die Akkorderkennung schlechter.** Der beste Fall
+gewinnt **+0,20 Prozentpunkte**. Die einzige Arbeit, die einen isolierten
+Bass-Stem gezielt für Umkehrungen nutzt ([arXiv:2509.18700](https://arxiv.org/html/2509.18700v1),
+2025), holt +0,75 bis +1,21 pp — und warnt selbst, dass *ausgehaltene Bassnoten*
+korrekt erkannte Akkordwechsel zerstören.
+
+> **Wer von der Trennung eine bessere Akkorderkennung erwartet, läuft in dieselbe
+> Sackgasse wie die Grammatik — nur teurer.** Es ist wieder dieselbe Achse.
+
+## Und trotzdem ist „messen statt modellieren" richtig — nur für eine andere Frage
+
+Der Denkfehler steckt im Ziel, nicht im Werkzeug. Der gemessene Bass soll den
+**Akkord** gar nicht verbessern. Er beantwortet eine Frage, die der Akkordname
+überhaupt nicht stellt:
+
+> **„Was spiele *ich* unten?"**
+
+Bei `C/E` steht im Akkord ein C, und der Bassist greift ein E. Der Akkordname
+enthält diese Information nicht — und in *jeder* Standardmetrik ist sie
+unsichtbar oder umstritten: Koops et al. haben gemessen, dass die
+**Umkehrungen** der größte Streitpunkt unter menschlichen Annotatoren sind.
+
+Das ist zum zweiten Mal dieselbe Erkenntnis wie bei der Enharmonik (Teil I.4):
+
+> **Die Metrik misst nicht, was der Musiker sieht.** Erst die Schreibweise, jetzt
+> der Bass. Zwei Features, die in jeder Standardevaluation **null Punkte** bringen
+> — und die ein Spieler sofort bemerkt.
+
+## Was die Trennung 2026 wirklich hergibt (und was nicht)
+
+Bevor man ein Instrumentenmenü baut, muss man wissen, welche Spuren es überhaupt
+gibt. MoisesDB (**Pereira et al., ISMIR 2023**,
+[PDF](https://archives.ismir.net/ismir2023/paper/000073.pdf), Tab. 3,
+`htdemucs_6s`, globales SDR):
+
+| Stem | SDR | ideale Maske (Oracle MWF) |
+|---|---|---|
+| **Bass** | **11.93** | 8.24 |
+| Drums | 11.02 | 9.23 |
+| Vocals | 9.55 | 9.81 |
+| **Gitarre** | **3.07** | 5.41 |
+| **Piano/Keyboard** | **1.60** | 4.97 |
+
+**Zwei Dinge stehen da.**
+
+**Erstens: Gitarre und Keyboard sind nicht lieferbar.** Sie liegen ~9 dB unter
+Bass — und, entscheidend, **unter dem, was eine ideale Maske könnte**. Das Modell
+schöpft dort nicht einmal das theoretisch Machbare aus. Das Demucs-README sagt es
+selbst: *„a lot of bleeding and artifacts for the `piano` source… the `piano`
+source is not working great at the moment"*
+([README](https://github.com/facebookresearch/demucs)). Ein Menüpunkt „Keyboard",
+der auf Trennung baut, verspricht etwas, das es nicht gibt.
+
+**Zweitens — und das ist die Pointe: Dass der Bass so gut geht, ist der Grund,
+warum man dort keine Trennung braucht.** HTDemucs schlägt beim Bass die *ideale
+Maske* (11,93 gegen 8,24). Das ist kein Wunder, das ist ein Geständnis: **Bass ist
+spektral ohnehin fast linear separierbar.** Er wohnt unten fast allein; der
+einzige ernsthafte Mitbewohner ist die Bassdrum — breitbandig und transient,
+also genau das, was die **HPSS-Stufe schon heute entfernt**
+([chroma.py:125](../../jampilot/chroma.py#L125)).
+
+## Das CPU-Budget entscheidet die Frage ohnehin
+
+HTDemucs ist **nicht kausal** und braucht immer einen **7,8-Sekunden-Forward-Pass**
+(so groß ist das Attention-Fenster).
+
+| | Realtime-Faktor | Kosten pro Durchlauf (7,8 s Segment) |
+|---|---|---|
+| CPU (PyTorch / ONNX) | 0,35 – 0,43 | **~3 s** |
+| GPU | ~0,03 | ~0,23 s |
+
+Der Analysetakt dieses Programms ist **250 ms**
+([cli.py:27](../../jampilot/cli.py#L27)). Auf der CPU liegt HTDemucs damit
+**Faktor 12 über dem Budget**; auf der GPU träfe es das Limit exakt — mit null
+Reserve für die Akkorderkennung selbst.
+
+*Anmerkung zum Vorlauf:* Die 4 Sekunden Verzögerung lösen das **Kausalitäts**-,
+nicht das **Kosten**problem. Ein nicht-kausales 7,8-s-Fenster über bereits
+vergangenes Audio zu legen, ist hier erlaubt (siehe Teil III) — es ist nur zu
+teuer. Explizite Echtzeit-Trenner gibt es (HS-TasNet, ICASSP 2024,
+[arXiv:2402.17701](https://arxiv.org/abs/2402.17701); RT-STT, 2025,
+[arXiv:2511.13146](https://arxiv.org/abs/2511.13146) — 383 K Parameter, ~1 ms
+Inferenz), sie kosten aber **3–5 dB SDR**.
+
+## Der billige Weg zum Bass: der klassische, und er ist Echtzeit seit 2004
+
+> **Goto, PreFEst** (Speech Communication, 2004) —
+> [Projektseite](https://staff.aist.go.jp/m.goto/PROJ/f0.html)
+> Schätzt Melodie **und Basslinie** direkt aus CD-Aufnahmen, **in Echtzeit**,
+> ohne jede Quellentrennung — über den vorherrschenden F0 in einem *bewusst
+> eingeschränkten Frequenzband*.
+
+Und die *aktuelle* Bass-Transkriptionsforschung (**Abeßer et al.**,
+[AudioLabs](https://www.audiolabs-erlangen.de/resources/MIR/2017-AES-WalkingBassTranscription))
+mappt ebenfalls **Mix-Spektrogramm → Bass-Salienz** — ohne generischen Separator.
+
+Einen publizierten Beleg, dass „Trennung + Pitch-Tracking" den Weg „Bandpass +
+Pitch-Tracking" schlägt, gibt es **nicht**. (Die eine Pipeline, die es so macht —
+Araz, ISMIR 2021 LBD — evaluiert rein qualitativ, „by listening".)
+
+**Zwei Umsetzungsdetails, die man sonst teuer lernt** (beide aus Araz):
+
+- **pYIN, nicht CREPE.** CREPE hat zu wenig Sub-Bass im Trainingsset und schneidet
+  dort messbar schlechter ab.
+- **Waveform-/autokorrelationsbasiert, nicht spektrogrammbasiert.** Im Sub-Bass
+  liegen benachbarte Halbtöne ~1,95 Hz auseinander — dafür reicht die
+  FFT-Auflösung nicht.
+
+## Die Konsequenz: der Instrumentenwähler wählt die ANZEIGE, nicht den Analysepfad
+
+Damit fällt die ganze Idee auf die Füße — und wird dabei viel billiger, als sie
+klang. Für **drei von vier** Instrumenten braucht es überhaupt keine Trennung:
+
+| Instrument | Was der Spieler braucht | Woher | Trennung? |
+|---|---|---|---|
+| **Bass** | die *tatsächliche* Bassnote, Slash-Akkorde | Bandpass ~40–400 Hz + pYIN; die Bass-CQT läuft **heute schon** ([chroma.py:128](../../jampilot/chroma.py#L128)) | **nein** |
+| **Gitarre** | Akkord + Griff/Capo | ist schon da — nur anders **gerendert** | **nein** |
+| **Keyboard** | Akkord mit Optionstönen | ist schon da — nur anders **gerendert** | **nein** (ginge auch gar nicht, s. o.) |
+| **Gesang** | Melodieton | Predominant-F0 (PreFEst-Weg) | nein |
+
+Die **Tonart** wird weiterhin auf dem **Gesamtmix** bestimmt, und das ist keine
+Bequemlichkeit: Eine Basslinie besteht überwiegend aus Grundtönen und Quinten.
+Ein Tonart-Histogramm daraus wäre systematisch verzerrt — es verlöre gerade die
+**Terzen**, die Dur von Moll unterscheiden. Die Tonart braucht die volle Harmonie,
+die Bassnote braucht das Tiefband. Zwei Fragen, zwei Signale.
+
+Eine echte Trennung lohnt sich erst für ein **anderes Feature**: das verzögerte
+**Playback selbst** zu verändern (ein Instrument im Mix hervorheben oder
+ausblenden, karaoke-artig). Dafür ist der 4-Sekunden-Puffer genau richtig — und
+dafür braucht es eine GPU.
+
+## Damit lautet die zweite Hälfte der Forschungsfrage
+
+> **Wie viel nützlicher wird eine Akkordanzeige, wenn sie nicht mehr fragt „welcher
+> Akkord ist wahr", sondern „was spielt *dieses* Instrument gerade" — und wie
+> billig ist das wirklich, wenn man nur misst, was ohnehin schon berechnet wird?**
+
+---
+
+# Teil V — Was ein Interpreter konkret wäre
 
 ## Schritt 1: Evidenz statt Strings
 
@@ -293,16 +472,18 @@ statt `(float, str)`. Damit wird eine spätere Revision überhaupt erst
 
 | Quelle | Aufwand | Erwarteter Nutzen | Begründung |
 |---|---|---|---|
-| **Tonart als diatonischer Prior** | sehr gering — [`correlate()`](../../jampilot/tonality.py#L128) liefert die Verteilung schon | **hoch** | Kostet einen Term in der Score-Summe. In F-Dur ist H-Dur unwahrscheinlich. Die Information liegt ungenutzt herum. |
-| **Bassverlauf statt `bass[root]`** | gering — die Bass-Frames werden heute berechnet und **weggeworfen** ([chroma.py:129](../../jampilot/chroma.py#L129)) | mittel-hoch | Grundlage für Umkehrungen/Slash-Akkorde — laut Koops der **größte Streitpunkt** unter Menschen, also der größte Interpretationsspielraum. |
-| **Akkordfolge als Sprachmodell** | mittel (Zeitleiste muss Gedächtnis bekommen) | mittel | Literatur: hilft, aber „effects are small". Nicht überschätzen. |
+| **Gemessene Bassnote** (Tiefband + pYIN) | gering — die Bass-CQT läuft schon, ihre Frames werden **weggeworfen** ([chroma.py:129](../../jampilot/chroma.py#L129)) | **hoch — aber für die ANZEIGE, nicht für die Trefferquote** | Slash-Akkorde und Umkehrungen: der größte Streitpunkt unter Annotatoren (Koops) und für einen Bassisten *die* Frage. Erwartet **keinen** Metrik-Gewinn (Teil IV). |
+| **Tonart als diatonischer Prior** | sehr gering — [`correlate()`](../../jampilot/tonality.py#L128) liefert die Verteilung schon | mittel-hoch | Kostet einen Term in der Score-Summe. In F-Dur ist H-Dur unwahrscheinlich. Die Information liegt ungenutzt herum. |
+| **Akkordfolge als Sprachmodell** | mittel (Zeitleiste muss Gedächtnis bekommen) | gering-mittel | Literatur: hilft, aber „effects are small". Nicht überschätzen. |
 | **Beat / Taktposition** | hoch (neue Analyse) | mittel | Mauch & Dixon: Bass + Metrum helfen vor allem, die richtige **Granularität** zu treffen — das ist eine *Anzeige*-Eigenschaft. |
-| **Genre** | hoch (Klassifikator oder Nutzerangabe) | offen | Billiger Zwischenschritt: **den Nutzer fragen.** Ein Schalter „Pop / Blues / Jazz" ist eine Zeile UI und ersetzt einen Klassifikator. |
-| **Stimmentrennung (Demucs o.ä.)** | sehr hoch, Echtzeit fraglich | hoch, aber teuer | Was Moises tut. Vermutlich außerhalb des Echtzeitbudgets. |
+| **Genre** | hoch (Klassifikator) | offen | Billiger Zwischenschritt: **den Nutzer fragen.** Ein Schalter „Pop / Blues / Jazz" ist eine Zeile UI und ersetzt einen Klassifikator. |
+| **Quellentrennung (Demucs o. ä.)** | **sehr hoch** — 12× über dem CPU-Budget (Teil IV) | **für Akkorde: nachweislich ~null** (+0,20 pp, APSIPA 2025) | Lohnt sich nur, wenn man das **Playback** verändern will, nicht die Anzeige. Braucht eine GPU. |
 
-**Die Reihenfolge ist die Botschaft:** Die zwei billigsten Hebel (Tonart-Prior,
-Bassverlauf) nutzen Informationen, die **bereits berechnet und dann verworfen
-werden**. Sie kosten fast nichts und sind noch nicht angefasst.
+**Die Reihenfolge ist die Botschaft:** Die zwei billigsten Hebel (gemessene
+Bassnote, Tonart-Prior) nutzen Informationen, die **bereits berechnet und dann
+verworfen werden**. Sie kosten fast nichts und sind noch nicht angefasst. Der
+teuerste Hebel (Trennung) steht unten, weil er für dieses Ziel **gemessen nichts
+bringt** — nicht, weil er zu aufwendig wäre.
 
 ## Schritt 3: Der Entscheider
 
@@ -310,14 +491,14 @@ Erst dann stellt sich die Frage, *wie* entschieden wird — und die Antwort ist
 vermutlich **nicht** „ein neuronales Netz", sondern eine gewichtete Kombination
 mit **explizit benannten, einzeln abschaltbaren Termen**. Denn:
 
-- Die Terme müssen einzeln messbar sein, sonst lernt man nichts (siehe Teil V).
+- Die Terme müssen einzeln messbar sein, sonst lernt man nichts (siehe Teil VI).
 - Die Literatur zeigt, dass die großen Modelle hier **kaum etwas gewinnen**.
 - Ein erklärbarer Interpreter kann dem Musiker *sagen*, warum er sich umentschieden
   hat („Bass wechselt nach A, Tonart F-Dur → Am statt C").
 
 ---
 
-# Teil V — Forschungsfragen, die sich beantworten lassen
+# Teil VI — Forschungsfragen, die sich beantworten lassen
 
 Damit das ein Forschungsprojekt wird und keine Meinung, braucht es Fragen mit
 falsifizierbaren Antworten. Vorschläge, nach Aussagekraft geordnet:
@@ -329,24 +510,33 @@ falsifizierbaren Antworten. Vorschläge, nach Aussagekraft geordnet:
    `audible_pos` protokollieren, gegen eine Referenzannotation halten. **Das ist
    die Kernfrage dieses Projekts und meines Wissens unbeantwortet.**
 
-2. **Wie groß ist der Gewinn eines Tonart-Priors — und verschwindet er wieder,
-   wenn die Tonart falsch erkannt ist?** (Fehlerfortpflanzung, siehe Teil VI.)
+2. **Schlägt der billige Weg zur Bassnote (Bandpass + pYIN) den teuren
+   (Demucs-Bass-Stem + pYIN)?** Diesen A/B-Vergleich hat, soweit auffindbar,
+   **niemand publiziert** — die eine Arbeit, die den teuren Weg geht (Araz, ISMIR
+   2021 LBD), evaluiert rein qualitativ, „by listening". Die Gegenprobe ist
+   billig: beide Wege auf denselben Ausschnitten, Notenraten vergleichen. Ein
+   negatives Ergebnis („der Bandpass reicht") ist genauso wertvoll — und würde
+   ein 40-Millionen-Parameter-Modell aus einem Echtzeitwerkzeug fernhalten.
+
+3. **Wie groß ist der Gewinn eines Tonart-Priors — und verschwindet er wieder,
+   wenn die Tonart falsch erkannt ist?** (Fehlerfortpflanzung, siehe Teil VII.)
    Direkt messbar: ein Term an-/abschalten, Selbsttest und Referenzkorpus laufen
    lassen.
 
-3. **Wählen Gitarristen und Pianisten wirklich andere Labels — und kann eine
-   Umschaltung „Anzeige für Gitarre / Klavier" die wahrgenommene Qualität heben,
-   ohne dass sich eine einzige Standardmetrik bewegt?** Der Befund von Koops et
-   al. legt es nahe; der CASD-Datensatz (vier Annotatoren, offen) erlaubt es zu
-   testen.
+4. **Wählen Gitarristen und Pianisten wirklich andere Labels — und kann eine
+   Umschaltung „Anzeige für Bass / Gitarre / Klavier" die wahrgenommene Qualität
+   heben, ohne dass sich eine einzige Standardmetrik bewegt?** Der Befund von
+   Koops et al. legt es nahe; der CASD-Datensatz (vier Annotatoren, offen) erlaubt
+   es zu testen. **Das ist die Frage, an der sich entscheidet, ob dieses Projekt
+   ein Produkt oder eine Fußnote wird.**
 
-4. **Ab welcher Verzögerung bringt Lookahead nichts mehr?** Es gibt eine
+5. **Ab welcher Verzögerung bringt Lookahead nichts mehr?** Es gibt eine
    Sättigung; wo sie liegt, sagt einem niemand. `--delay` ist bereits ein
    Parameter von 0,5 bis 30 Sekunden — das Experiment ist ein Sweep.
 
 ---
 
-# Teil VI — Was dagegen spricht. Ehrlich.
+# Teil VII — Was dagegen spricht. Ehrlich.
 
 ## 1. Das ist alles schon gebaut. Und es hieß, wie wir hießen.
 
@@ -370,7 +560,7 @@ Dieselbe Gruppe (de Haas, Koops, Bransen, Volk) hat außerdem
 Annotator personalisierte Labels ableitet). Und Chordify hat eine
 [Live-Akkorderkennung über Mikrofon](https://chordify.net/toolkit/live-chord-detection).
 
-**Zwei Konsequenzen:**
+**Drei Konsequenzen:**
 
 - **Der Name musste weg** — und ist weg. Er kollidierte nicht nur
   markenrechtlich, sondern ausgerechnet mit dem Marktführer für exakt diese Idee;
@@ -378,11 +568,18 @@ Annotator personalisierte Labels ableitet). Und Chordify hat eine
   heißt seit dieser Recherche **JamPilot**: Der Lotse sitzt vorne und sagt an,
   was kommt — genau das tut der Vorlauf.
 - **„Wir interpretieren statt zu detektieren" ist kein Alleinstellungsmerkmal.**
-  Die Differenzierung muss konkreter sein. Der Kandidat dafür steht in Teil III:
-  **der Vorlauf.** Chordify analysiert Dateien offline (da hat es alle Zeit der
-  Welt) oder live mit minimaler Latenz (da hat es keine Zukunft). Der Mittelweg —
-  **Echtzeit mit absichtlich gekaufter Zukunft und Widerrufsrecht** — ist der
-  Punkt, an dem dieses Projekt allein steht.
+  Die Differenzierung muss konkreter sein. Die Kandidaten stehen in Teil III und
+  IV: **der Vorlauf** und **die instrumentenspezifische Anzeige**. Chordify
+  analysiert Dateien offline (da hat es alle Zeit der Welt) oder live mit
+  minimaler Latenz (da hat es keine Zukunft). Der Mittelweg — **Echtzeit mit
+  absichtlich gekaufter Zukunft und Widerrufsrecht** — ist der Punkt, an dem
+  dieses Projekt allein steht.
+- **Die Grammatik selbst muss man aber nicht nachbauen.** Sie war die Antwort auf
+  eine Evidenzarmut, die 2012 unvermeidlich war (Teil IV). Wer sie heute
+  nachbaut, erbt ihre Kosten, ohne ihren Grund zu erben. Der Ausweg ist **nicht**,
+  sie durch Quellentrennung zu ersetzen — die bringt für Akkorde gemessen ~nichts
+  —, sondern **die Frage zu wechseln**: nicht denselben Akkord genauer, sondern
+  einen *anderen, spielerspezifischen* Inhalt anzeigen.
 
 ## 2. Die Literatur ist skeptisch, dass Kontext viel bringt
 
@@ -431,32 +628,48 @@ Revisionen, die ihn erreicht haben statt vor der Hörschwelle abgefangen zu werd
 
 ---
 
-# Teil VII — Wenn man es macht: die Reihenfolge
+# Teil VIII — Wenn man es macht: die Reihenfolge
 
-Ohne Zeitangaben, nach Erkenntnisgewinn pro Aufwand:
+Ohne Zeitangaben, nach Erkenntnisgewinn pro Aufwand. Der Bass steht jetzt vorn,
+weil er das **billigste sichtbare Ergebnis** ist — und weil er die These des
+Dokuments am schnellsten testet.
 
-1. **Evidenz retten.** `match_chord` gibt eine Rangliste; die Zeitleiste trägt
-   Alternativen und Scores. *Ohne diesen Schritt ist alles andere unmöglich.*
-   Änderung ist klein und rein additiv.
+1. **Die Bassnote messen, statt sie zu erraten.** Heute wird eine vollständige
+   Bass-CQT berechnet ([chroma.py:128](../../jampilot/chroma.py#L128)) und auf
+   *ein Skalar* eingedampft: `BASS_BONUS * bass[root]`
+   ([chords.py:134](../../jampilot/chords.py#L134)). Die Frames werden gar nicht
+   erst aufgehoben. Stattdessen: Tiefband + **pYIN** (nicht CREPE, Teil IV) →
+   Bassnote pro Frame, zeitlich geglättet. Kostet Millisekunden, kein Modell,
+   keine GPU.
 
-2. **Tonart als schwachen Prior einspeisen.** Der billigste Kontexthebel
-   überhaupt — die Verteilung existiert bereits
-   ([tonality.py:128](../../jampilot/tonality.py#L128)) und wird weggeworfen.
-   Sofort messbar: an/aus, Selbsttest.
+2. **Instrumentenauswahl ins Zahnrad** — der Dialog steht schon
+   ([web.py](../../jampilot/web.py)). Modus **Bass**: Bassnote groß, Akkord als
+   Kontext, `C/E` sichtbar. Modi Gitarre/Keyboard: **derselbe** Analysepfad,
+   andere Darstellung (Griffe, Optionstöne). **Kein Menüpunkt, der Quellentrennung
+   bräuchte** — Gitarren- und Piano-Stems liefern heute nicht (Teil IV).
 
-3. **Revisionen messen.** Den Debug-Trace um Revisionsereignisse erweitern und
-   auswerten: Wie oft ändert der Vorlauf die Meinung, bevor es jemand hört, und
-   wird es dadurch besser? **Das ist die Kernfrage — und sie ist mit dem
-   vorhandenen Code fast beantwortbar.**
+3. **Evidenz retten.** `match_chord` gibt eine Rangliste; die Zeitleiste trägt
+   Alternativen und Scores. *Ohne diesen Schritt ist kein Interpreter möglich.*
+   Klein und rein additiv.
 
-4. **Bassverlauf ins Archiv.** Die Bass-Frames werden berechnet und weggeworfen
-   ([chroma.py:129](../../jampilot/chroma.py#L129)). Sie aufzuheben kostet
-   Speicher, keine Rechenzeit — und ist die Voraussetzung für Slash-Akkorde.
+4. **Tonart als schwachen Prior einspeisen.** Der billigste Kontexthebel — die
+   Verteilung existiert bereits ([tonality.py:128](../../jampilot/tonality.py#L128))
+   und wird weggeworfen. Sofort messbar: an/aus, Selbsttest.
 
-5. **Den Nutzer nach dem Genre fragen**, statt es zu erraten. Ein Schalter ist
+5. **Revisionen messen.** Den Debug-Trace um Revisionsereignisse erweitern: Wie
+   oft ändert der Vorlauf die Meinung, bevor es jemand hört — und wird es dadurch
+   besser? **Das ist die Kernfrage aus Teil III, und sie ist mit dem vorhandenen
+   Code fast beantwortbar.**
+
+6. **Den Nutzer nach dem Genre fragen**, statt es zu erraten. Ein Schalter ist
    eine Zeile UI; ein Genre-Klassifikator ist ein Projekt.
 
-6. Erst danach: Beat, Taktposition, gelerntes Modell.
+7. Erst danach: Beat, Taktposition, gelerntes Modell.
+
+**Nicht auf dieser Liste: Quellentrennung.** Nicht aus Bequemlichkeit, sondern
+weil sie für dieses Ziel gemessen nichts bringt (+0,20 pp) und das CPU-Budget um
+Faktor 12 sprengt. Sie kommt zurück auf die Liste, sobald das **Playback** selbst
+verändert werden soll — das ist ein anderes Produkt, und es braucht eine GPU.
 
 ---
 
@@ -467,23 +680,41 @@ Forschung, den das Feld selbst formuliert (Humphrey & Bello) und eine Firma seit
 2012 verkauft (Chordify/HarmTrace). Wer sie bloß wiederholt, kommt zehn Jahre zu
 spät.
 
-**Der Beitrag liegt woanders, und er liegt schon im Repository:**
+Und die naheliegende Modernisierung — „2012 brauchte man eine Grammatik, heute
+trennt man einfach die Spuren" — ist **zur Hälfte falsch**. Quellentrennung
+verbessert die Akkorderkennung **gemessen nicht** (+0,20 pp; den Bass zu
+verstärken macht sie sogar schlechter), die Gitarren- und Piano-Stems existieren
+praktisch nicht, und HTDemucs sprengt das Echtzeitbudget um Faktor 12. Wer
+Trennung benutzt, um denselben Akkord genauer zu treffen, hat nur die Sackgasse
+gewechselt.
 
-Dieses Programm sieht die Zukunft, bevor der Mensch sie hört, und es darf seine
-Anzeige widerrufen, solange sie noch niemand gesehen hat. Beides ist gebaut,
-getestet, und wird **für nichts benutzt** — außer, um einen Balken über den
-Bildschirm laufen zu lassen. Kein anderes Echtzeitwerkzeug hat diesen Spielraum,
-weil alle anderen ihre Latenz minimieren.
+**Beide Sackgassen haben dieselbe Ursache: Sie optimieren die Antwort auf eine
+Frage, die der Musiker nie gestellt hat.**
 
-Die Frage ist also nicht „Interpretation statt Detektion?". Die ist beantwortet.
-Die Frage ist:
+Der Beitrag liegt woanders — und er liegt schon im Repository:
 
-> **Wie viel besser wird eine Akkordanzeige, wenn der Interpreter vier Sekunden
-> Zukunft hat — und was misst man, um das zu zeigen, wenn die etablierte Metrik
-> es per Konstruktion nicht sehen kann?**
+- Dieses Programm **sieht die Zukunft**, bevor der Mensch sie hört, und darf seine
+  Anzeige **widerrufen**, solange sie noch niemand gesehen hat. Beides ist gebaut,
+  getestet — und wird für nichts benutzt außer einem Laufband. Kein anderes
+  Echtzeitwerkzeug hat diesen Spielraum, weil alle anderen ihre Latenz minimieren.
+- Und es **rechnet den Bass bereits aus** — um ihn dann auf eine einzige Zahl
+  einzudampfen. Dabei ist die Bassnote genau das, was der Akkordname nicht
+  enthält, was unter Menschen am umstrittensten ist, und was ein Bassist als
+  Erstes wissen will.
 
-Das ist ein Forschungsprojekt. Und es fängt mit einer kleinen, additiven Änderung
-an: **hör auf, die Evidenz wegzuwerfen.**
+Beides ist in derselben Metrik **null Punkte wert**. Und beides sieht ein Spieler
+sofort.
+
+Die Frage ist also nicht mehr „Interpretation statt Detektion?" — die ist
+beantwortet. Sie lautet:
+
+> **Wie viel nützlicher wird eine Anzeige, die (a) vier Sekunden Zukunft hat und
+> sich vor der Hörschwelle korrigieren darf und (b) nicht fragt „welcher Akkord ist
+> wahr", sondern „was spielt *dieses* Instrument gerade"? Und was misst man, um das
+> zu zeigen, wenn die etablierte Metrik beides per Konstruktion nicht sehen kann?**
+
+Das ist ein Forschungsprojekt. Und es fängt mit zwei kleinen, additiven Änderungen
+an: **hör auf, die Evidenz wegzuwerfen — und miss den Bass, statt ihn zu raten.**
 
 ---
 
@@ -514,6 +745,17 @@ an: **hör auf, die Evidenz wegzuwerfen.**
 - Temperley (2002), *A Bayesian Approach to Key-Finding*
 - Bouquillard & Jacquemard (2024), *Engraving Oriented Joint Estimation of Pitch Spelling and Local and Global Keys* — [arXiv:2402.10247](https://arxiv.org/abs/2402.10247)
 - `mir_eval.chord` — [Quelltext](https://github.com/mir-evaluation/mir_eval/blob/main/mir_eval/chord.py) (C♯ ≡ D♭)
+
+**Quellentrennung & Bass (Teil IV)**
+- Pereira et al. (2023), *MoisesDB: A Dataset for Source Separation Beyond 4-Stems*, ISMIR — [PDF](https://archives.ismir.net/ismir2023/paper/000073.pdf) *(Stem-SDR inkl. Gitarre/Piano)*
+- Rouard, Massa, Défossez (2023), *Hybrid Transformers for Music Source Separation* (HTDemucs), ICASSP — [arXiv:2211.08553](https://arxiv.org/abs/2211.08553) · [Code/README](https://github.com/facebookresearch/demucs)
+- Lu et al. (2023), *Music Source Separation with Band-Split RoPE Transformer* (BS-RoFormer) — [arXiv:2309.02612](https://arxiv.org/abs/2309.02612); Mel-Band RoFormer — [arXiv:2310.01809](https://arxiv.org/abs/2310.01809)
+- **Mitoma & Furuya (2025)**, APSIPA ASC — [PDF](http://www.apsipa.org/proceedings/2025/papers/APSIPA2025_P307.pdf) *(Trennung als Vorstufe zur Akkorderkennung: +0,20 pp; Bass-Verstärkung verschlechtert)*
+- *Enhancing Automatic Chord Recognition through LLM Chain-of-Thought Reasoning* (2025) — [arXiv:2509.18700](https://arxiv.org/html/2509.18700v1) *(Bass-Stem für Umkehrungen: +0,75…+1,21 pp)*
+- Goto (2004), *A real-time music-scene-description system: predominant-F0 estimation for detecting melody and bass lines* (PreFEst), Speech Communication — [Projekt](https://staff.aist.go.jp/m.goto/PROJ/f0.html)
+- Abeßer et al., *Walking Bass Transcription* — [AudioLabs](https://www.audiolabs-erlangen.de/resources/MIR/2017-AES-WalkingBassTranscription) · [Code](https://github.com/jakobabesser/walking_bass_transcription_dnn)
+- Araz (2021), *Bass line transcription* (Demucs + pYIN; pYIN schlägt CREPE im Sub-Bass), ISMIR LBD — [PDF](https://archives.ismir.net/ismir2021/latebreaking/000016.pdf)
+- Low-Latency-Trennung: HS-TasNet (ICASSP 2024) — [arXiv:2402.17701](https://arxiv.org/abs/2402.17701) · RT-STT (2025) — [arXiv:2511.13146](https://arxiv.org/abs/2511.13146)
 
 **Korpora & Evaluation**
 - Isophonics/Beatles — [isophonics.net](https://isophonics.net/content/reference-annotations-beatles)
