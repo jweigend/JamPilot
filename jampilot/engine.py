@@ -100,12 +100,24 @@ class Engine:
                     self._loop = DelayedLoopback(args.input or "default", args.output,
                                                  args.delay, samplerate=args.samplerate)
                     self._loop.start()
-            except Exception as exc:
+            except BaseException as exc:
                 # Halb aufgebaut ist schlimmer als gar nicht: sonst bleibt der
                 # Null-Sink als Standardausgang stehen und der Rechner ist stumm.
+                #
+                # BaseException, NICHT Exception - und das ist keine Pedanterie.
+                # KeyboardInterrupt und SystemExit sind keine Exception, und
+                # ausgerechnet sie treffen den Aufbau am wahrscheinlichsten: Er
+                # dauert Sekunden (PortAudio oeffnen, Geraet einschwingen), und
+                # genau dann drueckt der ungeduldige Nutzer Strg+C. Vorher rutschte
+                # der Abbruch hier durch, der Null-Sink blieb Standardausgang, und
+                # der Rechner war stumm. Nachgemessen, mit SIGHUP mitten im
+                # DelayedLoopback.__init__.
                 self._abbauen()
-                self.status = "error"
-                self.fehler = str(exc)
+                if isinstance(exc, Exception):
+                    self.status = "error"
+                    self.fehler = str(exc)
+                else:
+                    self.status = "stopped"      # Strg+C ist kein Fehler
                 self._on_change()
                 raise
 
@@ -123,7 +135,11 @@ class Engine:
         Audio zurueck.
         """
         with self._lock:
-            if self._loop is None:
+            # Auch dann abbauen, wenn NUR die Umleitung steht. Ein Abbruch
+            # mitten im Aufbau (Strg+C, kill) laesst genau diesen Zustand
+            # zurueck: Null-Sink da, Stream noch nicht. Wer hier auf `_loop`
+            # prueft, geht darueber hinweg - und der Rechner bleibt stumm.
+            if self._loop is None and self._route is None:
                 return
             self._stop.set()
             thread, self._thread = self._thread, None

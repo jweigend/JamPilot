@@ -106,6 +106,46 @@ class TestAbbauReihenfolge:
         assert "keine Soundkarte" in e.fehler
         Routing.return_value.__exit__.assert_called_once()
 
+    def test_strg_c_mitten_im_aufbau_raeumt_auch_weg(self, args):
+        """Der Abbruch ist keine Exception - und traf trotzdem genau hier.
+
+        Der Aufbau dauert Sekunden (PortAudio oeffnen, Geraet einschwingen), und
+        genau dann drueckt der ungeduldige Nutzer Strg+C. KeyboardInterrupt ist
+        aber eine BaseException: Ein `except Exception` sieht sie nicht. Vorher
+        rutschte der Abbruch durch, der Null-Sink blieb als Standardausgang
+        stehen - und der Rechner war stumm, ohne dass irgendetwas das erklaerte.
+        (Nachgemessen mit einem SIGHUP mitten im DelayedLoopback.__init__.)
+        """
+        args.no_route = False
+        with patch("jampilot.routing.available", return_value=True), \
+             patch("jampilot.routing.LinuxRouting") as Routing, \
+             patch("jampilot.delay_stream.DelayedLoopback",
+                   side_effect=KeyboardInterrupt):
+            e = Engine(args)
+            with pytest.raises(KeyboardInterrupt):
+                e.start()
+
+        assert not e.running
+        assert e.status == "stopped"          # ein Abbruch ist kein Fehler
+        Routing.return_value.__exit__.assert_called_once()
+
+    def test_stop_baut_auch_eine_halbe_umleitung_ab(self, args):
+        """Nur die Umleitung steht, der Stream noch nicht - abbauen muss trotzdem.
+
+        Genau diesen Zustand laesst ein Abbruch mitten im Aufbau zurueck. Ein
+        `stop()`, das auf den Stream prueft und sonst sofort zurueckkehrt, geht
+        darueber hinweg und laesst den Null-Sink stehen.
+        """
+        args.no_route = False
+        with patch("jampilot.routing.available", return_value=True), \
+             patch("jampilot.routing.LinuxRouting") as Routing:
+            e = Engine(args)
+            e._route = Routing.return_value      # halb aufgebaut, wie nach Strg+C
+            e.stop()
+
+        Routing.return_value.__exit__.assert_called_once()
+        assert e._route is None
+
 
 class TestStumm:
     def test_umschalten_geht_nur_im_betrieb(self, engine):

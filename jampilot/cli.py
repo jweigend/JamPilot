@@ -193,11 +193,21 @@ def cmd_run(args):
     from . import routing
     from .delay_stream import DelayedLoopback
 
-    # Auch bei SIGTERM (kill) Routing und Stream sauber zurueckbauen.
+    # Auch bei `kill` (SIGTERM) und beim Schliessen des Terminals (SIGHUP) das
+    # Routing sauber zurueckbauen. Unbehandelt beenden beide den Prozess SOFORT -
+    # ohne finally, ohne Abbau, mit dem Null-Sink als Standardausgang. Wer sein
+    # Terminalfenster zumacht, haette danach einen stummen Rechner und nichts,
+    # was das erklaert.
+    #
+    # Im Fenster reicht das NICHT: Dort entstuende die Ausnahme in einer
+    # Qt-Verbindung, und PySide6 faengt sie ab und macht weiter. gui.py setzt die
+    # Handler deshalb neu - siehe beenden_bei_signal().
     def _raise_interrupt(*_):
         raise KeyboardInterrupt
 
-    signal.signal(signal.SIGTERM, _raise_interrupt)
+    for zeichen in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, zeichen):
+            signal.signal(getattr(signal, zeichen), _raise_interrupt)
 
     # Erst pruefen, dann teuer werden: Geraete- und Instanzfehler sollen sofort
     # kommen, nicht als Traceback nach drei Sekunden numba-Warmup.

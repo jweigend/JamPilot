@@ -357,6 +357,48 @@ class Fenster(QWidget):
         ereignis.accept()
 
 
+def beenden_bei_signal(app) -> "QTimer":
+    """Strg+C und `kill` muessen die Qt-Schleife verlassen - sauber.
+
+    Das ist kein Feinschliff, sondern die Notbremse hinter der Notbremse. Ohne
+    das hier ueberlebt JamPilot ein SIGTERM: Der Prozess laeuft weiter, der
+    Null-Sink bleibt der Standardausgang - und der Rechner bleibt STUMM. Genau
+    der Zustand, gegen den es dieses Fenster ueberhaupt gibt.
+
+    Zwei Fallen stecken darin, und beide sind zugeschnappt:
+
+    1. Ein Signalhandler, der KeyboardInterrupt WIRFT (so macht es die
+       Kommandozeile in cli.py), hilft hier nichts: Die Ausnahme entsteht im
+       Aufruf einer Qt-Verbindung, und PySide6 faengt sie dort ab, druckt einen
+       Traceback und macht weiter. Nachgemessen - der Prozess liess sich nur
+       noch mit `kill -9` beenden. Also nicht werfen, sondern app.quit() rufen.
+
+    2. Python fuehrt Signalhandler nur zwischen Bytecodes aus. Waehrend
+       app.exec() laeuft, steckt der Interpreter in C++ und kommt nie dazu. Ein
+       Zeitgeber, der nichts tut, gibt ihm alle 200ms die Gelegenheit. (Das
+       Fenster hat ohnehin einen - aber sich darauf zu verlassen, hiesse, dass
+       ein Aufraeumen dort hier still den Notausgang zumauert.)
+    """
+    import signal
+
+    # SIGHUP gehoert dazu, und zwar aus demselben Grund: Wer sein Terminal
+    # schliesst oder dessen SSH-Sitzung abbricht, bekommt genau dieses Signal.
+    # Unbehandelt beendet es den Prozess SOFORT - ohne finally, ohne Abbau, mit
+    # dem Null-Sink als Standardausgang. Der Rechner bliebe stumm, und der
+    # Nutzer haette nicht einmal mehr ein Fenster, in dem er das umlegen kann.
+    # (Nachgemessen: genau so passiert.)
+    zeichen = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGHUP"):
+        zeichen.append(signal.SIGHUP)
+    for eines in zeichen:
+        signal.signal(eines, lambda *_: app.quit())
+
+    wecker = QTimer()
+    wecker.timeout.connect(lambda: None)
+    wecker.start(200)
+    return wecker            # der Aufrufer muss ihn halten, sonst raeumt Qt ihn ab
+
+
 def run(engine, url: str | None, autostart: bool = False, vorbereiten=None) -> int:
     """Fenster oeffnen und die Qt-Schleife im Hauptthread fahren.
 
@@ -381,6 +423,8 @@ def run(engine, url: str | None, autostart: bool = False, vorbereiten=None) -> i
     palette = app.palette()
     palette.setColor(QPalette.Window, QColor(BG))
     app.setPalette(palette)
+
+    _wecker = beenden_bei_signal(app)     # muss leben, solange die Schleife laeuft
 
     fenster = Fenster(engine, url)
     fenster.show()

@@ -127,6 +127,53 @@ class TestAufraeumen:
         assert not e.running
 
 
+class TestSignale:
+    """`kill` und Strg+C muessen die Qt-Schleife verlassen.
+
+    Sonst ueberlebt JamPilot ein SIGTERM: Der Prozess laeuft weiter, der
+    Null-Sink bleibt Standardausgang - und der Rechner bleibt stumm. Genau der
+    Zustand, gegen den es das Fenster gibt. (So war es: Der Handler der
+    Kommandozeile wirft KeyboardInterrupt, PySide6 faengt das in seinen
+    Verbindungen ab, druckt einen Traceback und macht weiter. Zu beenden war der
+    Prozess nur noch mit kill -9.)
+    """
+
+    def test_sigterm_und_sigint_verlassen_die_schleife(self, app):
+        import signal
+
+        gerufen = []
+        app.quit = lambda: gerufen.append(True)
+
+        wecker = gui.beenden_bei_signal(app)
+        try:
+            for zeichen in (signal.SIGTERM, signal.SIGINT):
+                handler = signal.getsignal(zeichen)
+                assert callable(handler)
+                handler(zeichen, None)          # so kaeme das Signal an
+            assert len(gerufen) == 2            # ... und beide Male wird beendet
+        finally:
+            wecker.stop()
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+    def test_ein_zeitgeber_haelt_den_interpreter_wach(self, app):
+        """Ohne ihn kommt der Signalhandler nie dran.
+
+        Python fuehrt Handler nur zwischen Bytecodes aus - waehrend app.exec()
+        laeuft, steckt der Interpreter in C++. Ein Zeitgeber, der nichts tut,
+        gibt ihm regelmaessig die Gelegenheit dazu.
+        """
+        import signal
+
+        wecker = gui.beenden_bei_signal(app)
+        try:
+            assert wecker.isActive()
+        finally:
+            wecker.stop()
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+
 class TestLink:
     def test_die_adresse_der_webanzeige_steht_da_und_ist_klickbar(self, fenster):
         f, _ = fenster
