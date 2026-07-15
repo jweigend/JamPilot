@@ -112,9 +112,17 @@ class TestSeite:
         # Das Griffbild-Element, die Grifflogik (E-/A-Form) und das SVG-Rendern
         # muessen in der Seite stehen - das Feature lebt komplett im Browser.
         assert 'id="fretboard"' in PAGE
-        assert "chordShape" in PAGE and "fretSvg" in PAGE
+        assert "candidates" in PAGE and "fretSvg" in PAGE
         assert "SHAPES_E" in PAGE and "SHAPES_A" in PAGE
         assert 'body.guitar' in PAGE          # eigene Sicht, per Klasse geschaltet
+
+    def test_gitarrenmodus_ist_lagenbewusst(self):
+        # Die Voicing-Wahl nutzt den Vorlauf: ein DP-Planer waehlt ueber die
+        # KOMMENDEN Akkorde den bewegungsaermsten Pfad und schreibt jede Lage
+        # einmal fest (Receding Horizon). Das ist der Unterschied zum Katalog.
+        assert "planVoicing" in PAGE and "futureWindow" in PAGE
+        assert "lastVoicing" in PAGE          # die gegriffene Lage traegt weiter
+        assert "OPEN" in PAGE                 # offene Sonderformen als Tieflage
 
 
 class TestStummImBroadcaster:
