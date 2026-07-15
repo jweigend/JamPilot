@@ -723,27 +723,92 @@ function setCurrent(seg) {
   line.classList.remove("hit"); void line.offsetWidth; line.classList.add("hit");
 }
 
-// GITARREN-GRIFFBILD. Aus dem kanonischen Akkordnamen (Grundton + Qualitaet) wird
-// eine bewegliche E-/A-Form: zwei Barre-Schablonen je Qualitaet, am Griffbrett
-// verschoben (siehe docs/exploration/gitarrenmodus.md). Offene Griffe fallen als
-// Bund-0-Sonderfall automatisch an - E-Form von E-Dur IST der offene E-Griff.
+// GITARREN-GRIFFBILD, LAGENBEWUSST. Der Akkordname allein sagt noch nicht, WO am
+// Hals man greift - dieselbe Harmonie geht in mehreren Lagen. Ein Gitarrenkatalog
+// waehlt jeden Akkord isoliert (tiefste Form); ein Gitarrist bleibt mit der Hand
+// an einem Fleck. Genau das nutzt JamPilots Vorlauf aus: aus den KOMMENDEN
+// Akkorden waehlt ein DP den Voicing-Pfad mit der geringsten Handbewegung (siehe
+// docs/exploration/gitarrenmodus-lagen.md).
 const NOTE_PC = { C: 0, "C#": 1, D: 2, "D#": 3, E: 4, F: 5, "F#": 6,
                   G: 7, "G#": 8, A: 9, "A#": 10, B: 11 };
 const OPEN_PC = [4, 9, 2, 7, 11, 4];   // Saiten 6..1: E A D G B E
-// Buende relativ zum Grundtonbund R, Saiten 6..1. null = abgedaempft (X).
+// Bewegliche Schablonen, Buende relativ zum Grundtonbund R, Saiten 6..1.
+// null = abgedaempft (X). Bund 0 = offener Griff (E-Form von E-Dur = offenes E).
 const SHAPES_E = { "": [0,2,2,1,0,0], "m": [0,2,2,0,0,0], "7": [0,2,0,1,0,0],
                    "maj7": [0,2,1,1,0,0], "m7": [0,2,0,0,0,0] };
 const SHAPES_A = { "": [null,0,2,2,2,0], "m": [null,0,2,2,1,0], "7": [null,0,2,0,2,0],
                    "maj7": [null,0,2,1,2,0], "m7": [null,0,2,0,1,0] };
+// Offene Sonderformen, die sich NICHT aus den beweglichen E-/A-Schablonen ergeben
+// (Grundtoene C, G, D). Sie geben dem Planer eine Tieflagen-Option, die er waehlt,
+// wenn die Hand ohnehin am Sattel steht - so bekommen Anfaenger offene Griffe.
+const OPEN = {
+  "C": [-1,3,2,0,1,0], "C7": [-1,3,2,3,1,0], "Cmaj7": [-1,3,2,0,0,0],
+  "G": [3,2,0,0,0,3], "G7": [3,2,0,0,0,1],
+  "D": [-1,-1,0,2,3,2], "Dm": [-1,-1,0,2,3,1], "D7": [-1,-1,0,2,1,2],
+  "Dmaj7": [-1,-1,0,2,2,2], "Dm7": [-1,-1,0,2,1,1],
+};
 
-function chordShape(root, quality) {
+function anchorOf(frets) {
+  // Wo die Hand sitzt: der tiefste gegriffene Bund (leere/gedaempfte zaehlen nicht).
+  const f = frets.filter(x => x !== null && x > 0);
+  return f.length ? Math.min(...f) : 0;
+}
+
+// Alle spielbaren Lagen eines Akkords: E-Form (Grundton Saite 6), A-Form (Saite 5)
+// und - wo es sie gibt - die offene Sonderform. E- und A-Form liegen 5 Buende
+// auseinander, decken also zwei Hals-Regionen ab.
+function candidates(root, quality) {
   const pc = NOTE_PC[root];
-  if (pc === undefined || !(quality in SHAPES_E)) return null;
-  // Grundtonbund fuer beide Formen; die tiefere gewinnt (leichter, Bund 0 = offen).
-  const re = (((pc - 4) % 12) + 12) % 12;   // Grundton auf Saite 6
-  const ra = (((pc - 9) % 12) + 12) % 12;   // Grundton auf Saite 5
-  const [base, offs] = re <= ra ? [re, SHAPES_E[quality]] : [ra, SHAPES_A[quality]];
-  return { base, frets: offs.map(o => o === null ? null : base + o) };
+  if (pc === undefined || !(quality in SHAPES_E)) return [];
+  const out = [];
+  const push = (shape, base, tmpl) => {
+    // Barre oberhalb Bund 9 ist unpraktikabel - die jeweils andere Form (E/A
+    // liegen 5 Buende auseinander) deckt denselben Akkord tiefer ab.
+    if (base > 9) return;
+    out.push({ shape, base, anchor: base,
+               frets: tmpl.map(o => o === null ? null : base + o) });
+  };
+  push("E", (((pc - 4) % 12) + 12) % 12, SHAPES_E[quality]);   // Grundton Saite 6
+  push("A", (((pc - 9) % 12) + 12) % 12, SHAPES_A[quality]);   // Grundton Saite 5
+  const open = OPEN[root + quality];
+  if (open) out.push({ shape: "open", base: 0, anchor: anchorOf(open), frets: open.slice() });
+  return out;
+}
+
+// Knotenkosten: milder Bonus fuer offene/tiefe Lagen (damit sie gewinnen, WENN es
+// nichts kostet), leichte Strafe fuer Hochlagen (Spielbarkeit).
+function nodeCost(v) {
+  return 0.25 * Math.max(0, v.anchor - 7) + (v.shape === "open" || v.base === 0 ? -0.8 : 0);
+}
+// Uebergangskosten: die Handbewegung plus eine kleine Strafe fuer den Formwechsel.
+function transCost(a, b) {
+  return Math.abs(a.anchor - b.anchor) + (a.shape !== b.shape ? 0.5 : 0);
+}
+
+// Der lagenbewusste Kern: Viterbi ueber das Fenster [aktuell, ...kommende], der
+// Startknoten `last` (das schon gegriffene Voicing) ist fest. Zurueck kommt das
+// Voicing fuer window[0] - der erste Knoten des bewegungsaermsten Pfads. Nur
+// dieser wird festgeschrieben; der Lookahead bewahrt ihn nur vor Sackgassen.
+function planVoicing(window, last) {
+  const cand = window.map(c => candidates(c.root, c.q)).filter(a => a.length);
+  if (!cand.length) return null;
+  const dp = [cand[0].map(v => (last ? transCost(last, v) : 0) + nodeCost(v))];
+  const bp = [cand[0].map(() => -1)];
+  for (let i = 1; i < cand.length; i++) {
+    dp[i] = []; bp[i] = [];
+    cand[i].forEach((v, j) => {
+      let best = Infinity, arg = -1;
+      cand[i - 1].forEach((u, k) => {
+        const c = dp[i - 1][k] + transCost(u, v);
+        if (c < best) { best = c; arg = k; }
+      });
+      dp[i][j] = best + nodeCost(v); bp[i][j] = arg;
+    });
+  }
+  let li = cand.length - 1, bj = 0;
+  dp[li].forEach((c, j) => { if (c < dp[li][bj]) bj = j; });
+  for (let i = li; i > 0; i--) bj = bp[i][bj];
+  return cand[0][bj];
 }
 
 // Griffbild als SVG: sechs Saiten, fuenf Buende, Sattel/Bundlage, O/X, Punkte,
@@ -799,19 +864,55 @@ function fretSvg(shape) {
   return p + "</svg>";
 }
 
+// Das Fenster fuer den Planer: der hoerbare Akkord plus die kommenden aus der
+// Timeline, dublettenfrei und ohne Stille/Unsicheres. Genau hier fliesst der
+// Vorlauf ein - ohne ihn waere die Wahl blind.
+function futureWindow(seg) {
+  const out = [];
+  for (const c of chords) {
+    if (c.at < seg.at || c.c === "-" || c.c === "?") continue;
+    const m = c.c.match(/^([A-G]#?)(.*)$/);
+    if (!m || !(m[2] in SHAPES_E)) continue;
+    if (out.length && out[out.length - 1].name === c.c) continue;
+    out.push({ root: m[1], q: m[2], name: c.c });
+    if (out.length >= 6) break;              // so weit reicht der Lookahead
+  }
+  return out;
+}
+
+// Das Voicing eines Akkords wird EINMAL entschieden - wenn er hoerbar wird, mit
+// dem Vorgaenger als festem Start und dem Lookahead. Danach ist es gesperrt
+// (`voicings`), damit ein schon gezeigtes Griffbild nie umspringt. `lastVoicing`
+// traegt die gegriffene Lage zum naechsten Akkord weiter.
+let voicings = new Map();      // "at|c" -> gewaehltes Voicing
+let lastVoicing = null;
+function decideVoicing(seg) {
+  const key = seg.at.toFixed(2) + "|" + seg.c;
+  let v = voicings.get(key);
+  if (v) { lastVoicing = v; return v; }      // schon entschieden -> Start furs naechste
+  const win = futureWindow(seg);
+  if (!win.length) return null;
+  v = planVoicing(win, lastVoicing);
+  if (!v) return null;
+  voicings.set(key, v);
+  lastVoicing = v;
+  if (voicings.size > 24)                     // Vergangenes wegraeumen
+    for (const k of voicings.keys()) { voicings.delete(k); if (voicings.size <= 16) break; }
+  return v;
+}
+
 // Das Griffbild neu zeichnen, wenn sich Akkord ODER Schreibweise geaendert haben
 // (der Name folgt der Schreibweise, das Griffbrett nicht). Wie der grosse Akkord
 // cacht es sein Ergebnis, damit nicht jeder Frame die SVG neu baut.
 let fbShown = "";
 function renderFretboard(seg) {
   const name = seg ? seg.c : null;
-  const key = (name || "-") + "|" + schreibweise;
+  const key = (name || "-") + "|" + (name ? seg.at.toFixed(2) : "") + "|" + schreibweise;
   if (key === fbShown) return;
   fbShown = key;
-  const m = name ? name.match(/^([A-G]#?)(.*)$/) : null;
-  const shape = m ? chordShape(m[1], m[2]) : null;
-  if (!shape) { $("fbdiagram").innerHTML = ""; $("fbname").innerHTML = ""; return; }
-  $("fbdiagram").innerHTML = fretSvg(shape);
+  const v = seg && name && name !== "?" && name !== "-" ? decideVoicing(seg) : null;
+  if (!v) { $("fbdiagram").innerHTML = ""; $("fbname").innerHTML = ""; return; }
+  $("fbdiagram").innerHTML = fretSvg(v);
   $("fbname").innerHTML = chordHtml(name);
 }
 
@@ -941,6 +1042,7 @@ function setzeInstrument(neu) {
   $("current").dataset.shown = "";
   $("context").dataset.shown = "";
   fbShown = "";                  // erzwingt Neuaufbau des Griffbilds
+  voicings.clear(); lastVoicing = null;    // frisch planen, keine alte Lage erben
   for (const chip of chips.values()) chip.el.remove();
   chips.clear();
 }
