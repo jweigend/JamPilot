@@ -750,9 +750,12 @@ function chordShape(root, quality) {
 // Barre-Balken. Self-contained (kein CDN), Themenfarben aus dem Bestand.
 function fretSvg(shape) {
   const { frets, base } = shape;
-  const S = 6, F = 5, W = 132, H = 176, padX = 16, padTop = 30, padBot = 14;
-  const gw = W - 2 * padX, gh = H - padTop - padBot;
-  const sx = i => padX + gw / (S - 1) * i;
+  // Links extra Platz (padL > padR): dort steht die Bundlagen-Ziffer ("3fr").
+  // Ohne diesen Rand ragte sie ueber den viewBox-Rand und wurde abgeschnitten.
+  const S = 6, F = 5, W = 150, padL = 34, padR = 16, padTop = 30, padBot = 14;
+  const H = 176;
+  const gw = W - padL - padR, gh = H - padTop - padBot;
+  const sx = i => padL + gw / (S - 1) * i;
   const fy = k => padTop + gh / F * k;
   const openTop = base === 0;
   const col = "#3a414a", acc = "#6ea8ff", mk = "#9aa3ad";
@@ -767,9 +770,9 @@ function fretSvg(shape) {
        + fy(k) + '" stroke="' + col + '" stroke-width="'
        + (k === 0 && openTop ? 4.5 : 1.2) + '"/>';
   if (!openTop)
-    p += '<text x="' + (sx(0) - 7) + '" y="' + (fy(1) - 2) + '" fill="' + mk
-       + '" font-size="12" text-anchor="end" font-family="sans-serif">'
-       + base + 'fr</text>';
+    p += '<text x="' + (sx(0) - 9) + '" y="' + (yOf(base) + 4) + '" fill="' + acc
+       + '" font-size="13" font-weight="600" text-anchor="end" '
+       + 'font-family="sans-serif">' + base + 'fr</text>';
   // Barre: mehrere Saiten auf dem Grundtonbund (nur oberhalb des Sattels).
   let bStart = -1, bEnd = -1;
   for (let i = 0; i < S; i++)
