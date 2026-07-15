@@ -27,8 +27,9 @@ Two things worth knowing before you start, because you would find them out anywa
   Dense jazz voicings are not — `sus`, `dim` and `aug` are still on the roadmap,
   and on a Real Book standard it will simplify what it hears.
 
-Linux and macOS. It all happens on your own machine — no account, no cloud,
-nothing uploaded anywhere.
+Written entirely in Python and platform-independent — fully tested on Linux, also
+running on macOS, with Windows explored ([see the table](#platforms)). It all
+happens on your own machine — no account, no cloud, nothing uploaded anywhere.
 
 ---
 
@@ -138,6 +139,20 @@ for a finished one.
 
 Then just play something — a YouTube video, Spotify, anything that makes sound —
 and watch the chords arrive before it does.
+
+### Platforms
+
+JamPilot is written **entirely in Python and is platform-independent**: the
+capture, the delay buffer, the chroma analysis, the control window and the web
+display are the *same* code everywhere. The only part that differs per operating
+system is how the system sound is tapped silently — and even that already has a
+portable path (`--no-route` with an explicit loopback device).
+
+| Platform | Status | Notes |
+|---|---|---|
+| **Linux** | ✅ Fully tested | The reference platform. Automatic null-sink routing via PipeWire/PulseAudio (`pactl`). |
+| **macOS** | 🟡 Developed, incompletely tested | Runs via [BlackHole](https://existential.audio/blackhole/) as the loopback driver (`--no-route`). Built, but not exhaustively verified on hardware. |
+| **Windows** | 🧭 Explored, not yet implemented | The core already runs unchanged; only silent capture is missing (VB-CABLE + `--no-route`). See [`docs/exploration/windows-portierung.md`](docs/exploration/windows-portierung.md). |
 
 The one thing the script cannot install for you is **PortAudio**, because it is a
 system library and not a Python package (`sudo apt install libportaudio2`,
@@ -367,6 +382,20 @@ gear menu switches the display:
 |---|---|---|
 | **Chords** (default) | the audible chord | `C` |
 | **Bass** | the **measured bass note**, chord as context | `C/E` |
+| **Guitar** | the audible chord, with a **fretboard diagram** top-left | `C` |
+
+In **Guitar** mode the display adds the one thing a chord name leaves out: *where*
+to put your hand. A fingering diagram appears top-left, and — because the same
+harmony lives in several positions on the neck — the voicing is not picked in
+isolation but with the lead: a short Viterbi search over the coming chords chooses
+the path with the least hand travel, so you keep playing in one position instead
+of jumping across the neck between chords (see
+[`docs/exploration/gitarrenmodus-lagen.md`](docs/exploration/gitarrenmodus-lagen.md)).
+
+![The guitar display: the fretboard diagram for the current chord top-left, the big chord in the centre, the coming chords in the lane below](docs/bilder/gitarrenmodus.png)
+
+*Guitar mode: `F` is sounding — its barre-chord shape at the 1st fret is drawn
+top-left — while `Gm` and `C7` approach in the lane.*
 
 The measurement is free: the analysis already computes a low-band chroma
 (32–260 Hz) and used to throw it away. Keeping it costs memory, not CPU —
