@@ -46,6 +46,27 @@ COMPLEXITY_PENALTY_CQT = 0.02
 # Schreibweise. Kein Falschton. Nachgemessen: 0 Falschtoene in der Gruppe
 # "ambiguous", mit und ohne Bonus.
 
+# Die grosse Terz (Intervall 4) erzeugt ihren 3. Teilton eine Oktave+Quinte
+# hoeher - das faellt auf die grosse Septime (4 + 7 = 11). Dadurch trug schon ein
+# reiner Dur-Dreiklang UND ein Dominantseptakkord Scheinenergie auf der maj7-Note,
+# und das maj7-Template gewann: aus jedem Dur wurde ein "maj7", aus jedem "7" ein
+# "maj7". Der Dominant-b7 (Intervall 10) entsteht aus KEINEM Terzoberton - die
+# Verwechslung war deshalb einseitig (7 -> maj7, nie umgekehrt).
+#
+# Gegenmittel: diese erwartete Scheinenergie in die Dur-Terz-Templates ("" und
+# "7") einbauen. Sie "erklaeren" ihren eigenen Oberton auf 11 selbst und werden
+# nicht mehr vom maj7 geschlagen - ein ECHTES maj7 (mit starkem, gespieltem 11)
+# gewinnt weiterhin. Wert per Sweep ueber vier Real-Aufnahmen kalibriert (Sting -
+# If I Ever Lose My Faith, Steely Dan - Peg, Misty x2): der maj7-Anteil faellt von
+# ~40% auf ~20%, dom7 steigt, und die Grundtoene bleiben zu >=95% unveraendert -
+# der Fix korrigiert die Qualitaet, nicht den Grundton.
+#
+# Fuer die Moll-Terz (deren Oberton auf 10 = b7 faellt, m -> m7) wird das BEWUSST
+# NICHT gemacht: dieselbe Korrektur fraesse dort echte m7-Akkorde weg, die in
+# Jazz-Material (Misty: Fm7, Cm7, Bbm7 ...) haeufig und richtig sind. Der
+# dokumentierte Bias war der maj7, nicht der m7.
+THIRD_OVERTONE = 0.28
+
 # Unterhalb dieses RMS-Pegels gilt das Signal als Stille.
 SILENCE_RMS = 1e-4
 
@@ -81,6 +102,13 @@ def _build_templates():
             for k, interval in enumerate(intervals):
                 # Grundton leicht staerker gewichten als Terz/Quinte/Septime.
                 vec[(root + interval) % 12] = 1.0 if k == 0 else 0.8
+            # Obertonerwartung der grossen Terz auf der maj7-Note (siehe
+            # THIRD_OVERTONE) - nur wo die 11 nicht ohnehin Akkordton ist, also
+            # bei Dur und Dominantsept, nicht bei maj7 selbst.
+            if 4 in intervals:
+                idx = (root + 11) % 12
+                if vec[idx] == 0.0:
+                    vec[idx] = THIRD_OVERTONE
             vec /= np.linalg.norm(vec)
             extra_notes = len(intervals) - 3
             templates.append((NOTE_NAMES[root] + suffix, vec, extra_notes, root, suffix))

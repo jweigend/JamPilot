@@ -7,3 +7,8 @@ __pycache__/
 build/
 dist/
 *.spec.bak
+
+# Realaudio-Testmaterial: die Aufnahmen selbst nicht einchecken (Groesse,
+# Urheberrecht) - nur die Vergleichs-Reports (REPORT_*.md) gehoeren ins Repo.
+tests/realaudio/*.mp3
+tests/realaudio/*.wav
