@@ -344,6 +344,21 @@ PAGE = r"""<!DOCTYPE html>
                    letter-spacing: .12em; text-transform: uppercase;
                    margin-right: .5em; }
   body.bass #current { font-size: min(34vw, 44vh); }
+
+  /* Gitarren-Modus: das Griffbild zum Akkord, links oben. Nur sichtbar, wenn das
+     Instrument "guitar" ist - sonst naehme es dem grossen Akkord den Platz weg.
+     Der Name steht mit dabei: Name UND Griff zusammen, das ist der Lerneffekt. */
+  #fretboard {
+    position: fixed; top: 12vh; left: 2.6vmin; z-index: 8;
+    display: none; flex-direction: column; align-items: center; gap: 1.1vh;
+  }
+  body.guitar #fretboard { display: flex; }
+  body.guitar #current { font-size: min(30vw, 40vh); }
+  #fretboard svg { width: 30vmin; height: auto;
+                   min-width: 148px; max-width: 44vw; display: block; }
+  #fbname { color: #c8cdd4; font-size: max(2.5vmin, 15px); font-weight: 650;
+            letter-spacing: .03em; white-space: nowrap; }
+  #fbname .suffix { color: #6ea8ff; font-size: 72%; }
   @keyframes pop {
     0% { transform: scale(.94); opacity: .4; }
     100% { transform: scale(1); opacity: 1; }
@@ -482,6 +497,15 @@ PAGE = r"""<!DOCTYPE html>
                              chord as context. Inversions become visible.</span>
         </span>
       </button>
+      <button class="opt" data-inst="guitar" role="radio">
+        <span class="glyph">&#127928;</span>
+        <span class="text">
+          <span class="label">Guitar</span>
+          <span class="desc">A <b>fretboard diagram</b> top-left shows where your
+                             fingers go &ndash; see the chord instead of decoding
+                             its name.</span>
+        </span>
+      </button>
 
       <h2 class="second">Chord spelling</h2>
       <p class="sub">The same key is called A&#9839; or B&#9837;, depending on
@@ -513,6 +537,8 @@ PAGE = r"""<!DOCTYPE html>
       </button>
     </div>
   </div>
+
+  <div id="fretboard"><div id="fbdiagram"></div><div id="fbname"></div></div>
 
   <div id="stage">
     <div id="current"></div>
@@ -697,6 +723,95 @@ function setCurrent(seg) {
   line.classList.remove("hit"); void line.offsetWidth; line.classList.add("hit");
 }
 
+// GITARREN-GRIFFBILD. Aus dem kanonischen Akkordnamen (Grundton + Qualitaet) wird
+// eine bewegliche E-/A-Form: zwei Barre-Schablonen je Qualitaet, am Griffbrett
+// verschoben (siehe docs/exploration/gitarrenmodus.md). Offene Griffe fallen als
+// Bund-0-Sonderfall automatisch an - E-Form von E-Dur IST der offene E-Griff.
+const NOTE_PC = { C: 0, "C#": 1, D: 2, "D#": 3, E: 4, F: 5, "F#": 6,
+                  G: 7, "G#": 8, A: 9, "A#": 10, B: 11 };
+const OPEN_PC = [4, 9, 2, 7, 11, 4];   // Saiten 6..1: E A D G B E
+// Buende relativ zum Grundtonbund R, Saiten 6..1. null = abgedaempft (X).
+const SHAPES_E = { "": [0,2,2,1,0,0], "m": [0,2,2,0,0,0], "7": [0,2,0,1,0,0],
+                   "maj7": [0,2,1,1,0,0], "m7": [0,2,0,0,0,0] };
+const SHAPES_A = { "": [null,0,2,2,2,0], "m": [null,0,2,2,1,0], "7": [null,0,2,0,2,0],
+                   "maj7": [null,0,2,1,2,0], "m7": [null,0,2,0,1,0] };
+
+function chordShape(root, quality) {
+  const pc = NOTE_PC[root];
+  if (pc === undefined || !(quality in SHAPES_E)) return null;
+  // Grundtonbund fuer beide Formen; die tiefere gewinnt (leichter, Bund 0 = offen).
+  const re = (((pc - 4) % 12) + 12) % 12;   // Grundton auf Saite 6
+  const ra = (((pc - 9) % 12) + 12) % 12;   // Grundton auf Saite 5
+  const [base, offs] = re <= ra ? [re, SHAPES_E[quality]] : [ra, SHAPES_A[quality]];
+  return { base, frets: offs.map(o => o === null ? null : base + o) };
+}
+
+// Griffbild als SVG: sechs Saiten, fuenf Buende, Sattel/Bundlage, O/X, Punkte,
+// Barre-Balken. Self-contained (kein CDN), Themenfarben aus dem Bestand.
+function fretSvg(shape) {
+  const { frets, base } = shape;
+  const S = 6, F = 5, W = 132, H = 176, padX = 16, padTop = 30, padBot = 14;
+  const gw = W - 2 * padX, gh = H - padTop - padBot;
+  const sx = i => padX + gw / (S - 1) * i;
+  const fy = k => padTop + gh / F * k;
+  const openTop = base === 0;
+  const col = "#3a414a", acc = "#6ea8ff", mk = "#9aa3ad";
+  const yOf = f => fy(openTop ? f - 0.5 : f - base + 0.5);
+  let p = '<svg viewBox="0 0 ' + W + " " + H + '" fill="none" '
+        + 'xmlns="http://www.w3.org/2000/svg">';
+  for (let i = 0; i < S; i++)
+    p += '<line x1="' + sx(i) + '" y1="' + fy(0) + '" x2="' + sx(i) + '" y2="'
+       + fy(F) + '" stroke="' + col + '" stroke-width="1.4"/>';
+  for (let k = 0; k <= F; k++)
+    p += '<line x1="' + sx(0) + '" y1="' + fy(k) + '" x2="' + sx(S - 1) + '" y2="'
+       + fy(k) + '" stroke="' + col + '" stroke-width="'
+       + (k === 0 && openTop ? 4.5 : 1.2) + '"/>';
+  if (!openTop)
+    p += '<text x="' + (sx(0) - 7) + '" y="' + (fy(1) - 2) + '" fill="' + mk
+       + '" font-size="12" text-anchor="end" font-family="sans-serif">'
+       + base + 'fr</text>';
+  // Barre: mehrere Saiten auf dem Grundtonbund (nur oberhalb des Sattels).
+  let bStart = -1, bEnd = -1;
+  for (let i = 0; i < S; i++)
+    if (frets[i] === base && base > 0) { if (bStart < 0) bStart = i; bEnd = i; }
+  const barre = base > 0 && bEnd > bStart;
+  if (barre)
+    p += '<rect x="' + (sx(bStart) - 5) + '" y="' + (yOf(base) - 5) + '" width="'
+       + (sx(bEnd) - sx(bStart) + 10) + '" height="10" rx="5" fill="' + acc + '"/>';
+  for (let i = 0; i < S; i++) {
+    const f = frets[i], x = sx(i);
+    if (f === null) {                        // X: abgedaempft
+      const y = padTop - 13, r = 4;
+      p += '<line x1="' + (x-r) + '" y1="' + (y-r) + '" x2="' + (x+r) + '" y2="'
+         + (y+r) + '" stroke="' + mk + '" stroke-width="1.6"/>'
+         + '<line x1="' + (x-r) + '" y1="' + (y+r) + '" x2="' + (x+r) + '" y2="'
+         + (y-r) + '" stroke="' + mk + '" stroke-width="1.6"/>';
+    } else if (f === 0) {                    // O: leere Saite
+      p += '<circle cx="' + x + '" cy="' + (padTop-13) + '" r="4.2" stroke="'
+         + mk + '" stroke-width="1.6"/>';
+    } else if (!(barre && f === base)) {     // Punkt (nicht auf dem Barre-Balken)
+      p += '<circle cx="' + x + '" cy="' + yOf(f) + '" r="6" fill="' + acc + '"/>';
+    }
+  }
+  return p + "</svg>";
+}
+
+// Das Griffbild neu zeichnen, wenn sich Akkord ODER Schreibweise geaendert haben
+// (der Name folgt der Schreibweise, das Griffbrett nicht). Wie der grosse Akkord
+// cacht es sein Ergebnis, damit nicht jeder Frame die SVG neu baut.
+let fbShown = "";
+function renderFretboard(seg) {
+  const name = seg ? seg.c : null;
+  const key = (name || "-") + "|" + schreibweise;
+  if (key === fbShown) return;
+  fbShown = key;
+  const m = name ? name.match(/^([A-G]#?)(.*)$/) : null;
+  const shape = m ? chordShape(m[1], m[2]) : null;
+  if (!shape) { $("fbdiagram").innerHTML = ""; $("fbname").innerHTML = ""; return; }
+  $("fbdiagram").innerHTML = fretSvg(shape);
+  $("fbname").innerHTML = chordHtml(name);
+}
+
 // Auf dem Laufband steht im Bass-Modus der Slash-Akkord: C/E. Genau das ist die
 // Information, die im Akkordnamen allein fehlt.
 function chipHtml(seg) {
@@ -741,6 +856,7 @@ function animate() {
   // statt eine eingefrorene Zeitleiste weiterlaufen zu lassen.
   if (link !== "live" || offset === null) {
     showIdle();
+    if (instrument === "guitar") renderFretboard(null);
     for (const chip of chips.values()) chip.el.remove();
     chips.clear();
     return;
@@ -755,6 +871,8 @@ function animate() {
     audible = c;
   }
   setCurrent(audible);
+  // Im Gitarrenmodus zusaetzlich das Griffbild zum hoerbaren Akkord.
+  if (instrument === "guitar") renderFretboard(audible);
 
   syncChips(now);
   for (const chip of chips.values()) {
@@ -815,9 +933,11 @@ function setzeInstrument(neu) {
   for (const opt of document.querySelectorAll(".opt[data-inst]"))
     opt.setAttribute("aria-checked", String(opt.dataset.inst === neu));
   document.body.classList.toggle("bass", neu === "bass");
+  document.body.classList.toggle("guitar", neu === "guitar");
   // Alles neu zeichnen: der grosse Ton und jeder Chip sagen jetzt etwas anderes.
   $("current").dataset.shown = "";
   $("context").dataset.shown = "";
+  fbShown = "";                  // erzwingt Neuaufbau des Griffbilds
   for (const chip of chips.values()) chip.el.remove();
   chips.clear();
 }

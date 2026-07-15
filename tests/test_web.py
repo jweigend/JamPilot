@@ -103,6 +103,19 @@ class TestSeite:
         # Die Umschreibung passiert im Browser - beide Tabellen muessen da sein.
         assert "FLAT_OF" in PAGE and "SHARP_OF" in PAGE
 
+    def test_alle_drei_instrumente_stehen_zur_wahl(self):
+        # Chords, Bass und - neu - Guitar. Ohne die Optionen gibt es keinen Modus.
+        for inst in ("chords", "bass", "guitar"):
+            assert f'data-inst="{inst}"' in PAGE, inst
+
+    def test_gitarrenmodus_hat_griffbild_und_grifflogik(self):
+        # Das Griffbild-Element, die Grifflogik (E-/A-Form) und das SVG-Rendern
+        # muessen in der Seite stehen - das Feature lebt komplett im Browser.
+        assert 'id="fretboard"' in PAGE
+        assert "chordShape" in PAGE and "fretSvg" in PAGE
+        assert "SHAPES_E" in PAGE and "SHAPES_A" in PAGE
+        assert 'body.guitar' in PAGE          # eigene Sicht, per Klasse geschaltet
+
 
 class TestStummImBroadcaster:
     def test_republish_aendert_nur_das_gewuenschte_feld(self):
