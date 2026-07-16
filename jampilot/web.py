@@ -358,6 +358,18 @@ PAGE = r"""<!DOCTYPE html>
   body.guitar #current { font-size: min(30vw, 40vh); }
   #fretboard svg { width: 30vmin; height: auto;
                    min-width: 148px; max-width: 44vw; display: block; }
+
+  /* Bass-Modus: das Griffbrett - vier Saiten, der gespielte Ton (und seine
+     Oktaven) gross und hell, Quinte und Pentatonik nur angedeutet. Oben in der
+     Mitte und breit, damit die Grundtoene auch aus einiger Entfernung lesbar
+     sind. */
+  body.bass #fretboard { display: flex; top: 6vh; left: 50%;
+                         transform: translateX(-50%); }
+  body.bass #fretboard svg { width: min(70vw, 86vmin); max-width: 92vw; }
+  /* Der grosse Basston rueckt UNTER das Griffbrett, statt sich mit ihm zu
+     ueberlagern - Brett oben, Ton darunter. */
+  body.bass #stage { top: 34vh; }
+  body.bass #current { font-size: min(24vw, 30vh); }
   #fbname { color: #c8cdd4; font-size: max(2.5vmin, 15px); font-weight: 650;
             letter-spacing: .03em; white-space: nowrap; }
   #fbname .suffix { color: #6ea8ff; font-size: 72%; }
@@ -496,7 +508,9 @@ PAGE = r"""<!DOCTYPE html>
         <span class="text">
           <span class="label">Bass</span>
           <span class="desc">The <b>measured</b> bass note, large &ndash; with the
-                             chord as context. Inversions become visible.</span>
+                             chord as context, and a <b>four-string fretboard</b>
+                             showing every spot to play it. Inversions become
+                             visible.</span>
         </span>
       </button>
       <button class="opt" data-inst="guitar" role="radio">
@@ -606,7 +620,7 @@ let schreibweise = "sharp";  // was daraus gerade folgt
 // den Bass separat und schickt ihn pro Segment mit (`b`); ob er gezeigt wird,
 // entscheidet - wie die Schreibweise - allein der Browser.
 const INSTRUMENT_KEY = "jampilot.instrument";
-let instrument = localStorage.getItem(INSTRUMENT_KEY) || "chords";  // chords | bass
+let instrument = localStorage.getItem(INSTRUMENT_KEY) || "chords";  // chords | bass | guitar
 
 // Ohne erkannte Tonart gilt das Kreuz: das ist die Schreibweise ohne Vorzeichen
 // und die einzige ehrliche Vorgabe, solange wir die Tonart nicht kennen.
@@ -918,6 +932,91 @@ function renderFretboard(seg) {
   $("fbname").innerHTML = chordHtml(name);
 }
 
+// BASS-GRIFFBRETT. Anders als das Gitarren-Griffbild ist das kein EINZELNER
+// Griff, sondern eine Landkarte des Halses: Wir kennen nur die Tonklasse des
+// Basses (das gefaltete Tiefband-Chroma, siehe bass.py), nicht Saite oder
+// Oktave. Also markieren wir JEDE Position dieser Tonklasse gleich - das ist die
+// einzige ehrliche Darstellung und deckt die Oktaven von selbst ab. Drumherum,
+// nur angedeutet, die Toene, die ueber den Akkord "sicher" sind: die Quinte und
+// der Rest der zum Akkord passenden Pentatonik. Der gespielte Ton ist gross und
+// hell (aus einiger Entfernung lesbar), der Rest kaum sichtbar.
+const BASS_OPEN = [7, 2, 9, 4];           // Reihen oben->unten: G D A E
+const BASS_LABELS = ["G", "D", "A", "E"];
+// Pentatonik je Akkordqualitaet, als Intervalle vom AKKORD-Grundton (nicht vom
+// Bass - ueber C/E improvisiert man C-Dur, nicht E). Die Quinte (7) steckt in
+// jeder und wird eigens hervorgehoben; die Terz entscheidet Dur/Moll, und die
+// kennt JamPilot aus dem Akkord.
+const PENTA = {
+  "":     [0, 2, 4, 7, 9],    // Dur-Pentatonik   1 2 3 5 6
+  "maj7": [0, 2, 4, 7, 9],
+  "m":    [0, 3, 5, 7, 10],   // Moll-Pentatonik  1 b3 4 5 b7
+  "m7":   [0, 3, 5, 7, 10],
+  "7":    [0, 2, 4, 7, 10],   // Dominant         1 2 3 5 b7
+};
+
+const svgLine = (x1, y1, x2, y2, c, w) =>
+  '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2
+  + '" stroke="' + c + '" stroke-width="' + w + '"/>';
+const svgDot = (x, y, r, c, o) =>
+  '<circle cx="' + x + '" cy="' + y + '" r="' + r + '" fill="' + c + '"'
+  + (o < 1 ? ' fill-opacity="' + o + '"' : "") + "/>";
+
+// Das Griffbrett als SVG: vier Saiten, zwoelf Buende, Orientierungspunkte, und
+// die Noten in drei Stufen - gespielter Ton (gross, hell), Quinte (mittel),
+// Pentatonik (kaum sichtbar).
+function bassBoardSvg(rootPc, quality, bassPc) {
+  const penta = PENTA[quality] || [0, 7];
+  const FR = 12, W = 520, H = 132, padL = 48, padR = 16, padTop = 20, padBot = 20;
+  const nutX = padL, gridW = W - padL - padR, cell = gridW / FR;
+  const gh = H - padTop - padBot, rowGap = gh / 3;
+  const yOf = i => padTop + rowGap * i;
+  const xOf = f => nutX + cell * (f - 0.5);   // Mitte der Bundzelle
+  const col = "#3a414a", inlay = "#2f353d", acc = "#6ea8ff", grn = "#6f9080";
+  let p = '<svg viewBox="0 0 ' + W + " " + H + '" fill="none" '
+        + 'xmlns="http://www.w3.org/2000/svg">';
+  for (let i = 0; i < 4; i++)               // Saiten
+    p += svgLine(nutX, yOf(i), nutX + gridW, yOf(i), col, 1.3);
+  for (let f = 0; f <= FR; f++)             // Buende (Sattel dick)
+    p += svgLine(nutX + cell * f, yOf(0), nutX + cell * f, yOf(3), col, f === 0 ? 4 : 1);
+  [3, 5, 7, 9].forEach(f =>                 // Orientierungspunkte, sehr dezent
+    p += svgDot(xOf(f), (yOf(1) + yOf(2)) / 2, 2.4, inlay, 1));
+  p += svgDot(xOf(12), yOf(0.6), 2.4, inlay, 1) + svgDot(xOf(12), yOf(2.4), 2.4, inlay, 1);
+  for (let i = 0; i < 4; i++)               // Saiten-Namen links
+    p += '<text x="14" y="' + (yOf(i) + 4) + '" fill="#5b636d" font-size="11" '
+       + 'font-family="sans-serif">' + BASS_LABELS[i] + "</text>";
+  for (let i = 0; i < 4; i++)               // Noten
+    for (let f = 0; f <= FR; f++) {
+      const pc = (BASS_OPEN[i] + f) % 12, iv = (pc - rootPc + 12) % 12;
+      const x = f === 0 ? nutX - 14 : xOf(f), y = yOf(i);
+      if (pc === bassPc) p += svgDot(x, y, 8.5, acc, 1);          // gespielter Ton + Oktaven
+      else if (iv === 7) p += svgDot(x, y, 5, acc, 0.42);         // Quinte: mittel
+      else if (penta.includes(iv)) p += svgDot(x, y, 3.8, grn, 0.22);  // Pentatonik: kaum sichtbar
+    }
+  return p + "</svg>";
+}
+
+// Das Griffbrett neu zeichnen, wenn sich Akkord-Grundton, Qualitaet oder Basston
+// geaendert haben. Haengt NICHT an der Schreibweise (es zeigt Positionen, keine
+// Namen), cacht sein Ergebnis wie das Gitarren-Griffbild.
+let bbShown = "";
+function renderBassBoard(seg) {
+  const name = seg ? seg.c : null;
+  const m = name && name !== "?" && name !== "-" ? name.match(/^([A-G]#?)(.*)$/) : null;
+  if (!m) {
+    if (bbShown !== "") { bbShown = ""; $("fbdiagram").innerHTML = ""; $("fbname").innerHTML = ""; }
+    return;
+  }
+  const rootPc = NOTE_PC[m[1]];
+  // Ohne gemessenen Bass ist der Anker der Akkord-Grundton - wir zeigen, was wir
+  // wissen, und erfinden keine Umkehrung.
+  const bassPc = seg.b != null ? NOTE_PC[seg.b] : rootPc;
+  const key = rootPc + "|" + m[2] + "|" + bassPc;
+  if (key === bbShown) return;
+  bbShown = key;
+  $("fbdiagram").innerHTML = bassBoardSvg(rootPc, m[2], bassPc);
+  $("fbname").innerHTML = "";
+}
+
 // Auf dem Laufband steht im Bass-Modus der Slash-Akkord: C/E. Genau das ist die
 // Information, die im Akkordnamen allein fehlt.
 function chipHtml(seg) {
@@ -963,6 +1062,7 @@ function animate() {
   if (link !== "live" || offset === null) {
     showIdle();
     if (instrument === "guitar") renderFretboard(null);
+    else if (instrument === "bass") renderBassBoard(null);
     for (const chip of chips.values()) chip.el.remove();
     chips.clear();
     return;
@@ -985,8 +1085,10 @@ function animate() {
     }
   }
   setCurrent(audible);
-  // Im Gitarrenmodus zusaetzlich das Griffbild zum hoerbaren Akkord.
+  // Im Gitarrenmodus das Griffbild zum Akkord, im Bass-Modus das Griffbrett mit
+  // dem gemessenen Basston.
   if (instrument === "guitar") renderFretboard(audible);
+  else if (instrument === "bass") renderBassBoard(audible);
 
   syncChips(now);
   for (const chip of chips.values()) {
@@ -1051,7 +1153,7 @@ function setzeInstrument(neu) {
   // Alles neu zeichnen: der grosse Ton und jeder Chip sagen jetzt etwas anderes.
   $("current").dataset.shown = "";
   $("context").dataset.shown = "";
-  fbShown = "";                  // erzwingt Neuaufbau des Griffbilds
+  fbShown = ""; bbShown = "";    // erzwingt Neuaufbau von Griffbild/Griffbrett
   voicings.clear(); lastVoicing = null;    // frisch planen, keine alte Lage erben
   for (const chip of chips.values()) chip.el.remove();
   chips.clear();
