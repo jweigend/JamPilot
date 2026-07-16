@@ -362,6 +362,15 @@ PAGE = r"""<!DOCTYPE html>
   /* Bass-Modus: der kleine Hals-Ausschnitt sitzt wie das Gitarren-Griffbild oben
      links, hochkant - aktueller Ton (blau) und Folgeton (orange). */
   body.bass #fretboard { display: flex; }
+
+  /* In der schmalen Mobilansicht (z.B. Handy hochkant) ist neben dem grossen
+     Akkord kein Platz fuers Griffbrett - dort abschalten und dem Akkord die volle
+     Groesse zurueckgeben. Steht NACH den guitar/bass-Regeln oben, damit es sie
+     bei gleicher Spezifitaet ueberschreibt. */
+  @media (max-width: 640px) {
+    body.guitar #fretboard, body.bass #fretboard { display: none; }
+    body.guitar #current, body.bass #current { font-size: min(42vw, 52vh); }
+  }
   #fbname { color: #c8cdd4; font-size: max(2.5vmin, 15px); font-weight: 650;
             letter-spacing: .03em; white-space: nowrap; }
   #fbname .suffix { color: #6ea8ff; font-size: 72%; }
