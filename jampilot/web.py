@@ -345,7 +345,7 @@ PAGE = r"""<!DOCTYPE html>
   #context .over { font-size: 46%; font-weight: 400; color: #444b52;
                    letter-spacing: .12em; text-transform: uppercase;
                    margin-right: .5em; }
-  body.bass #current { font-size: min(34vw, 44vh); }
+  body.bass #current { font-size: min(30vw, 40vh); }
 
   /* Gitarren-Modus: das Griffbild zum Akkord, links oben. Nur sichtbar, wenn das
      Instrument "guitar" ist - sonst naehme es dem grossen Akkord den Platz weg.
@@ -359,17 +359,9 @@ PAGE = r"""<!DOCTYPE html>
   #fretboard svg { width: 30vmin; height: auto;
                    min-width: 148px; max-width: 44vw; display: block; }
 
-  /* Bass-Modus: das Griffbrett - vier Saiten, der gespielte Ton (und seine
-     Oktaven) gross und hell, Quinte und Pentatonik nur angedeutet. Oben in der
-     Mitte und breit, damit die Grundtoene auch aus einiger Entfernung lesbar
-     sind. */
-  body.bass #fretboard { display: flex; top: 6vh; left: 50%;
-                         transform: translateX(-50%); }
-  body.bass #fretboard svg { width: min(70vw, 86vmin); max-width: 92vw; }
-  /* Der grosse Basston rueckt UNTER das Griffbrett, statt sich mit ihm zu
-     ueberlagern - Brett oben, Ton darunter. */
-  body.bass #stage { top: 34vh; }
-  body.bass #current { font-size: min(24vw, 30vh); }
+  /* Bass-Modus: der kleine Hals-Ausschnitt sitzt wie das Gitarren-Griffbild oben
+     links, hochkant - aktueller Ton (blau) und Folgeton (orange). */
+  body.bass #fretboard { display: flex; }
   #fbname { color: #c8cdd4; font-size: max(2.5vmin, 15px); font-weight: 650;
             letter-spacing: .03em; white-space: nowrap; }
   #fbname .suffix { color: #6ea8ff; font-size: 72%; }
@@ -932,27 +924,21 @@ function renderFretboard(seg) {
   $("fbname").innerHTML = chordHtml(name);
 }
 
-// BASS-GRIFFBRETT. Anders als das Gitarren-Griffbild ist das kein EINZELNER
-// Griff, sondern eine Landkarte des Halses: Wir kennen nur die Tonklasse des
-// Basses (das gefaltete Tiefband-Chroma, siehe bass.py), nicht Saite oder
-// Oktave. Also markieren wir JEDE Position dieser Tonklasse gleich - das ist die
-// einzige ehrliche Darstellung und deckt die Oktaven von selbst ab. Drumherum,
-// nur angedeutet, die Toene, die ueber den Akkord "sicher" sind: die Quinte und
-// der Rest der zum Akkord passenden Pentatonik. Der gespielte Ton ist gross und
-// hell (aus einiger Entfernung lesbar), der Rest kaum sichtbar.
-const BASS_OPEN = [7, 2, 9, 4];           // Reihen oben->unten: G D A E
-const BASS_LABELS = ["G", "D", "A", "E"];
-// Pentatonik je Akkordqualitaet, als Intervalle vom AKKORD-Grundton (nicht vom
-// Bass - ueber C/E improvisiert man C-Dur, nicht E). Die Quinte (7) steckt in
-// jeder und wird eigens hervorgehoben; die Terz entscheidet Dur/Moll, und die
-// kennt JamPilot aus dem Akkord.
-const PENTA = {
-  "":     [0, 2, 4, 7, 9],    // Dur-Pentatonik   1 2 3 5 6
-  "maj7": [0, 2, 4, 7, 9],
-  "m":    [0, 3, 5, 7, 10],   // Moll-Pentatonik  1 b3 4 5 b7
-  "m7":   [0, 3, 5, 7, 10],
-  "7":    [0, 2, 4, 7, 10],   // Dominant         1 2 3 5 b7
-};
+// BASS-GRIFFBRETT, LAGENBEWUSST. Ein Bassist denkt in MUSTERN auf dem Hals, nicht
+// in einer Gesamtkarte. Darum zeigt der Bass-Modus einen kleinen Ausschnitt -
+// drei Buende, vier Saiten, hochkant wie das Gitarren-Griffbild: den aktuell zu
+// spielenden Ton und, in anderer Farbe, den NAECHSTEN, an der Position mit dem
+// kuerzesten Weg. So sieht man das Muster und kann den Wechsel im Voraus greifen.
+//
+// Wir kennen nur die Tonklasse, nicht Saite oder Oktave (bass.py). Also SCHLAGEN
+// wir eine sinnvolle Lage VOR - tiefe, dicke Saite und tiefer Bund bevorzugt, so
+// landet z.B. Eb auf der A-Saite und nicht hoch auf der E-Saite -, und der
+// Vorlauf entscheidet mit: von der gewaehlten Note der kuerzeste Weg zum
+// Folgeton. Dieselbe Idee wie die Voicing-Wahl der Gitarre, nur fuer Einzeltoene.
+const BASS_TUNING = [4, 9, 2, 7];         // Saiten E A D G (Spalten links->rechts)
+const BASS_MIDI   = [28, 33, 38, 43];     // deren Leersaiten (E1 A1 D2 G2)
+const BASS_NAMES  = ["E", "A", "D", "G"];
+const PC_NAME = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 const svgLine = (x1, y1, x2, y2, c, w) =>
   '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2
@@ -961,60 +947,135 @@ const svgDot = (x, y, r, c, o) =>
   '<circle cx="' + x + '" cy="' + y + '" r="' + r + '" fill="' + c + '"'
   + (o < 1 ? ' fill-opacity="' + o + '"' : "") + "/>";
 
-// Das Griffbrett als SVG: vier Saiten, zwoelf Buende, Orientierungspunkte, und
-// die Noten in drei Stufen - gespielter Ton (gross, hell), Quinte (mittel),
-// Pentatonik (kaum sichtbar).
-function bassBoardSvg(rootPc, quality, bassPc) {
-  const penta = PENTA[quality] || [0, 7];
-  const FR = 12, W = 520, H = 132, padL = 48, padR = 16, padTop = 20, padBot = 20;
-  const nutX = padL, gridW = W - padL - padR, cell = gridW / FR;
-  const gh = H - padTop - padBot, rowGap = gh / 3;
-  const yOf = i => padTop + rowGap * i;
-  const xOf = f => nutX + cell * (f - 0.5);   // Mitte der Bundzelle
-  const col = "#3a414a", inlay = "#2f353d", acc = "#6ea8ff", grn = "#6f9080";
-  let p = '<svg viewBox="0 0 ' + W + " " + H + '" fill="none" '
-        + 'xmlns="http://www.w3.org/2000/svg">';
-  for (let i = 0; i < 4; i++)               // Saiten
-    p += svgLine(nutX, yOf(i), nutX + gridW, yOf(i), col, 1.3);
-  for (let f = 0; f <= FR; f++)             // Buende (Sattel dick)
-    p += svgLine(nutX + cell * f, yOf(0), nutX + cell * f, yOf(3), col, f === 0 ? 4 : 1);
-  [3, 5, 7, 9].forEach(f =>                 // Orientierungspunkte, sehr dezent
-    p += svgDot(xOf(f), (yOf(1) + yOf(2)) / 2, 2.4, inlay, 1));
-  p += svgDot(xOf(12), yOf(0.6), 2.4, inlay, 1) + svgDot(xOf(12), yOf(2.4), 2.4, inlay, 1);
-  for (let i = 0; i < 4; i++)               // Saiten-Namen links
-    p += '<text x="14" y="' + (yOf(i) + 4) + '" fill="#5b636d" font-size="11" '
-       + 'font-family="sans-serif">' + BASS_LABELS[i] + "</text>";
-  for (let i = 0; i < 4; i++)               // Noten
-    for (let f = 0; f <= FR; f++) {
-      const pc = (BASS_OPEN[i] + f) % 12, iv = (pc - rootPc + 12) % 12;
-      const x = f === 0 ? nutX - 14 : xOf(f), y = yOf(i);
-      if (pc === bassPc) p += svgDot(x, y, 8.5, acc, 1);          // gespielter Ton + Oktaven
-      else if (iv === 7) p += svgDot(x, y, 5, acc, 0.42);         // Quinte: mittel
-      else if (penta.includes(iv)) p += svgDot(x, y, 3.8, grn, 0.22);  // Pentatonik: kaum sichtbar
-    }
-  return p + "</svg>";
+// Alle Lagen einer Tonklasse: je Saite der Bund 0..11.
+function bassPositions(pc) {
+  return BASS_TUNING.map((open, s) => ({ s, f: (((pc - open) % 12) + 12) % 12 }));
+}
+// Knotenkosten: tiefe (dicke) Saite und tiefer Bund bevorzugt, Hochlagen
+// gestraft. So ist die isolierte Vorgabe idiomatisch (Eb -> A-Saite, 6. Bund);
+// der Vorlauf ueberstimmt sie, wo Bewegung teurer waere.
+function bassNodeCost(p) {
+  const pitch = BASS_MIDI[p.s] + p.f;
+  return 0.8 * p.s + 0.10 * p.f + 0.05 * (pitch - 28) + 0.5 * Math.max(0, p.f - 9);
+}
+// Uebergangskosten: Handbewegung (Buende) plus ein kleiner Aufschlag fuer den
+// Saitenwechsel. Dominiert die Knotenkosten - die Linie bleibt an einem Fleck.
+function bassTransCost(a, b) {
+  return Math.abs(a.f - b.f) + 0.5 * Math.abs(a.s - b.s);
+}
+// Viterbi ueber [aktuell, ...folgende] mit festem Startknoten `last` (die zuletzt
+// gegriffene Lage). Zurueck kommt der ganze beste Pfad; gezeigt werden die ersten
+// zwei Knoten - aktueller Ton und Folgeton.
+function planBassLine(pcs, last) {
+  const cand = pcs.map(bassPositions);
+  if (!cand.length) return [];
+  const dp = [cand[0].map(p => (last ? bassTransCost(last, p) : 0) + bassNodeCost(p))];
+  const bp = [cand[0].map(() => -1)];
+  for (let i = 1; i < cand.length; i++) {
+    dp[i] = []; bp[i] = [];
+    cand[i].forEach((p, j) => {
+      let best = Infinity, arg = -1;
+      cand[i - 1].forEach((u, k) => {
+        const c = dp[i - 1][k] + bassTransCost(u, p);
+        if (c < best) { best = c; arg = k; }
+      });
+      dp[i][j] = best + bassNodeCost(p); bp[i][j] = arg;
+    });
+  }
+  let li = cand.length - 1, bj = 0;
+  dp[li].forEach((c, j) => { if (c < dp[li][bj]) bj = j; });
+  const path = new Array(cand.length);
+  for (let i = li; i >= 0; i--) { path[i] = cand[i][bj]; if (i > 0) bj = bp[i][bj]; }
+  return path;
 }
 
-// Das Griffbrett neu zeichnen, wenn sich Akkord-Grundton, Qualitaet oder Basston
-// geaendert haben. Haengt NICHT an der Schreibweise (es zeigt Positionen, keine
-// Namen), cacht sein Ergebnis wie das Gitarren-Griffbild.
+// Die kommende Basslinie ab `seg`: Tonklassen aus dem gemessenen Bass (oder, wo
+// keiner gemessen wurde, dem Akkord-Grundton), Dubletten zusammengefasst, kurz
+// genug fuer den Vorlauf.
+function bassLine(seg) {
+  const out = [];
+  for (const c of chords) {
+    if (c.at < seg.at || c.c === "-" || c.c === "?") continue;
+    const m = c.c.match(/^([A-G]#?)/);
+    if (!m) continue;
+    const pc = c.b != null ? NOTE_PC[c.b] : NOTE_PC[m[1]];
+    if (pc == null) continue;
+    if (out.length && out[out.length - 1] === pc) continue;   // Dublette
+    out.push(pc);
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+
+// Der Ausschnitt als SVG: vier Saiten (E A D G, links->rechts), drei Buende, der
+// aktuelle Ton (blau) und der Folgeton (orange) mit einer gestrichelten
+// Verbindung - der Weg, den die Hand nimmt.
+function bassLineSvg(cur, nxt) {
+  const fs = nxt ? [cur.f, nxt.f] : [cur.f];
+  const lo = Math.min(...fs), hi = Math.max(...fs), span = hi - lo + 1;
+  const openTop = lo === 0;
+  const nF = Math.max(3, span);
+  // Fenster mittig um die Toene legen, wenn drei Buende mehr als genug sind.
+  const base = openTop ? 0 : Math.max(1, lo - Math.floor((nF - span) / 2));
+  const S = 4, W = 128, padL = 30, padR = 12, padTop = 30, padBot = 24, H = 176;
+  const gw = W - padL - padR, gh = H - padTop - padBot;
+  const sx = i => padL + gw / (S - 1) * i;
+  const fy = k => padTop + gh / nF * k;
+  const yOf = f => fy(openTop ? f - 0.5 : f - base + 0.5);
+  const posY = p => (openTop && p.f === 0) ? (padTop - 15) : yOf(p.f);
+  const col = "#3a414a", curC = "#6ea8ff", nxtC = "#e8934a", mk = "#5b636d",
+        inlay = "#2f353d";
+  let s = '<svg viewBox="0 0 ' + W + " " + H + '" fill="none" '
+        + 'xmlns="http://www.w3.org/2000/svg">';
+  for (let i = 0; i < S; i++)               // Saiten
+    s += svgLine(sx(i), fy(0), sx(i), fy(nF), col, 1.4);
+  for (let k = 0; k <= nF; k++)             // Buende (Sattel dick, wenn sichtbar)
+    s += svgLine(sx(0), fy(k), sx(S - 1), fy(k), col, k === 0 && openTop ? 4.5 : 1.2);
+  if (!openTop)                             // Bundlagen-Ziffer links
+    s += '<text x="' + (sx(0) - 9) + '" y="' + (fy(0.5) + 4) + '" fill="' + curC
+       + '" font-size="12" font-weight="600" text-anchor="end" '
+       + 'font-family="sans-serif">' + base + 'fr</text>';
+  for (let f = base; f < base + nF; f++)    // Bundmarke zur Orientierung
+    if ([3, 5, 7, 9, 12].includes(f))
+      s += svgDot((sx(1) + sx(2)) / 2, yOf(f), 2.6, inlay, 1);
+  for (let i = 0; i < S; i++)               // Saiten-Namen unten
+    s += '<text x="' + sx(i) + '" y="' + (H - 8) + '" fill="' + mk + '" font-size="11" '
+       + 'text-anchor="middle" font-family="sans-serif">' + BASS_NAMES[i] + "</text>";
+  if (nxt)                                  // der Weg zum Folgeton
+    s += '<line x1="' + sx(cur.s) + '" y1="' + posY(cur) + '" x2="' + sx(nxt.s)
+       + '" y2="' + posY(nxt) + '" stroke="' + nxtC + '" stroke-width="2" '
+       + 'stroke-opacity="0.35" stroke-dasharray="3 3"/>';
+  if (nxt) s += svgDot(sx(nxt.s), posY(nxt), 8, nxtC, 1);       // Folgeton
+  s += svgDot(sx(cur.s), posY(cur), 8.5, curC, 1);             // aktueller Ton
+  return s + "</svg>";
+}
+
+// Das Griffbrett neu zeichnen, wenn sich der aktuelle oder der Folgeton geaendert
+// hat. Die zuletzt gewaehlte Lage (`lastBassPos`) wandert als Startpunkt weiter,
+// damit die Linie zusammenhaengt.
 let bbShown = "";
+let lastBassPos = null;
 function renderBassBoard(seg) {
   const name = seg ? seg.c : null;
-  const m = name && name !== "?" && name !== "-" ? name.match(/^([A-G]#?)(.*)$/) : null;
-  if (!m) {
-    if (bbShown !== "") { bbShown = ""; $("fbdiagram").innerHTML = ""; $("fbname").innerHTML = ""; }
+  const line = name && name !== "?" && name !== "-" && /^[A-G]#?/.test(name)
+    ? bassLine(seg) : [];
+  if (!line.length) {
+    if (bbShown !== "") { bbShown = ""; lastBassPos = null;
+      $("fbdiagram").innerHTML = ""; $("fbname").innerHTML = ""; }
     return;
   }
-  const rootPc = NOTE_PC[m[1]];
-  // Ohne gemessenen Bass ist der Anker der Akkord-Grundton - wir zeigen, was wir
-  // wissen, und erfinden keine Umkehrung.
-  const bassPc = seg.b != null ? NOTE_PC[seg.b] : rootPc;
-  const key = rootPc + "|" + m[2] + "|" + bassPc;
+  const key = seg.at.toFixed(2) + "|" + line.slice(0, 2).join(",") + "|" + schreibweise;
   if (key === bbShown) return;
   bbShown = key;
-  $("fbdiagram").innerHTML = bassBoardSvg(rootPc, m[2], bassPc);
-  $("fbname").innerHTML = "";
+  const plan = planBassLine(line, lastBassPos);
+  const cur = plan[0], nxt = plan.length > 1 ? plan[1] : null;
+  lastBassPos = cur;
+  $("fbdiagram").innerHTML = bassLineSvg(cur, nxt);
+  // Darunter: aktueller Ton -> Folgeton, in denselben Farben wie die Punkte.
+  const nm = pc => schreibeGrundton(PC_NAME[pc], schreibweise);
+  $("fbname").innerHTML = '<span style="color:#6ea8ff">' + nm(line[0]) + "</span>"
+    + (nxt ? '<span style="color:#7b828b"> &rarr; </span>'
+             + '<span style="color:#e8934a">' + nm(line[1]) + "</span>" : "");
 }
 
 // Auf dem Laufband steht im Bass-Modus der Slash-Akkord: C/E. Genau das ist die
@@ -1154,7 +1215,7 @@ function setzeInstrument(neu) {
   $("current").dataset.shown = "";
   $("context").dataset.shown = "";
   fbShown = ""; bbShown = "";    // erzwingt Neuaufbau von Griffbild/Griffbrett
-  voicings.clear(); lastVoicing = null;    // frisch planen, keine alte Lage erben
+  voicings.clear(); lastVoicing = null; lastBassPos = null;  // frisch planen
   for (const chip of chips.values()) chip.el.remove();
   chips.clear();
 }
