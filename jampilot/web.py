@@ -255,12 +255,14 @@ PAGE = r"""<!DOCTYPE html>
   body.muted #pause .ic-pause { display: none; }
   body.muted #mute .ic-play  { display: inline; }
 
-  /* Stumm heisst: gedimmt und entfaerbt - aber NICHT verdeckt. Der Akkord laeuft
-     weiter, weil die Quelle weiterlaeuft, und man will sehen, wo sie steht, um
-     rechtzeitig wieder einzusteigen. Ein Overlay ueber dem Akkord waere genau
-     die Information, die man in der Pause braucht. */
-  #stage, #lane { transition: opacity .3s, filter .3s; }
-  body.muted #stage, body.muted #lane { opacity: .3; filter: saturate(.15); }
+  /* Stumm heisst FREEZE fuer den Kopf: der grosse Akkord und - im Gitarrenmodus -
+     das Griffbild frieren im Moment des Stummschaltens ein (der Freeze selbst
+     passiert in animate()). Genau dafuer ist die Pause da: den gegriffenen Akkord
+     in Ruhe ansehen. Darum bleibt der Kopf hier VOLL sichtbar; nur das Laufband
+     unten laeuft weiter und wird gedimmt - es zeigt bloss noch, wo die Quelle
+     inzwischen steht, waehrend der Akkord oben stehenbleibt. */
+  #lane { transition: opacity .3s, filter .3s; }
+  body.muted #lane { opacity: .3; filter: saturate(.15); }
 
   #mutebadge {
     position: fixed; top: 0; left: 50%; transform: translateX(-50%);
@@ -548,7 +550,7 @@ PAGE = r"""<!DOCTYPE html>
 
   <div id="lane"><div id="nowline"></div><div id="nowlabel">NOW</div></div>
   <div id="mutebadge">
-    Muted <small>&mdash; the source keeps playing, you just hear nothing</small>
+    Muted <small>&mdash; chord frozen; the source keeps playing below</small>
   </div>
   <div id="hint">Click = fullscreen &middot; Space = mute</div>
   <div id="credits">
@@ -968,11 +970,19 @@ function animate() {
   const now = streamNow();
 
   // Hoerbar ist das letzte Segment, dessen Onset erreicht ist. Es traegt den
-  // Akkord UND die dort gemessene Bassnote.
-  let audible = null;
-  for (const c of chords) {
-    if (c.at > now) break;
-    audible = c;
+  // Akkord UND die dort gemessene Bassnote. IM STUMM-MODUS ist der Kopf jedoch
+  // eingefroren: dann steht statt des laufenden Akkords das im Moment des
+  // Stummschaltens festgehaltene Segment (`frozenSeg`) - damit man den Akkord
+  // (und das Griffbild) in Ruhe ansehen kann, waehrend das Laufband weiterlaeuft.
+  let audible;
+  if (stumm && frozenSeg) {
+    audible = frozenSeg;
+  } else {
+    audible = null;
+    for (const c of chords) {
+      if (c.at > now) break;
+      audible = c;
+    }
   }
   setCurrent(audible);
   // Im Gitarrenmodus zusaetzlich das Griffbild zum hoerbaren Akkord.
@@ -1062,13 +1072,32 @@ function apply(state) {
 }
 
 // STUMM. Nicht angehalten: Die Quelle laeuft weiter, der Ringpuffer laeuft
-// weiter, die Analyse laeuft weiter - nur der Lautsprecher schweigt. Deshalb
-// laeuft die Anzeige in der Pause WEITER (gedimmt), und beim Fortsetzen ist man
-// sofort wieder synchron zur Quelle, statt immer weiter hinter sie zu rutschen.
+// weiter, die Analyse laeuft weiter - nur der Lautsprecher schweigt. Damit man
+// aber in dieser Pause den Akkord (und im Gitarrenmodus das Griffbild) in Ruhe
+// ansehen kann, FRIERT DER KOPF EIN: das im Moment des Stummschaltens hoerbare
+// Segment wird festgehalten und bleibt oben stehen, waehrend das Laufband unten
+// mit der echten Uhr weiterlaeuft (so ist man beim Fortsetzen sofort wieder
+// synchron zur Quelle, statt hinter sie zu rutschen).
 let stumm = false;
+let frozenSeg = null;      // eingefrorenes Segment fuer den Kopf, solange stumm
+
+// Das gerade hoerbare Segment - genau das, was der Kopf zeigt. Zum Einfrieren im
+// Moment des Stummschaltens.
+function currentAudible() {
+  if (offset === null) return null;
+  const now = streamNow();
+  let a = null;
+  for (const c of chords) { if (c.at > now) break; a = c; }
+  return a;
+}
 
 function zeigeStumm(m) {
+  const war = stumm;
   stumm = !!m;
+  // Beim Uebergang in die Stille den Kopf einfrieren; beim Fortsetzen wieder
+  // freigeben, damit er der Quelle folgt.
+  if (stumm && !war) frozenSeg = currentAudible();
+  if (!stumm) frozenSeg = null;
   document.body.classList.toggle("muted", stumm);
   const btn = $("mute");
   btn.setAttribute("aria-pressed", stumm ? "true" : "false");
