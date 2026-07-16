@@ -108,6 +108,14 @@ class TestSeite:
         for inst in ("chords", "bass", "guitar"):
             assert f'data-inst="{inst}"' in PAGE, inst
 
+    def test_griffbrett_ist_abschaltbar(self):
+        # Ein Schalter im Dialog blendet das Griffbrett aus - fuer Bass UND
+        # Gitarre gleichermassen. Die Wahl wird wie die anderen gemerkt.
+        for wahl in ("on", "off"):
+            assert f'data-fret="{wahl}"' in PAGE, wahl
+        assert "jampilot.fretboard" in PAGE
+        assert "nofretboard" in PAGE          # eine Klasse schaltet beide Bretter
+
     def test_gitarrenmodus_hat_griffbild_und_grifflogik(self):
         # Das Griffbild-Element, die Grifflogik (E-/A-Form) und das SVG-Rendern
         # muessen in der Seite stehen - das Feature lebt komplett im Browser.

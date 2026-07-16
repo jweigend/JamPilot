@@ -371,6 +371,14 @@ PAGE = r"""<!DOCTYPE html>
     body.guitar #fretboard, body.bass #fretboard { display: none; }
     body.guitar #current, body.bass #current { font-size: min(42vw, 52vh); }
   }
+
+  /* Griffbrett per Einstellung abgeschaltet (gilt fuer Gitarre UND Bass): wie in
+     der Mobilansicht verschwindet das Brett und der grosse Akkord/Ton bekommt
+     die volle Groesse zurueck. Steht NACH allen guitar/bass-Regeln, damit es
+     bei gleicher Spezifitaet gewinnt. */
+  body.nofretboard #fretboard { display: none; }
+  body.nofretboard.guitar #current,
+  body.nofretboard.bass #current { font-size: min(42vw, 52vh); }
   #fbname { color: #c8cdd4; font-size: max(2.5vmin, 15px); font-weight: 650;
             letter-spacing: .03em; white-space: nowrap; }
   #fbname .suffix { color: #6ea8ff; font-size: 72%; }
@@ -524,6 +532,26 @@ PAGE = r"""<!DOCTYPE html>
         </span>
       </button>
 
+      <h2 class="second">Fretboard</h2>
+      <p class="sub">Bass and guitar mode show a fretboard top-left. If you know
+         your way around the neck, turn it off &ndash; the big display gets the
+         full screen back.</p>
+      <button class="opt" data-fret="on" role="radio">
+        <span class="glyph">&#9638;</span>
+        <span class="text">
+          <span class="label">Shown</span>
+          <span class="desc">Guitar: the chord diagram. Bass: the neck window
+                             with the current and the next note.</span>
+        </span>
+      </button>
+      <button class="opt" data-fret="off" role="radio">
+        <span class="glyph">&#9633;</span>
+        <span class="text">
+          <span class="label">Hidden</span>
+          <span class="desc">Just the big chord or note &ndash; no diagram.</span>
+        </span>
+      </button>
+
       <h2 class="second">Chord spelling</h2>
       <p class="sub">The same key is called A&#9839; or B&#9837;, depending on
          the key of the song. JamPilot detects the key and spells accordingly
@@ -622,6 +650,11 @@ let schreibweise = "sharp";  // was daraus gerade folgt
 // entscheidet - wie die Schreibweise - allein der Browser.
 const INSTRUMENT_KEY = "jampilot.instrument";
 let instrument = localStorage.getItem(INSTRUMENT_KEY) || "chords";  // chords | bass | guitar
+
+// GRIFFBRETT. Wer den Hals kennt, braucht die Karte nicht - dann bekommt der
+// grosse Akkord/Ton den Platz zurueck. Gilt fuer Gitarre UND Bass; Standard: an.
+const FRET_KEY = "jampilot.fretboard";
+let griffbrettAn = localStorage.getItem(FRET_KEY) !== "off";
 
 // Ohne erkannte Tonart gilt das Kreuz: das ist die Schreibweise ohne Vorzeichen
 // und die einzige ehrliche Vorgabe, solange wir die Tonart nicht kennen.
@@ -1131,8 +1164,8 @@ function animate() {
   // statt eine eingefrorene Zeitleiste weiterlaufen zu lassen.
   if (link !== "live" || offset === null) {
     showIdle();
-    if (instrument === "guitar") renderFretboard(null);
-    else if (instrument === "bass") renderBassBoard(null);
+    if (griffbrettAn && instrument === "guitar") renderFretboard(null);
+    else if (griffbrettAn && instrument === "bass") renderBassBoard(null);
     for (const chip of chips.values()) chip.el.remove();
     chips.clear();
     return;
@@ -1156,9 +1189,10 @@ function animate() {
   }
   setCurrent(audible);
   // Im Gitarrenmodus das Griffbild zum Akkord, im Bass-Modus das Griffbrett mit
-  // dem gemessenen Basston.
-  if (instrument === "guitar") renderFretboard(audible);
-  else if (instrument === "bass") renderBassBoard(audible);
+  // dem gemessenen Basston - beides nur, wenn das Griffbrett nicht abgeschaltet
+  // ist (dann waere es unsichtbares Zeichnen).
+  if (griffbrettAn && instrument === "guitar") renderFretboard(audible);
+  else if (griffbrettAn && instrument === "bass") renderBassBoard(audible);
 
   syncChips(now);
   for (const chip of chips.values()) {
@@ -1227,6 +1261,16 @@ function setzeInstrument(neu) {
   voicings.clear(); lastVoicing = null; lastBassPos = null;  // frisch planen
   for (const chip of chips.values()) chip.el.remove();
   chips.clear();
+}
+
+function setzeGriffbrett(an) {
+  griffbrettAn = an;
+  try { localStorage.setItem(FRET_KEY, an ? "on" : "off"); } catch (e) {}
+  for (const opt of document.querySelectorAll(".opt[data-fret]"))
+    opt.setAttribute("aria-checked", String((opt.dataset.fret === "on") === an));
+  document.body.classList.toggle("nofretboard", !an);
+  fbShown = ""; bbShown = "";    // beim Wiedereinschalten frisch aufbauen
+  voicings.clear(); lastVoicing = null; lastBassPos = null;  // frisch planen
 }
 
 function dialog(offen) {
@@ -1318,6 +1362,7 @@ for (const opt of document.querySelectorAll(".opt"))
   opt.addEventListener("click", () => {
     if (opt.dataset.mode) setzeModus(opt.dataset.mode);
     else if (opt.dataset.inst) setzeInstrument(opt.dataset.inst);
+    else if (opt.dataset.fret) setzeGriffbrett(opt.dataset.fret === "on");
   });
 
 document.addEventListener("keydown", ev => {
@@ -1333,6 +1378,7 @@ document.addEventListener("keydown", ev => {
 
 setzeInstrument(instrument);   // gespeicherte Wahl anwenden und markieren
 setzeModus(modus);
+setzeGriffbrett(griffbrettAn);
 
 if (new URLSearchParams(location.search).has("demo")) {
   // Demo in F-Dur: die Progression enthaelt A# (= Bb), damit man die
