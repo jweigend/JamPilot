@@ -303,7 +303,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     from . import bass as bassmodul
     from .chroma import FrameHistory, analyze_window, rms
     from .chords import SILENCE_RMS, ChordSmoother, match_chord
-    from .harmony import interpret_chord
+    from .harmony import interpret_chord, safe_pitch_classes
     from .tonality import SHARP, KeyEstimator, spell
 
     sr = args.samplerate
@@ -325,6 +325,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     # Frame-Chroma gemessen, nicht aus dem Erkennungszeitpunkt zurueckgerechnet
     # - eine Erkennung sagt WAS klingt, das Fenster sagt SEIT WANN.
     timeline: list[tuple[float, str]] = []
+    # Juengste konservative Tonmenge je stabiler Akkord-ID. Die Timeline darf
+    # String-basiert bleiben; Anzeige und Kontrollgitarre bekommen parallel die
+    # Töne, die alle nahen Audio-Lesarten gemeinsam tragen.
+    safe_by_chord: dict[str, tuple[int, ...]] = {}
     current: str | None = None
     lead = args.delay - 1.0  # Startschaetzung, unten aus echten Onsets gemessen
 
@@ -378,6 +382,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 # ordnen. Erst danach fliesst das aktuelle Fenster in die
                 # Tonartschaetzung ein, damit kein Zirkelschluss entsteht.
                 result = interpret_chord(result, keys.key)
+                if result.is_chord:
+                    safe_by_chord[result.name] = safe_pitch_classes(result)
                 keys.add(analysis.chroma)
                 # Die Bassnote laeuft NEBEN der Akkorderkennung, nicht in ihr:
                 # zwei Fragen, zwei Signale. Der Akkord braucht die volle
@@ -410,7 +416,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # Vollstaendiger Snapshot statt einzelner Trigger: Wird ein noch
             # nicht gehoertes Segment zurueckgenommen, verschwindet damit auch
             # sein Kontrollanschlag vor der Ausgabe.
-            loop.set_control_timeline(timeline)
+            loop.set_control_timeline([
+                (pos, name, safe_by_chord.get(name)) for pos, name in timeline
+            ])
             audible = "-"
             for pos, name in timeline:
                 if pos > audible_pos:
@@ -450,7 +458,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 # Schreibweise ist das eine Anzeige-, keine Serverfrage.
                 broadcaster.publish({
                     "t": round(audible_pos, 3),
-                    "chords": [{"c": name, "at": round(pos, 3), "b": bassnote}
+                    "chords": [{"c": name, "at": round(pos, 3), "b": bassnote,
+                                "v": list(safe_by_chord.get(name, ())) or None}
                                for (pos, name), bassnote in zip(timeline, basslinie)],
                     "lead": round(lead, 2),
                     "key": key.as_dict() if key else None,

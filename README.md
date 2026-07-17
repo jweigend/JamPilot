@@ -392,6 +392,14 @@ the path with the least hand travel, so you keep playing in one position instead
 of jumping across the neck between chords (see
 [`docs/exploration/gitarrenmodus-lagen.md`](docs/exploration/gitarrenmodus-lagen.md)).
 
+The diagram is deliberately conservative when the audio cannot reliably decide
+between nearby readings. If A major and A minor are almost equally plausible,
+JamPilot shows a playable A5 shape (A and E) and mutes the uncertain third instead
+of asking the guitarist to guess C or C#. An uncertain seventh is omitted in the
+same way. The optional **control guitar** in Settings plays exactly this safe set
+of pitch classes over the quieter delayed original, making a bad recommendation
+immediately audible without pretending to reconstruct the recorded fingering.
+
 ![The guitar display: the fretboard diagram for the current chord top-left, the big chord in the centre, the coming chords in the lane below](docs/bilder/gitarrenmodus.png)
 
 *Guitar mode: `F` is sounding — its barre-chord shape at the 1st fret is drawn

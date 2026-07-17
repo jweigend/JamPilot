@@ -15,6 +15,9 @@ from .tonality import Key
 # Borrowed Chords und andere echte chromatische Harmonik.
 KEY_PENALTY_PER_FOREIGN_TONE = 0.055
 MAX_AUDIO_DISTANCE = 0.09
+# Enger als die Interpretationsgrenze: Jede fast gleich gute Lesart muss einen
+# Ton tragen, bevor wir dem Gitarristen empfehlen, ihn wirklich mitzuspielen.
+SAFE_AUDIO_DISTANCE = 0.05
 
 _MAJOR_SCALE = (0, 2, 4, 5, 7, 9, 11)
 _MINOR_SCALE = (0, 2, 3, 5, 7, 8, 10)
@@ -68,3 +71,26 @@ def interpret_chord(result: ChordResult, key: Key | None) -> ChordResult:
         return result
     return ChordResult(chosen.name, chosen.score, root=chosen.root,
                        quality=chosen.quality, candidates=result.candidates)
+
+
+def safe_pitch_classes(result: ChordResult) -> tuple[int, ...]:
+    """Tonklassen, die alle nahen Lesarten desselben Grundtons gemeinsam haben.
+
+    A gegen Am ergibt dadurch A+E; A7 gegen A ergibt den Dur-Dreiklang. Ist die
+    Audioevidenz eindeutig, bleibt der vollstaendige erkannte Akkord erhalten.
+    """
+    if not result.is_chord or result.root is None:
+        return ()
+    plausible = [candidate for candidate in result.candidates
+                 if candidate.root == result.root
+                 and result.confidence - candidate.score <= SAFE_AUDIO_DISTANCE]
+    if not plausible:
+        plausible = [ChordCandidate(result.name, result.confidence,
+                                     result.root, result.quality)]
+
+    sets = [{(candidate.root + interval) % 12
+             for interval in CHORD_TYPES[candidate.quality]}
+            for candidate in plausible]
+    common = set.intersection(*sets)
+    # Musikalische Reihenfolge relativ zum Grundton, stabil fuer Payload/Tests.
+    return tuple(sorted(common, key=lambda pc: (pc - result.root) % 12))

@@ -10,7 +10,7 @@ from jampilot.chords import (
     find_onset_frame,
     match_chord,
 )
-from jampilot.harmony import interpret_chord
+from jampilot.harmony import interpret_chord, safe_pitch_classes
 from jampilot.chroma import NOTE_NAMES
 from jampilot.tonality import Key
 
@@ -142,6 +142,18 @@ class TestHarmonicInterpreter:
     def test_ohne_tonart_bleibt_roher_gewinner(self):
         raw = self._result(("A", .80, 9, ""), ("Am", .79, 9, "m"))
         assert interpret_chord(raw, None).name == "A"
+
+    def test_unsichere_terz_wird_nicht_zum_mitspielen_freigegeben(self):
+        raw = self._result(("A", .80, 9, ""), ("Am", .78, 9, "m"))
+        assert safe_pitch_classes(raw) == (9, 4)       # A + E, weder C# noch C
+
+    def test_unsichere_septime_faellt_auf_dreiklang_zurueck(self):
+        raw = self._result(("A7", .80, 9, "7"), ("A", .77, 9, ""))
+        assert safe_pitch_classes(raw) == (9, 1, 4)    # A C# E, ohne G
+
+    def test_eindeutiger_akkord_bleibt_vollstaendig(self):
+        raw = self._result(("Am7", .90, 9, "m7"), ("Am", .82, 9, "m"))
+        assert safe_pitch_classes(raw) == (9, 0, 4, 7)
 
 
 class TestFindOnsetFrame:

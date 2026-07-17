@@ -211,8 +211,10 @@ class DelayedLoopback:
         from .control_guitar import render
 
         events = []
-        for onset, chord in self._control_timeline:
-            sound = render(chord, self.samplerate)
+        for item in self._control_timeline:
+            onset, chord = item[:2]
+            safe = tuple(item[2]) if len(item) > 2 and item[2] is not None else None
+            sound = render(chord, self.samplerate, safe)
             if sound is not None:
                 events.append((int(round(onset * self.samplerate)), sound))
         self._control_events = tuple(events)

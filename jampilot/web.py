@@ -839,21 +839,34 @@ function anchorOf(frets) {
 // Alle spielbaren Lagen eines Akkords: E-Form (Grundton Saite 6), A-Form (Saite 5)
 // und - wo es sie gibt - die offene Sonderform. E- und A-Form liegen 5 Buende
 // auseinander, decken also zwei Hals-Regionen ab.
-function candidates(root, quality) {
+function candidates(root, quality, safe) {
   const pc = NOTE_PC[root];
   if (pc === undefined || !(quality in SHAPES_E)) return [];
   const out = [];
+  // Nur Tonklassen greifen, die alle nahen Erkennungshypothesen gemeinsam
+  // tragen. So wird aus unsicherem A/Am ein A5 statt einer geratenen Terz.
+  const secure = Array.isArray(safe) && safe.length ? new Set(safe) : null;
+  const keepSafe = frets => frets.map((f, string) => {
+    if (f === null || f < 0) return null;
+    const sounding = (OPEN_PC[string] + f) % 12;
+    return !secure || secure.has(sounding) ? f : null;
+  });
   const push = (shape, base, tmpl) => {
     // Barre oberhalb Bund 9 ist unpraktikabel - die jeweils andere Form (E/A
     // liegen 5 Buende auseinander) deckt denselben Akkord tiefer ab.
     if (base > 9) return;
-    out.push({ shape, base, anchor: base,
-               frets: tmpl.map(o => o === null ? null : base + o) });
+    const frets = keepSafe(tmpl.map(o => o === null ? null : base + o));
+    if (!frets.some(f => f !== null)) return;
+    out.push({ shape, base, anchor: base, frets });
   };
   push("E", (((pc - 4) % 12) + 12) % 12, SHAPES_E[quality]);   // Grundton Saite 6
   push("A", (((pc - 9) % 12) + 12) % 12, SHAPES_A[quality]);   // Grundton Saite 5
   const open = OPEN[root + quality];
-  if (open) out.push({ shape: "open", base: 0, anchor: anchorOf(open), frets: open.slice() });
+  if (open) {
+    const frets = keepSafe(open);
+    if (frets.some(f => f !== null))
+      out.push({ shape: "open", base: 0, anchor: anchorOf(frets), frets });
+  }
   return out;
 }
 
@@ -872,7 +885,7 @@ function transCost(a, b) {
 // Voicing fuer window[0] - der erste Knoten des bewegungsaermsten Pfads. Nur
 // dieser wird festgeschrieben; der Lookahead bewahrt ihn nur vor Sackgassen.
 function planVoicing(window, last) {
-  const cand = window.map(c => candidates(c.root, c.q)).filter(a => a.length);
+  const cand = window.map(c => candidates(c.root, c.q, c.safe)).filter(a => a.length);
   if (!cand.length) return null;
   const dp = [cand[0].map(v => (last ? transCost(last, v) : 0) + nodeCost(v))];
   const bp = [cand[0].map(() => -1)];
@@ -956,7 +969,7 @@ function futureWindow(seg) {
     const m = c.c.match(/^([A-G]#?)(.*)$/);
     if (!m || !(m[2] in SHAPES_E)) continue;
     if (out.length && out[out.length - 1].name === c.c) continue;
-    out.push({ root: m[1], q: m[2], name: c.c });
+    out.push({ root: m[1], q: m[2], name: c.c, safe: c.v || null });
     if (out.length >= 6) break;              // so weit reicht der Lookahead
   }
   return out;
@@ -987,6 +1000,19 @@ function decideVoicing(seg) {
 // (der Name folgt der Schreibweise, das Griffbrett nicht). Wie der grosse Akkord
 // cacht es sein Ergebnis, damit nicht jeder Frame die SVG neu baut.
 let fbShown = "";
+function safeGuitarName(seg) {
+  if (!seg || !Array.isArray(seg.v) || !seg.v.length) return seg ? seg.c : "";
+  const m = seg.c.match(/^([A-G]#?)(.*)$/);
+  if (!m) return seg.c;
+  const root = NOTE_PC[m[1]], tones = new Set(seg.v);
+  const hasMinor3 = tones.has((root + 3) % 12);
+  const hasMajor3 = tones.has((root + 4) % 12);
+  if (!hasMinor3 && !hasMajor3) return m[1] + "5";
+  if (m[2] === "7" && !tones.has((root + 10) % 12)) return m[1];
+  if (m[2] === "maj7" && !tones.has((root + 11) % 12)) return m[1];
+  if (m[2] === "m7" && !tones.has((root + 10) % 12)) return m[1] + "m";
+  return seg.c;
+}
 function renderFretboard(seg) {
   const name = seg ? seg.c : null;
   const key = (name || "-") + "|" + (name ? seg.at.toFixed(2) : "") + "|" + schreibweise;
@@ -995,7 +1021,7 @@ function renderFretboard(seg) {
   const v = seg && name && name !== "?" && name !== "-" ? decideVoicing(seg) : null;
   if (!v) { $("fbdiagram").innerHTML = ""; $("fbname").innerHTML = ""; return; }
   $("fbdiagram").innerHTML = fretSvg(v);
-  $("fbname").innerHTML = chordHtml(name);
+  $("fbname").innerHTML = chordHtml(safeGuitarName(seg));
 }
 
 // BASS-GRIFFBRETT, LAGENBEWUSST. Ein Bassist denkt in MUSTERN auf dem Hals, nicht

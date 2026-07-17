@@ -2,7 +2,12 @@
 
 import numpy as np
 
-from jampilot.control_guitar import CONTROL_GAIN, PLAYBACK_GAIN, render
+from jampilot.control_guitar import (
+    CONTROL_GAIN,
+    PLAYBACK_GAIN,
+    _midi_voicing,
+    render,
+)
 
 
 def test_rendert_dur_und_moll_als_stereoanschlag():
@@ -28,3 +33,9 @@ def test_stille_und_unbekanntes_erzeugen_keinen_ton():
     assert render("-", 8000) is None
     assert render("?", 8000) is None
     assert render("Csus4", 8000) is None
+
+
+def test_safe_voicing_spielt_bei_dur_moll_unsicherheit_nur_powerchord():
+    notes = _midi_voicing(9, "", safe_pcs=(9, 4))
+    assert {note % 12 for note in notes} == {9, 4}     # kein C# hinzugefuegt
+    assert len(notes) == 3                             # A E A

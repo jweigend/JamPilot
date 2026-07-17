@@ -29,10 +29,17 @@ def _parse(chord: str) -> tuple[int, str] | None:
     return NOTE_NAMES.index(root_name), quality
 
 
-def _midi_voicing(root: int, quality: str) -> list[int]:
+def _midi_voicing(root: int, quality: str,
+                  safe_pcs: tuple[int, ...] | None = None) -> list[int]:
     """Vier aufsteigende Akkordtoene im echten Gitarrenregister."""
     pcs = [(root + interval) % 12 for interval in CHORD_TYPES[quality]]
+    if safe_pcs is not None:
+        pcs = [pc for pc in pcs if pc in safe_pcs]
+    if not pcs:
+        return []
     if len(pcs) == 3:                       # Grundton oben verdoppeln
+        pcs.append(root)
+    elif len(pcs) == 2:                     # Powerchord: Grundton verdoppeln
         pcs.append(root)
     notes = []
     previous = 39
@@ -67,15 +74,18 @@ def _pluck(midi: int, samplerate: int, seed: int) -> np.ndarray:
     return out
 
 
-@lru_cache(maxsize=128)
-def render(chord: str, samplerate: int) -> np.ndarray | None:
+@lru_cache(maxsize=256)
+def render(chord: str, samplerate: int,
+           safe_pcs: tuple[int, ...] | None = None) -> np.ndarray | None:
     """Stereo-Anschlag fuer eine kanonische Akkord-ID, oder ``None``."""
     parsed = _parse(chord)
     if parsed is None:
         return None
     root, quality = parsed
     stagger = max(1, int(round(.018 * samplerate)))
-    notes = _midi_voicing(root, quality)
+    notes = _midi_voicing(root, quality, safe_pcs)
+    if not notes:
+        return None
     length = int(round(PLUCK_SECONDS * samplerate)) + stagger * (len(notes) - 1)
     mixed = np.zeros((length, 2), dtype=np.float32)
     for i, midi in enumerate(notes):
