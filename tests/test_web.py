@@ -116,6 +116,13 @@ class TestSeite:
         assert "jampilot.fretboard" in PAGE
         assert "nofretboard" in PAGE          # eine Klasse schaltet beide Bretter
 
+    def test_kontrollgitarre_ist_abschaltbar(self):
+        for wahl in ("on", "off"):
+            assert f'data-control="{wahl}"' in PAGE
+        assert 'fetch("/control-guitar", { method: "POST" })' in PAGE
+        assert "control_guitar" in PAGE
+        assert "kontrollgitarreSetzen" in PAGE
+
     def test_gitarrenmodus_hat_griffbild_und_grifflogik(self):
         # Das Griffbild-Element, die Grifflogik (E-/A-Form) und das SVG-Rendern
         # muessen in der Seite stehen - das Feature lebt komplett im Browser.

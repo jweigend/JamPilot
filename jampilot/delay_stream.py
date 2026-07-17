@@ -59,6 +59,11 @@ class DelayedLoopback:
         # weiter hinter die Quelle, und der Vorlauf, der ganze Sinn des
         # Programms, waere hinueber.
         self._muted = False
+        self._control_guitar = False
+        self._control_timeline = ()
+        # Immutable Snapshot: Der Analyse-Thread ersetzt das Tupel atomar, der
+        # Audio-Callback liest es ohne Lock. Ein Event ist (Onset-Frame, Stereo).
+        self._control_events: tuple[tuple[int, np.ndarray], ...] = ()
 
         # Hart auf Null zu schalten ist ein Sprung im Signal, und den hoert man
         # als Knacken. Also in ~15 ms aus- und wieder einblenden. Die Rampe wird
@@ -106,6 +111,23 @@ class DelayedLoopback:
             ring[pos:] = indata[:first]
             ring[: end - n] = indata[first:]
         self._pos = end % n
+
+        # Kontrollanschlaege liegen auf derselben Stream-Zeitachse wie das
+        # Original. `frames_seen - delay_frames` ist genau der erste Frame, der
+        # in diesem Callback hoerbar wird. Nur wenige Timeline-Events werden
+        # geschnitten; Synthese/Allokation passiert vorher im Analyse-Thread.
+        if self._control_guitar:
+            output_start = self._frames_seen - n
+            output_end = output_start + frames
+            for onset, sound in self._control_events:
+                overlap_start = max(output_start, onset)
+                overlap_end = min(output_end, onset + len(sound))
+                if overlap_start < overlap_end:
+                    dst = overlap_start - output_start
+                    src = overlap_start - onset
+                    count = overlap_end - overlap_start
+                    outdata[dst:dst + count] += sound[src:src + count]
+            np.clip(outdata, -1.0, 1.0, out=outdata)
 
         # Stummschalten NACH dem Ringpuffer: Der Puffer wird weiter befuellt und
         # weiter ausgelesen, nur was rausgeht, wird leise. Damit bleibt die
@@ -160,6 +182,34 @@ class DelayedLoopback:
         """
         self._muted = not self._muted
         return self._muted
+
+    @property
+    def control_guitar(self) -> bool:
+        return self._control_guitar
+
+    def toggle_control_guitar(self) -> bool:
+        self._control_guitar = not self._control_guitar
+        if self._control_guitar:
+            self._render_control_timeline()
+        else:
+            self._control_events = ()
+        return self._control_guitar
+
+    def set_control_timeline(self, timeline):
+        """Timeline-Snapshot in fertig gerenderte Kontrollanschlaege wandeln."""
+        self._control_timeline = tuple(timeline)
+        if self._control_guitar:
+            self._render_control_timeline()
+
+    def _render_control_timeline(self):
+        from .control_guitar import render
+
+        events = []
+        for onset, chord in self._control_timeline:
+            sound = render(chord, self.samplerate)
+            if sound is not None:
+                events.append((int(round(onset * self.samplerate)), sound))
+        self._control_events = tuple(events)
 
     @property
     def captured_frames(self) -> int:

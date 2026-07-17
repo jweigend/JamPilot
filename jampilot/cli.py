@@ -238,6 +238,7 @@ def cmd_run(args):
     # umlegen - sonst zeigen die beiden Oberflaechen Verschiedenes an.
     if web_display:
         web_display.set_mute_toggle(engine.toggle_mute)
+        web_display.set_control_guitar_toggle(engine.toggle_control_guitar)
 
     url = web_display.url if web_display else None
 
@@ -406,6 +407,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # hinter der JETZT-Linie noch aus.
             while len(timeline) > 1 and timeline[1][0] <= audible_pos - 2.0:
                 timeline.pop(0)
+            # Vollstaendiger Snapshot statt einzelner Trigger: Wird ein noch
+            # nicht gehoertes Segment zurueckgenommen, verschwindet damit auch
+            # sein Kontrollanschlag vor der Ausgabe.
+            loop.set_control_timeline(timeline)
             audible = "-"
             for pos, name in timeline:
                 if pos > audible_pos:
@@ -454,6 +459,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                     # sehen - sonst zeigt er munter Akkorde an, waehrend nichts zu
                     # hoeren ist, und der Fehler sitzt scheinbar im Audio.
                     "muted": loop.muted,
+                    "control_guitar": loop.control_guitar,
                 })
 
             # Im Terminal gibt es keinen Dialog - hier gilt immer die erkannte

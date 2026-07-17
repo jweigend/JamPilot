@@ -97,6 +97,7 @@ class _Handler(BaseHTTPRequestHandler):
     # Wird erst gesetzt, wenn der Audiostream steht - die Webseite laeuft schon
     # vorher (sie zeigt den QR-Code). Bis dahin: 503 statt Absturz.
     mute_toggle = None
+    control_guitar_toggle = None
 
     def log_message(self, *_):
         pass  # kein Request-Log im Terminal
@@ -127,7 +128,16 @@ class _Handler(BaseHTTPRequestHandler):
         und ein GET wuerde jeder Link-Vorschau, jedem Prefetch des Browsers die
         Musik abstellen.
         """
-        if self.path.split("?")[0] != "/mute":
+        path = self.path.split("?")[0]
+        if path == "/control-guitar":
+            if self.control_guitar_toggle is None:
+                self.send_error(503, "no audio stream")
+                return
+            enabled = bool(self.control_guitar_toggle())
+            self._send(json.dumps({"control_guitar": enabled}).encode(),
+                       "application/json")
+            return
+        if path != "/mute":
             self.send_error(404)
             return
         if self.mute_toggle is None:
@@ -174,6 +184,9 @@ class WebDisplay:
         Handler dessen `self` als erstes Argument untergeschoben.
         """
         self._handler.mute_toggle = staticmethod(fn)
+
+    def set_control_guitar_toggle(self, fn):
+        self._handler.control_guitar_toggle = staticmethod(fn)
 
     def stop(self):
         self._server.shutdown()
@@ -549,6 +562,25 @@ PAGE = r"""<!DOCTYPE html>
         <span class="text">
           <span class="label">Hidden</span>
           <span class="desc">Just the big chord or note &ndash; no diagram.</span>
+        </span>
+      </button>
+
+      <h2 class="second">Control guitar</h2>
+      <p class="sub">A quiet, dry guitar pluck at every detected chord change.
+         It is deliberately simple: wrong roots and major/minor thirds become
+         audible immediately without turning JamPilot into an accompaniment.</p>
+      <button class="opt" data-control="on" role="radio">
+        <span class="glyph">&#127928;</span>
+        <span class="text">
+          <span class="label">Audible check</span>
+          <span class="desc">Mix the detected chord quietly into the delayed song.</span>
+        </span>
+      </button>
+      <button class="opt" data-control="off" role="radio">
+        <span class="glyph">&#8709;</span>
+        <span class="text">
+          <span class="label">Off</span>
+          <span class="desc">Play only the original delayed audio.</span>
         </span>
       </button>
 
@@ -1283,8 +1315,28 @@ function apply(state) {
   horizon = Math.max(1.5, (state.lead || 3) + 0.8);
   tonart = state.key || null;
   if ("muted" in state) zeigeStumm(state.muted);
+  if ("control_guitar" in state) zeigeKontrollgitarre(state.control_guitar);
   neuSchreibenFallsNoetig();
   syncClock(state.t);
+}
+
+let kontrollgitarre = false;
+function zeigeKontrollgitarre(enabled) {
+  kontrollgitarre = !!enabled;
+  for (const opt of document.querySelectorAll(".opt[data-control]"))
+    opt.setAttribute("aria-checked",
+      String((opt.dataset.control === "on") === kontrollgitarre));
+}
+
+async function kontrollgitarreSetzen(enabled) {
+  // Server-API ist ein Toggle; eine bereits gewaehlte Radio-Option darf darum
+  // keinen zweiten Wechsel ausloesen.
+  if (!!enabled === kontrollgitarre) return;
+  try {
+    const antwort = await fetch("/control-guitar", { method: "POST" });
+    if (!antwort.ok) return;
+    zeigeKontrollgitarre((await antwort.json()).control_guitar);
+  } catch (e) {}
 }
 
 // STUMM. Nicht angehalten: Die Quelle laeuft weiter, der Ringpuffer laeuft
@@ -1363,6 +1415,8 @@ for (const opt of document.querySelectorAll(".opt"))
     if (opt.dataset.mode) setzeModus(opt.dataset.mode);
     else if (opt.dataset.inst) setzeInstrument(opt.dataset.inst);
     else if (opt.dataset.fret) setzeGriffbrett(opt.dataset.fret === "on");
+    else if (opt.dataset.control)
+      kontrollgitarreSetzen(opt.dataset.control === "on");
   });
 
 document.addEventListener("keydown", ev => {
@@ -1379,6 +1433,7 @@ document.addEventListener("keydown", ev => {
 setzeInstrument(instrument);   // gespeicherte Wahl anwenden und markieren
 setzeModus(modus);
 setzeGriffbrett(griffbrettAn);
+zeigeKontrollgitarre(false);
 
 if (new URLSearchParams(location.search).has("demo")) {
   // Demo in F-Dur: die Progression enthaelt A# (= Bb), damit man die

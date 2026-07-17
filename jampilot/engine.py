@@ -73,6 +73,19 @@ class Engine:
         self._on_change()
         return stumm
 
+    @property
+    def control_guitar(self) -> bool:
+        return self._loop.control_guitar if self._loop else False
+
+    def toggle_control_guitar(self) -> bool:
+        if not self._loop:
+            return False
+        enabled = self._loop.toggle_control_guitar()
+        if self.broadcaster:
+            self.broadcaster.republish(control_guitar=enabled)
+        self._on_change()
+        return enabled
+
     # --- An und aus ---------------------------------------------------------
     def start(self):
         """Umleitung aufbauen, Stream starten, Analyse im Hintergrund laufen lassen."""
@@ -150,7 +163,8 @@ class Engine:
             self.status = "stopped"
             self.lead = 0.0
         if self.broadcaster:
-            self.broadcaster.republish(muted=False, running=False)
+            self.broadcaster.republish(muted=False, control_guitar=False,
+                                       running=False)
         self._on_change()
 
     def _abbauen(self):

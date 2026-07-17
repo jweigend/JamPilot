@@ -137,6 +137,34 @@ class TestCallback:
                               np.arange(0, 524, dtype=np.float32))  # um 500 verzoegert
 
 
+class TestKontrollgitarre:
+    @staticmethod
+    def _stille(loop, bloecke=16):
+        chunks = []
+        for i in range(bloecke):
+            out = np.zeros((64, 2), dtype=np.float32)
+            loop._callback(np.zeros_like(out), out, 64, Zeit(i * .064), None)
+            chunks.append(out.copy())
+        return np.concatenate(chunks)
+
+    def test_ist_standardmaessig_aus(self, loop):
+        loop.set_control_timeline([(0.0, "Am")])
+        assert not np.any(self._stille(loop))
+
+    def test_erklingt_exakt_auf_der_verzoegerten_streamposition(self, loop):
+        loop.set_control_timeline([(0.0, "Am")])
+        assert loop.toggle_control_guitar() is True
+        audio = self._stille(loop)
+        assert not np.any(audio[:500])           # Ringdelay noch nicht vorbei
+        assert np.any(audio[500:])               # Onset bei Streamposition null
+
+    def test_timeline_snapshot_nimmt_zukuenftigen_fehler_zurueck(self, loop):
+        loop.set_control_timeline([(0.0, "A")])
+        loop.set_control_timeline([])             # Interpreter revidiert Segment
+        loop.toggle_control_guitar()
+        assert not np.any(self._stille(loop))
+
+
 class TestStumm:
     """STUMM, nicht ANGEHALTEN - und der Unterschied ist der ganze Punkt.
 
