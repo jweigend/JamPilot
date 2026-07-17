@@ -10,7 +10,9 @@ from jampilot.chords import (
     find_onset_frame,
     match_chord,
 )
+from jampilot.harmony import interpret_chord
 from jampilot.chroma import NOTE_NAMES
+from jampilot.tonality import Key
 
 
 def _chroma(*notes: str) -> np.ndarray:
@@ -92,6 +94,54 @@ class TestChordSmoother:
             smoother.update(ChordResult("C", 0.9))
         smoother.reset()
         assert smoother.update(ChordResult("G", 0.9)) == "?"
+
+
+class TestHarmonicInterpreter:
+    @staticmethod
+    def _result(*candidates):
+        from jampilot.chords import ChordCandidate
+        hypotheses = tuple(ChordCandidate(*candidate) for candidate in candidates)
+        first = hypotheses[0]
+        return ChordResult(first.name, first.score, first.root, first.quality,
+                           hypotheses)
+
+    def test_korrigiert_knappes_dur_in_moll(self):
+        # A-Dur gewinnt akustisch hauchduenn, bringt in a-Moll aber ein C# mit.
+        raw = self._result(("A", .80, 9, ""), ("Am", .78, 9, "m"))
+        key = Key(tonic=9, minor=True, confidence=.9)
+        assert interpret_chord(raw, key).name == "Am"
+
+    def test_korrigiert_echte_matcher_kandidaten(self):
+        # Gemeinsame Toene A/E, beide Terzen im Spektrum; C# ist nur etwas
+        # staerker und laesst den Signal-Matcher knapp A-Dur waehlen.
+        chroma = np.zeros(12)
+        chroma[[NOTE_NAMES.index(note) for note in ("A", "E")]] = (1.0, .8)
+        chroma[NOTE_NAMES.index("C#")] = .55
+        chroma[NOTE_NAMES.index("C")] = .45
+        raw = match_chord(chroma, cqt=True)
+        assert raw.name == "A"
+        key = Key(tonic=9, minor=True, confidence=.9)
+        assert interpret_chord(raw, key).name == "Am"
+
+    def test_klare_audioevidenz_bleibt_unangetastet(self):
+        raw = self._result(("A", .90, 9, ""), ("Am", .76, 9, "m"))
+        key = Key(tonic=9, minor=True, confidence=.95)
+        assert interpret_chord(raw, key).name == "A"
+
+    def test_tonart_erfindet_keinen_anderen_grundton(self):
+        raw = self._result(("A", .80, 9, ""), ("Dm", .79, 2, "m"))
+        key = Key(tonic=9, minor=True, confidence=.95)
+        assert interpret_chord(raw, key).name == "A"
+
+    @pytest.mark.parametrize("name,quality", [("E", ""), ("E7", "7")])
+    def test_dur_dominante_in_moll_bleibt_erlaubt(self, name, quality):
+        raw = self._result((name, .80, 4, quality), ("Em", .79, 4, "m"))
+        key = Key(tonic=9, minor=True, confidence=.95)
+        assert interpret_chord(raw, key).name == name
+
+    def test_ohne_tonart_bleibt_roher_gewinner(self):
+        raw = self._result(("A", .80, 9, ""), ("Am", .79, 9, "m"))
+        assert interpret_chord(raw, None).name == "A"
 
 
 class TestFindOnsetFrame:

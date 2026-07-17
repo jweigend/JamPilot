@@ -302,6 +302,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     from . import bass as bassmodul
     from .chroma import FrameHistory, analyze_window, rms
     from .chords import SILENCE_RMS, ChordSmoother, match_chord
+    from .harmony import interpret_chord
     from .tonality import SHARP, KeyEstimator, spell
 
     sr = args.samplerate
@@ -372,6 +373,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 result = match_chord(analysis.chroma, cqt=analysis.cqt)
                 raw = result.name
                 history.add(analysis.frames, window_start)
+                # Die bis hierhin stabile Tonart darf knappe Audio-Hypothesen
+                # ordnen. Erst danach fliesst das aktuelle Fenster in die
+                # Tonartschaetzung ein, damit kein Zirkelschluss entsteht.
+                result = interpret_chord(result, keys.key)
                 keys.add(analysis.chroma)
                 # Die Bassnote laeuft NEBEN der Akkorderkennung, nicht in ihr:
                 # zwei Fragen, zwei Signale. Der Akkord braucht die volle
