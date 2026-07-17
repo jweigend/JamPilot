@@ -391,6 +391,8 @@ isolation but with the lead: a short Viterbi search over the coming chords choos
 the path with the least hand travel, so you keep playing in one position instead
 of jumping across the neck between chords (see
 [`docs/exploration/gitarrenmodus-lagen.md`](docs/exploration/gitarrenmodus-lagen.md)).
+The complete design and current behaviour of the safe guitar mode are documented in
+[`docs/gitarrenmodus.md`](docs/gitarrenmodus.md).
 
 The diagram is deliberately conservative when the audio cannot reliably decide
 between nearby readings. If A major and A minor are almost equally plausible,
