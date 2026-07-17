@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from jampilot.control_guitar import CONTROL_GAIN, render
+from jampilot.control_guitar import CONTROL_GAIN, PLAYBACK_GAIN, render
 
 
 def test_rendert_dur_und_moll_als_stereoanschlag():
@@ -17,6 +17,11 @@ def test_rendert_dur_und_moll_als_stereoanschlag():
 def test_kontrollanschlag_bleibt_leise():
     sound = render("C7", 8000)
     assert np.max(np.abs(sound)) <= CONTROL_GAIN + 1e-6
+
+
+def test_diagnose_mix_hebt_gitarre_gegenueber_playback_hervor():
+    assert CONTROL_GAIN >= .3
+    assert PLAYBACK_GAIN <= .6
 
 
 def test_stille_und_unbekanntes_erzeugen_keinen_ton():

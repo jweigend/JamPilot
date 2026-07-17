@@ -17,6 +17,8 @@ import threading
 import numpy as np
 import sounddevice as sd
 
+from .control_guitar import PLAYBACK_GAIN
+
 
 class DelayedLoopback:
     def __init__(
@@ -117,6 +119,10 @@ class DelayedLoopback:
         # in diesem Callback hoerbar wird. Nur wenige Timeline-Events werden
         # geschnitten; Synthese/Allokation passiert vorher im Analyse-Thread.
         if self._control_guitar:
+            # Platz fuer die Kontrollgitarre schaffen: Nur in diesem bewusst
+            # aktivierten Diagnosemodus wird das Original abgesenkt. Ohne
+            # Kontrollgitarre bleibt die Wiedergabe bit-identisch wie vorher.
+            outdata *= PLAYBACK_GAIN
             output_start = self._frames_seen - n
             output_end = output_start + frames
             for onset, sound in self._control_events:

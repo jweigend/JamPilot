@@ -12,7 +12,10 @@ import numpy as np
 from .chords import CHORD_TYPES
 from .chroma import NOTE_NAMES
 
-CONTROL_GAIN = 0.16
+# Diagnose-Mix: Die Terz muss auch gegen ein dichtes Original sofort auffallen.
+# Der Originalton wird parallel in delay_stream abgesenkt.
+CONTROL_GAIN = 0.34
+PLAYBACK_GAIN = 0.58
 PLUCK_SECONDS = 1.35
 
 

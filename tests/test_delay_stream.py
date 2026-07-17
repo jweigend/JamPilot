@@ -164,6 +164,22 @@ class TestKontrollgitarre:
         loop.toggle_control_guitar()
         assert not np.any(self._stille(loop))
 
+    def test_senkt_original_nur_im_kontrollmodus_ab(self, loop):
+        from jampilot.control_guitar import PLAYBACK_GAIN
+
+        # Ring direkt mit einem konstanten Originalsignal fuellen, ohne einen
+        # Gitarrenanschlag in die Timeline zu legen.
+        loop._ring[:] = 1.0
+        normal = np.zeros((64, 2), dtype=np.float32)
+        loop._callback(np.zeros_like(normal), normal, 64, Zeit(0.0), None)
+        assert np.allclose(normal, 1.0)
+
+        loop._ring[:] = 1.0
+        loop.toggle_control_guitar()
+        diagnose = np.zeros((64, 2), dtype=np.float32)
+        loop._callback(np.zeros_like(diagnose), diagnose, 64, Zeit(.064), None)
+        assert np.allclose(diagnose, PLAYBACK_GAIN)
+
 
 class TestStumm:
     """STUMM, nicht ANGEHALTEN - und der Unterschied ist der ganze Punkt.
