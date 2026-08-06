@@ -47,6 +47,17 @@ def available() -> bool:
     return shutil.which("pactl") is not None
 
 
+def uses_routing(args) -> bool:
+    """Ob dieser Lauf ueber den Null-Sink laeuft.
+
+    Eine EINZIGE Stelle, weil `--output` je nach Antwort etwas anderes ist: ein
+    Sink-Name hier, ein PortAudio-Geraet dort. Rechnete die Geraetepruefung
+    anders als der Aufbau, pruefte sie das Falsche - und wies genau die
+    Sink-Namen ab, die die eigene Hilfe nennt.
+    """
+    return available() and not args.no_route and args.input is None
+
+
 def _pactl(*args: str) -> str:
     # pactl uebersetzt seine Ausgabe: aus "Sink Input #7" wird in einer
     # portugiesischen Sitzung "Entrada do destino #7". Wir LESEN diese Ausgabe
@@ -89,12 +100,23 @@ def sink_modules() -> list[str]:
     return ids
 
 
-def _first_hardware_sink() -> str | None:
+def hardware_sinks() -> list[tuple[str, str]]:
+    """(Index, Name) aller Ausgaenge ausser unserem eigenen Null-Sink.
+
+    Der Null-Sink ist als Ziel naemlich kein Ausgang, sondern das Gegenteil:
+    Wer dorthin ausgibt, gibt in genau den Eimer aus, den wir abhoeren.
+    """
+    sinks = []
     for line in _pactl("list", "short", "sinks").splitlines():
-        name = line.split("\t")[1]
-        if name != SINK_NAME:
-            return name
-    return None
+        felder = line.split("\t")
+        if len(felder) >= 2 and felder[1] != SINK_NAME:
+            sinks.append((felder[0], felder[1]))
+    return sinks
+
+
+def _first_hardware_sink() -> str | None:
+    sinks = hardware_sinks()
+    return sinks[0][1] if sinks else None
 
 
 def cleanup(force: bool = False) -> int:

@@ -37,6 +37,17 @@ MIN_CHORD_SECONDS = 0.25
 # Suchanfang geklemmt - und das ist immer ZU SPAET, nie zu frueh.
 MAX_ONSET_SEARCH = 4.0
 
+# Wie lange der Ringpuffer stillstehen darf, bevor der Stream als tot gilt.
+# Ein Callback kommt alle ~43ms (2048 Frames bei 48kHz); selbst ein schwer
+# klemmender Rechner haelt keine 3s durch. Grosszuegig gewaehlt, weil ein
+# Fehlalarm den laufenden Betrieb abbaeche - USB-Geraete brauchen nach dem
+# Start durchaus eine Sekunde, bis die ersten Frames kommen.
+STREAM_STALL_TIMEOUT = 3.0
+
+
+class StreamStalled(RuntimeError):
+    """Es kommen keine Frames mehr - das Audiogeraet ist weg."""
+
 
 def _bounded(kind, low, high, unit=""):
     """argparse-Typ mit fachlichen Grenzen - meldet Unsinn sofort, nicht erst
@@ -53,11 +64,26 @@ def _bounded(kind, low, high, unit=""):
     return parse
 
 
-def _check_devices(input_device, output_device):
-    """Geraete pruefen, BEVOR der teure Warmup laeuft."""
+def _check_devices(args):
+    """Geraete pruefen, BEVOR der teure Warmup laeuft.
+
+    `--output` ist im Routing-Modus ein PulseAudio-SINK, sonst ein
+    PortAudio-GERAET - zwei Namensraeume, die sich nicht ueberschneiden. Wer im
+    Routing-Modus gegen PortAudio prueft, weist genau die Sink-Namen ab, die
+    `jampilot devices` unter "routing mode" auflistet: `--output
+    alsa_output.usb-...` starb dann mit "Device not usable", bevor ueberhaupt
+    etwas lief. Deshalb entscheidet hier dieselbe Funktion wie beim Aufbau.
+    """
     import sounddevice as sd
 
-    for device, kind in ((input_device, "input"), (output_device, "output")):
+    from . import routing
+
+    geroutet = routing.uses_routing(args)
+    geraete = [(args.input, "input")]
+    if not geroutet:
+        geraete.append((args.output, "output"))
+
+    for device, kind in geraete:
         if device is None:
             continue
         try:
@@ -66,6 +92,17 @@ def _check_devices(input_device, output_device):
             raise SystemExit(
                 f"Device {device!r} not usable ({kind}): {exc}\n"
                 f"'jampilot devices' lists the available devices."
+            )
+
+    if geroutet and args.output is not None:
+        try:
+            sinks = routing.hardware_sinks()
+        except (RuntimeError, OSError):
+            return          # pactl streikt - das faellt beim Aufbau auf, hier nicht
+        if str(args.output) not in {feld for sink in sinks for feld in sink}:
+            raise SystemExit(
+                f"Sink {args.output!r} unknown.\n"
+                f"'jampilot devices' lists the available sinks."
             )
 
 
@@ -211,7 +248,7 @@ def cmd_run(args):
 
     # Erst pruefen, dann teuer werden: Geraete- und Instanzfehler sollen sofort
     # kommen, nicht als Traceback nach drei Sekunden numba-Warmup.
-    _check_devices(args.input, args.output)
+    _check_devices(args)
     if routing.available():
         pid = routing.owner_pid()
         if pid is not None and pid != os.getpid():
@@ -283,9 +320,16 @@ def cmd_run(args):
         print(" ok", flush=True)   # ohne flush landet das "ok" hinter einem Traceback
         engine.start()
         try:
-            engine._thread.join()      # bis Strg+C
+            engine._thread.join()      # bis Strg+C - oder bis der Stream stirbt
         except KeyboardInterrupt:
             print("\nStopped.")
+        else:
+            # Ohne Fenster gibt es niemanden, der `status` anzeigt. Der Thread
+            # endet aber auch von selbst, wenn das Geraet verschwindet - dann
+            # duerfte das Programm nicht wortlos und mit Erfolg zurueckkehren.
+            if engine.status == "error":
+                print()                # die Statuszeile steht ohne Zeilenumbruch
+                raise SystemExit(engine.fehler or "Audio stream failed.")
     finally:
         engine.stop()
         if web_display:
@@ -345,9 +389,25 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
         debug.write("# wall\twindow_end\traw\tchord\tonset\taudible_pos\n")
 
     grid = None  # naechster Analysepunkt als Stream-Position (Frames)
+    # Wachhund fuer ein Geraet, das verschwindet: USB-Kabel raus, Mischpult aus,
+    # Karte im Suspend. PortAudio ruft den Callback dann einfach nicht mehr -
+    # ohne Fehler, ohne Ende des Streams. Von aussen sieht das aus wie "laeuft":
+    # Der Schalter steht auf An, die Umleitung steht, die Anzeige friert ein.
+    # Genau das ist der Zustand, in dem der Nutzer den Rechner fuer kaputt haelt.
+    # Also messen wir mit, ob ueberhaupt noch Frames eingehen.
+    stillstand_bei, stillstand_seit = -1, time.monotonic()
     try:
         while not (stop is not None and stop.is_set()):
             captured = loop.captured_frames
+            if captured != stillstand_bei:
+                stillstand_bei, stillstand_seit = captured, time.monotonic()
+            elif time.monotonic() - stillstand_seit > STREAM_STALL_TIMEOUT:
+                raise StreamStalled(
+                    f"No audio from the device for {STREAM_STALL_TIMEOUT:.0f}s "
+                    f"- unplugged or switched off? JamPilot has stopped and "
+                    f"restored your system sound; start it again once the "
+                    f"device is back."
+                )
             if captured < window_frames:
                 time.sleep(ANALYSIS_HOP)
                 continue
