@@ -95,10 +95,21 @@ venv_sicherstellen() {
     local py="$venv/bin/python"
     local stempel="$venv/.jampilot-stempel"
 
-    if [ ! -x "$py" ] || ! "$py" -c "pass" 2>/dev/null; then
-        # Kein Interpreter: entweder gibt es noch nichts, oder ein abgebrochener
-        # Versuch hat einen leeren Ordner hinterlassen, oder ein System-Update
-        # hat den Symlink ins Leere zeigen lassen.
+    # Interpreter da UND pip da? Beides zusammen in einem Aufruf, mit find_spec
+    # statt `import pip` - das kostet Millisekunden statt einer Zehntelsekunde
+    # und faellt damit im Normalfall nicht ins Gewicht.
+    #
+    # Warum pip ueberhaupt mitpruefen: `python -m venv` legt zuerst die
+    # Interpreter-Symlinks an, holt DANN pip und schreibt zuletzt die
+    # activate-Skripte. Bricht es in der Mitte ab, bleibt ein .venv zurueck,
+    # dessen Interpreter tadellos startet und in dem trotzdem kein pip liegt.
+    # Ohne diese Pruefung laeuft der Aufruf unten in "No module named pip" -
+    # eine Meldung, die nicht sagt, dass das venv der Schuldige ist.
+    if [ ! -x "$py" ] \
+       || ! "$py" -c 'import importlib.util as u, sys; sys.exit(0 if u.find_spec("pip") else 1)' 2>/dev/null; then
+        # Kein brauchbarer Interpreter: entweder gibt es noch nichts, oder ein
+        # abgebrochener Versuch hat einen halben Ordner hinterlassen, oder ein
+        # System-Update hat den Symlink ins Leere zeigen lassen.
         if [ -e "$venv" ]; then
             echo "==> .venv ist unbrauchbar (abgebrochen oder verwaist) - wird neu angelegt"
             rm -rf "$venv"
@@ -147,6 +158,7 @@ venv_sicherstellen() {
 # macOS bringt das Wheel sie mit; dort fehlt statt dessen BlackHole, aber das
 # merkt man erst beim Abhoeren, nicht beim Import.
 system_pruefen() {
+    _qt_pruefen
     "$VENV_PY" -c "import sounddevice" 2>/dev/null && return 0
     echo >&2
     echo "PortAudio fehlt - ohne die Bibliothek findet JamPilot kein Audiogeraet:" >&2
@@ -157,4 +169,45 @@ system_pruefen() {
         echo "  sudo dnf install portaudio          # Fedora" >&2
     fi
     return 1
+}
+
+# Dasselbe Spiel fuer die Oberflaeche - nur lauter im Scheitern.
+#
+# Das PySide6-Wheel bringt Qt mit, aber nicht die X11-Bibliotheken, auf denen
+# Qts xcb-Plugin aufsetzt. Unter Ubuntu 24.04 fehlt regelmaessig
+# libxcb-cursor0, das Qt seit 6.5 voraussetzt. Was der Nutzer dann sieht:
+#
+#   Could not load the Qt platform plugin "xcb" in "" even though it was found.
+#   Reinstalling the application may fix this problem.
+#
+# Beides fuehrt in die Irre - "even though it was found" meint das Plugin, nicht
+# dessen Abhaengigkeiten, und neu installieren hilft null, weil das Fehlende gar
+# nicht aus dem Wheel kommt. Qt ruft danach abort(); der Prozess stirbt mit 134,
+# und abfangen laesst sich das in Python nicht. Also hier, vorher.
+#
+# WARNUNG, kein Abbruch: `devices`, `analyze`, `cleanup` und `selftest` (das Qt
+# offscreen laedt) laufen ohne xcb einwandfrei. Die sollen weiter laufen - nur
+# eben mit dem Hinweis im Ruecken, falls als naechstes das Fenster drankommt.
+_qt_pruefen() {
+    [ "$(uname)" = "Linux" ] || return 0        # nur Linux baut Qt auf xcb auf
+    [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || return 0    # headless: kein Fenster gewollt
+    command -v ldd >/dev/null 2>&1 || return 0
+
+    local plugin fehlend
+    plugin="$WURZEL/.venv/lib/python3*/site-packages/PySide6/Qt/plugins/platforms/libqxcb.so"
+    plugin="$(ls $plugin 2>/dev/null | head -1)"    # absichtlich ungequotet: das * soll wirken
+    [ -n "$plugin" ] || return 0
+
+    fehlend="$(ldd "$plugin" 2>/dev/null | awk '/not found/ {print "  " $1}' | sort -u)"
+    [ -n "$fehlend" ] || return 0
+
+    echo >&2
+    echo "Hinweis: Qt kann kein Fenster oeffnen - dem xcb-Plugin fehlen" >&2
+    echo "Systembibliotheken, die NICHT im PySide6-Wheel stecken:" >&2
+    echo "$fehlend" >&2
+    echo >&2
+    echo "  sudo apt install libxcb-cursor0     # Debian/Ubuntu, deckt den Normalfall" >&2
+    echo "  sudo dnf install xcb-util-cursor    # Fedora" >&2
+    echo >&2
+    echo "Ohne das laufen devices/analyze/selftest weiter - das Fenster nicht." >&2
 }
