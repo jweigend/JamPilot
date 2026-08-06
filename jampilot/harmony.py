@@ -30,6 +30,15 @@ def _foreign_tones(candidate: ChordCandidate, key: Key) -> int:
     # Die Dur-/Dominantform der V. Stufe gehoert zur funktionalen Mollharmonik:
     # in a-Moll ist E bzw. E7 mit G# kein Fehler, obwohl G# nicht in
     # natuerlich Moll liegt.
+    #
+    # Der naheliegende naechste Schritt -- Zwischendominanten in Dur ebenso
+    # straffrei zu stellen, wenn ihr Quint-abwaerts-Ziel leitereigen ist -- ist
+    # an Realaudio gemessen und VERWORFEN: die vi-Stufe (F#m in A-Dur, Sting)
+    # und die V/ii-Stufe (E7 in G-Dur, Peg) sitzen beide auf dem 6. Skalengrad
+    # und teilen dasselbe leitereigene Ziel. Die Regel flippt beide gleich, die
+    # Ground Truths widersprechen sich aber. Nur das Audio-Terzsignal trennt sie
+    # -- und das gewichtet der Matcher bereits. Details:
+    # tests/realaudio/REPORT_secondary_dominant_fix.md
     dominant = (key.tonic + 7) % 12
     if key.minor and candidate.root == dominant and candidate.quality in ("", "7"):
         return 0

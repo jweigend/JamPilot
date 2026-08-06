@@ -139,6 +139,16 @@ class TestHarmonicInterpreter:
         key = Key(tonic=9, minor=True, confidence=.95)
         assert interpret_chord(raw, key).name == name
 
+    def test_zwischendominante_in_dur_bleibt_bestraft(self):
+        # Die Zwischendominant-Ausnahme (§4-Sketch) ist bewusst NICHT umgesetzt:
+        # V/ii (E7 in G-Dur) und vi (E-Moll) teilen Grundton und leitereigenes
+        # Ziel, ihre Ground Truths widersprechen sich, nur das Audio trennt sie.
+        # Der statische Prior bevorzugt daher weiter die leitereigene Moll-Lesart.
+        # Begruendung: tests/realaudio/REPORT_secondary_dominant_fix.md
+        raw = self._result(("E7", .80, 4, "7"), ("Em7", .79, 4, "m7"))
+        key = Key(tonic=7, minor=False, confidence=.95)
+        assert interpret_chord(raw, key).name == "Em7"
+
     def test_ohne_tonart_bleibt_roher_gewinner(self):
         raw = self._result(("A", .80, 9, ""), ("Am", .79, 9, "m"))
         assert interpret_chord(raw, None).name == "A"
