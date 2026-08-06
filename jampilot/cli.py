@@ -37,6 +37,17 @@ MIN_CHORD_SECONDS = 0.25
 # Suchanfang geklemmt - und das ist immer ZU SPAET, nie zu frueh.
 MAX_ONSET_SEARCH = 4.0
 
+# Wie lange der Ringpuffer stillstehen darf, bevor der Stream als tot gilt.
+# Ein Callback kommt alle ~43ms (2048 Frames bei 48kHz); selbst ein schwer
+# klemmender Rechner haelt keine 3s durch. Grosszuegig gewaehlt, weil ein
+# Fehlalarm den laufenden Betrieb abbaeche - USB-Geraete brauchen nach dem
+# Start durchaus eine Sekunde, bis die ersten Frames kommen.
+STREAM_STALL_TIMEOUT = 3.0
+
+
+class StreamStalled(RuntimeError):
+    """Es kommen keine Frames mehr - das Audiogeraet ist weg."""
+
 
 def _bounded(kind, low, high, unit=""):
     """argparse-Typ mit fachlichen Grenzen - meldet Unsinn sofort, nicht erst
@@ -53,11 +64,26 @@ def _bounded(kind, low, high, unit=""):
     return parse
 
 
-def _check_devices(input_device, output_device):
-    """Geraete pruefen, BEVOR der teure Warmup laeuft."""
+def _check_devices(args):
+    """Geraete pruefen, BEVOR der teure Warmup laeuft.
+
+    `--output` ist im Routing-Modus ein PulseAudio-SINK, sonst ein
+    PortAudio-GERAET - zwei Namensraeume, die sich nicht ueberschneiden. Wer im
+    Routing-Modus gegen PortAudio prueft, weist genau die Sink-Namen ab, die
+    `jampilot devices` unter "routing mode" auflistet: `--output
+    alsa_output.usb-...` starb dann mit "Device not usable", bevor ueberhaupt
+    etwas lief. Deshalb entscheidet hier dieselbe Funktion wie beim Aufbau.
+    """
     import sounddevice as sd
 
-    for device, kind in ((input_device, "input"), (output_device, "output")):
+    from . import routing
+
+    geroutet = routing.uses_routing(args)
+    geraete = [(args.input, "input")]
+    if not geroutet:
+        geraete.append((args.output, "output"))
+
+    for device, kind in geraete:
         if device is None:
             continue
         try:
@@ -66,6 +92,17 @@ def _check_devices(input_device, output_device):
             raise SystemExit(
                 f"Device {device!r} not usable ({kind}): {exc}\n"
                 f"'jampilot devices' lists the available devices."
+            )
+
+    if geroutet and args.output is not None:
+        try:
+            sinks = routing.hardware_sinks()
+        except (RuntimeError, OSError):
+            return          # pactl streikt - das faellt beim Aufbau auf, hier nicht
+        if str(args.output) not in {feld for sink in sinks for feld in sink}:
+            raise SystemExit(
+                f"Sink {args.output!r} unknown.\n"
+                f"'jampilot devices' lists the available sinks."
             )
 
 
@@ -211,7 +248,7 @@ def cmd_run(args):
 
     # Erst pruefen, dann teuer werden: Geraete- und Instanzfehler sollen sofort
     # kommen, nicht als Traceback nach drei Sekunden numba-Warmup.
-    _check_devices(args.input, args.output)
+    _check_devices(args)
     if routing.available():
         pid = routing.owner_pid()
         if pid is not None and pid != os.getpid():
@@ -238,6 +275,7 @@ def cmd_run(args):
     # umlegen - sonst zeigen die beiden Oberflaechen Verschiedenes an.
     if web_display:
         web_display.set_mute_toggle(engine.toggle_mute)
+        web_display.set_control_guitar_toggle(engine.toggle_control_guitar)
 
     url = web_display.url if web_display else None
 
@@ -282,9 +320,16 @@ def cmd_run(args):
         print(" ok", flush=True)   # ohne flush landet das "ok" hinter einem Traceback
         engine.start()
         try:
-            engine._thread.join()      # bis Strg+C
+            engine._thread.join()      # bis Strg+C - oder bis der Stream stirbt
         except KeyboardInterrupt:
             print("\nStopped.")
+        else:
+            # Ohne Fenster gibt es niemanden, der `status` anzeigt. Der Thread
+            # endet aber auch von selbst, wenn das Geraet verschwindet - dann
+            # duerfte das Programm nicht wortlos und mit Erfolg zurueckkehren.
+            if engine.status == "error":
+                print()                # die Statuszeile steht ohne Zeilenumbruch
+                raise SystemExit(engine.fehler or "Audio stream failed.")
     finally:
         engine.stop()
         if web_display:
@@ -302,6 +347,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     from . import bass as bassmodul
     from .chroma import FrameHistory, analyze_window, rms
     from .chords import SILENCE_RMS, ChordSmoother, match_chord
+    from .harmony import interpret_chord, safe_pitch_classes
     from .tonality import SHARP, KeyEstimator, spell
 
     sr = args.samplerate
@@ -323,6 +369,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     # Frame-Chroma gemessen, nicht aus dem Erkennungszeitpunkt zurueckgerechnet
     # - eine Erkennung sagt WAS klingt, das Fenster sagt SEIT WANN.
     timeline: list[tuple[float, str]] = []
+    # Juengste konservative Tonmenge je stabiler Akkord-ID. Die Timeline darf
+    # String-basiert bleiben; Anzeige und Kontrollgitarre bekommen parallel die
+    # Töne, die alle nahen Audio-Lesarten gemeinsam tragen.
+    safe_by_chord: dict[str, tuple[int, ...]] = {}
     current: str | None = None
     lead = args.delay - 1.0  # Startschaetzung, unten aus echten Onsets gemessen
 
@@ -339,9 +389,25 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
         debug.write("# wall\twindow_end\traw\tchord\tonset\taudible_pos\n")
 
     grid = None  # naechster Analysepunkt als Stream-Position (Frames)
+    # Wachhund fuer ein Geraet, das verschwindet: USB-Kabel raus, Mischpult aus,
+    # Karte im Suspend. PortAudio ruft den Callback dann einfach nicht mehr -
+    # ohne Fehler, ohne Ende des Streams. Von aussen sieht das aus wie "laeuft":
+    # Der Schalter steht auf An, die Umleitung steht, die Anzeige friert ein.
+    # Genau das ist der Zustand, in dem der Nutzer den Rechner fuer kaputt haelt.
+    # Also messen wir mit, ob ueberhaupt noch Frames eingehen.
+    stillstand_bei, stillstand_seit = -1, time.monotonic()
     try:
         while not (stop is not None and stop.is_set()):
             captured = loop.captured_frames
+            if captured != stillstand_bei:
+                stillstand_bei, stillstand_seit = captured, time.monotonic()
+            elif time.monotonic() - stillstand_seit > STREAM_STALL_TIMEOUT:
+                raise StreamStalled(
+                    f"No audio from the device for {STREAM_STALL_TIMEOUT:.0f}s "
+                    f"- unplugged or switched off? JamPilot has stopped and "
+                    f"restored your system sound; start it again once the "
+                    f"device is back."
+                )
             if captured < window_frames:
                 time.sleep(ANALYSIS_HOP)
                 continue
@@ -372,6 +438,12 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 result = match_chord(analysis.chroma, cqt=analysis.cqt)
                 raw = result.name
                 history.add(analysis.frames, window_start)
+                # Die bis hierhin stabile Tonart darf knappe Audio-Hypothesen
+                # ordnen. Erst danach fliesst das aktuelle Fenster in die
+                # Tonartschaetzung ein, damit kein Zirkelschluss entsteht.
+                result = interpret_chord(result, keys.key)
+                if result.is_chord:
+                    safe_by_chord[result.name] = safe_pitch_classes(result)
                 keys.add(analysis.chroma)
                 # Die Bassnote laeuft NEBEN der Akkorderkennung, nicht in ihr:
                 # zwei Fragen, zwei Signale. Der Akkord braucht die volle
@@ -401,6 +473,12 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # hinter der JETZT-Linie noch aus.
             while len(timeline) > 1 and timeline[1][0] <= audible_pos - 2.0:
                 timeline.pop(0)
+            # Vollstaendiger Snapshot statt einzelner Trigger: Wird ein noch
+            # nicht gehoertes Segment zurueckgenommen, verschwindet damit auch
+            # sein Kontrollanschlag vor der Ausgabe.
+            loop.set_control_timeline([
+                (pos, name, safe_by_chord.get(name)) for pos, name in timeline
+            ])
             audible = "-"
             for pos, name in timeline:
                 if pos > audible_pos:
@@ -440,7 +518,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 # Schreibweise ist das eine Anzeige-, keine Serverfrage.
                 broadcaster.publish({
                     "t": round(audible_pos, 3),
-                    "chords": [{"c": name, "at": round(pos, 3), "b": bassnote}
+                    "chords": [{"c": name, "at": round(pos, 3), "b": bassnote,
+                                "v": list(safe_by_chord.get(name, ())) or None}
                                for (pos, name), bassnote in zip(timeline, basslinie)],
                     "lead": round(lead, 2),
                     "key": key.as_dict() if key else None,
@@ -449,6 +528,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                     # sehen - sonst zeigt er munter Akkorde an, waehrend nichts zu
                     # hoeren ist, und der Fehler sitzt scheinbar im Audio.
                     "muted": loop.muted,
+                    "control_guitar": loop.control_guitar,
                 })
 
             # Im Terminal gibt es keinen Dialog - hier gilt immer die erkannte

@@ -2,6 +2,7 @@
 
 import argparse
 import struct
+import threading
 import wave
 import sys
 
@@ -85,7 +86,18 @@ class TestArgumentGrenzen:
             pruefer(wert)
 
 
+def _args(**felder):
+    return argparse.Namespace(**{"input": None, "output": None, "no_route": False,
+                                 **felder})
+
+
 class TestGeraetepruefung:
+    @pytest.fixture(autouse=True)
+    def kein_pactl(self, monkeypatch):
+        """Standardfall: kein Routing - `--output` ist dann ein PortAudio-Geraet."""
+        from jampilot import routing
+        monkeypatch.setattr(routing, "available", lambda: False)
+
     def test_unbekanntes_geraet_bricht_sofort_ab(self, monkeypatch):
         import sounddevice as sd
 
@@ -95,10 +107,99 @@ class TestGeraetepruefung:
 
         # Muss VOR dem teuren Warmup zuschlagen und verstaendlich sein.
         with pytest.raises(SystemExit, match="not usable"):
-            cli._check_devices("gibtsnicht", None)
+            cli._check_devices(_args(input="gibtsnicht"))
 
     def test_kein_geraet_angegeben_ist_in_ordnung(self):
-        cli._check_devices(None, None)   # darf nicht werfen
+        cli._check_devices(_args())      # darf nicht werfen
+
+
+class TestGeraetepruefungMitRouting:
+    """Im Routing-Modus ist `--output` ein Sink-Name, kein PortAudio-Geraet.
+
+    Beides gegen PortAudio zu pruefen wies genau die Namen ab, die
+    `jampilot devices` fuer den Routing-Modus auflistet.
+    """
+
+    @pytest.fixture(autouse=True)
+    def mit_pactl(self, monkeypatch):
+        from jampilot import routing
+        monkeypatch.setattr(routing, "available", lambda: True)
+        monkeypatch.setattr(routing, "hardware_sinks",
+                            lambda: [("0", "alsa_output.usb-Mackie_ProFX16v3-00")])
+
+    def test_sink_name_geht_durch_ohne_portaudio_zu_fragen(self, monkeypatch):
+        import sounddevice as sd
+
+        def explodiere(device, kind):
+            raise AssertionError("Sink-Name darf nicht als Geraet geprueft werden")
+        monkeypatch.setattr(sd, "query_devices", explodiere)
+
+        cli._check_devices(_args(output="alsa_output.usb-Mackie_ProFX16v3-00"))
+
+    def test_sink_index_geht_ebenfalls(self):
+        cli._check_devices(_args(output=0))
+
+    def test_unbekannter_sink_bricht_ab(self):
+        with pytest.raises(SystemExit, match="unknown"):
+            cli._check_devices(_args(output="gibtsnicht"))
+
+    def test_mit_eigenem_eingang_gilt_wieder_die_geraetepruefung(self, monkeypatch):
+        # --input schaltet in den Direktmodus; dann IST --output ein Geraet.
+        import sounddevice as sd
+
+        gefragt = []
+        monkeypatch.setattr(sd, "query_devices",
+                            lambda device, kind: gefragt.append((device, kind)))
+        cli._check_devices(_args(input=1, output=2))
+        assert gefragt == [(1, "input"), (2, "output")]
+
+
+class TestWachhund:
+    """Ein Geraet, das verschwindet, meldet sich nicht ab.
+
+    PortAudio ruft den Callback dann einfach nicht mehr - ohne Fehler, ohne Ende
+    des Streams. Von aussen sieht das aus wie "laeuft": Schalter an, Umleitung
+    steht, Anzeige eingefroren. Erkannt wird es nur am Ringpuffer, der still
+    steht.
+    """
+
+    @pytest.fixture
+    def args(self):
+        return argparse.Namespace(samplerate=48000, delay=4.0)
+
+    def test_stehender_ringpuffer_wird_gemeldet(self, args, monkeypatch, capsys):
+        monkeypatch.setattr(cli, "STREAM_STALL_TIMEOUT", 0.05)
+
+        class ToterStream:
+            delay_seconds, captured_frames, xruns, last_status = 4.0, 0, 0, None
+
+        with pytest.raises(cli.StreamStalled, match="No audio"):
+            cli._display_loop(ToterStream(), args)
+
+    def test_laufender_stream_schlaegt_nicht_an(self, args, monkeypatch, capsys):
+        # Ein Fehlalarm waere schlimmer als das Problem: Er braeche einen
+        # laufenden Betrieb ab. Also muss ein Puffer, der sich bewegt, den
+        # Wachhund auch bei knappem Zeitlimit ruhig halten.
+        monkeypatch.setattr(cli, "STREAM_STALL_TIMEOUT", 0.05)
+        halt = threading.Event()
+
+        class LaufenderStream:
+            delay_seconds, xruns, last_status = 4.0, 0, None
+
+            def __init__(self):
+                self._runden = 0
+
+            @property
+            def captured_frames(self):
+                self._runden += 1
+                if self._runden > 200:
+                    halt.set()
+                return self._runden * 100_000
+
+            def audio_ending_at(self, ende, laenge):
+                return None      # nichts zu analysieren - die Schleife dreht nur
+
+        cli._display_loop(LaufenderStream(), args, stop=halt)   # darf nicht werfen
 
 
 class TestOhneArgument:

@@ -5,12 +5,23 @@ wird die Verdrahtung, nicht PortAudio - und vor allem die REIHENFOLGE beim
 Abbauen, denn die ist der gefaehrliche Teil.
 """
 
+import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from jampilot.engine import Engine
+
+
+def _warte_bis(bedingung, timeout=3.0):
+    """Warten auf einen Hintergrundthread - ohne feste Schlafzeit im Test."""
+    ende = time.monotonic() + timeout
+    while time.monotonic() < ende:
+        if bedingung():
+            return True
+        time.sleep(0.01)
+    return False
 
 
 @pytest.fixture
@@ -145,6 +156,37 @@ class TestAbbauReihenfolge:
 
         Routing.return_value.__exit__.assert_called_once()
         assert e._route is None
+
+
+class TestSterbenderStream:
+    """Stirbt die Analyse, MUSS die Umleitung fallen.
+
+    Wenn das Audiogeraet verschwindet - USB-Kabel raus, Mischpult aus -, bleibt
+    sonst der schlimmste Zustand zurueck: Der Systemton laeuft weiter in den
+    Null-Sink, zu hoeren ist nichts, und die Anzeige, die das erklaeren koennte,
+    steht still. Der Rechner sieht kaputt aus.
+    """
+
+    def test_baut_ab_und_behaelt_den_grund(self, args):
+        from jampilot.cli import StreamStalled
+
+        args.no_route = False
+        with patch("jampilot.routing.available", return_value=True), \
+             patch("jampilot.routing.LinuxRouting") as Routing, \
+             patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
+             patch("jampilot.cli._display_loop",
+                   side_effect=StreamStalled("kein Ton mehr")):
+            e = Engine(args)
+            e.start()
+            assert _warte_bis(lambda: e._route is None and e._loop is None), \
+                "Umleitung blieb nach dem Tod des Streams stehen"
+
+        assert not e.running
+        # "stopped" waere hier eine Luege: Es hat nicht jemand ausgeschaltet.
+        assert e.status == "error"
+        assert "kein Ton mehr" in e.fehler
+        Loop.return_value.stop.assert_called_once()
+        Routing.return_value.__exit__.assert_called_once()
 
 
 class TestStumm:

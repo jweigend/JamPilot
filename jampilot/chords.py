@@ -72,6 +72,16 @@ SILENCE_RMS = 1e-4
 
 
 @dataclass
+class ChordCandidate:
+    """Eine Audio-Hypothese, bevor musikalischer Kontext sie bewertet."""
+
+    name: str
+    score: float
+    root: int
+    quality: str
+
+
+@dataclass
 class ChordResult:
     """Was klingt - als Tonklasse plus Akkordart, nicht als Notenname.
 
@@ -88,6 +98,7 @@ class ChordResult:
     confidence: float
     root: int | None = None   # Tonklasse 0..11, None bei "N"
     quality: str = ""         # "", "m", "7", "maj7", "m7"
+    candidates: tuple[ChordCandidate, ...] = ()
 
     @property
     def is_chord(self) -> bool:
@@ -171,17 +182,22 @@ def match_chord(chroma: np.ndarray, cqt: bool = False) -> ChordResult:
 
     penalty_rate = COMPLEXITY_PENALTY_CQT if cqt else COMPLEXITY_PENALTY_FFT
 
-    best = None
-    best_score = 0.0
+    candidates = []
     for name, template, extra_notes, root, suffix in _TEMPLATES:
         score = float(np.dot(unit, template)) - penalty_rate * extra_notes
-        if score > best_score:
-            best, best_score = (name, root, suffix), score
+        candidates.append(ChordCandidate(name, score, root, suffix))
 
-    if best is None or best_score < MATCH_THRESHOLD:
-        return ChordResult("N", best_score)
-    name, root, suffix = best
-    return ChordResult(name, best_score, root=root, quality=suffix)
+    candidates.sort(key=lambda candidate: candidate.score, reverse=True)
+    best = candidates[0]
+    # Mehrere plausible Antworten bleiben erhalten. Erst dadurch kann eine
+    # spaetere harmonische Stufe eine knappe Fehlentscheidung korrigieren,
+    # ohne das Audiosignal ein zweites Mal analysieren zu muessen.
+    plausible = tuple(candidates[:5])
+
+    if best.score < MATCH_THRESHOLD:
+        return ChordResult("N", best.score, candidates=plausible)
+    return ChordResult(best.name, best.score, root=best.root,
+                       quality=best.quality, candidates=plausible)
 
 
 class ChordSmoother:

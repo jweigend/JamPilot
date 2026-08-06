@@ -97,6 +97,7 @@ class _Handler(BaseHTTPRequestHandler):
     # Wird erst gesetzt, wenn der Audiostream steht - die Webseite laeuft schon
     # vorher (sie zeigt den QR-Code). Bis dahin: 503 statt Absturz.
     mute_toggle = None
+    control_guitar_toggle = None
 
     def log_message(self, *_):
         pass  # kein Request-Log im Terminal
@@ -127,7 +128,16 @@ class _Handler(BaseHTTPRequestHandler):
         und ein GET wuerde jeder Link-Vorschau, jedem Prefetch des Browsers die
         Musik abstellen.
         """
-        if self.path.split("?")[0] != "/mute":
+        path = self.path.split("?")[0]
+        if path == "/control-guitar":
+            if self.control_guitar_toggle is None:
+                self.send_error(503, "no audio stream")
+                return
+            enabled = bool(self.control_guitar_toggle())
+            self._send(json.dumps({"control_guitar": enabled}).encode(),
+                       "application/json")
+            return
+        if path != "/mute":
             self.send_error(404)
             return
         if self.mute_toggle is None:
@@ -174,6 +184,9 @@ class WebDisplay:
         Handler dessen `self` als erstes Argument untergeschoben.
         """
         self._handler.mute_toggle = staticmethod(fn)
+
+    def set_control_guitar_toggle(self, fn):
+        self._handler.control_guitar_toggle = staticmethod(fn)
 
     def stop(self):
         self._server.shutdown()
@@ -552,6 +565,25 @@ PAGE = r"""<!DOCTYPE html>
         </span>
       </button>
 
+      <h2 class="second">Control guitar</h2>
+      <p class="sub">A quiet, dry guitar pluck at every detected chord change.
+         It is deliberately simple: wrong roots and major/minor thirds become
+         audible immediately without turning JamPilot into an accompaniment.</p>
+      <button class="opt" data-control="on" role="radio">
+        <span class="glyph">&#127928;</span>
+        <span class="text">
+          <span class="label">Audible check</span>
+          <span class="desc">Mix the detected chord quietly into the delayed song.</span>
+        </span>
+      </button>
+      <button class="opt" data-control="off" role="radio">
+        <span class="glyph">&#8709;</span>
+        <span class="text">
+          <span class="label">Off</span>
+          <span class="desc">Play only the original delayed audio.</span>
+        </span>
+      </button>
+
       <h2 class="second">Chord spelling</h2>
       <p class="sub">The same key is called A&#9839; or B&#9837;, depending on
          the key of the song. JamPilot detects the key and spells accordingly
@@ -807,21 +839,34 @@ function anchorOf(frets) {
 // Alle spielbaren Lagen eines Akkords: E-Form (Grundton Saite 6), A-Form (Saite 5)
 // und - wo es sie gibt - die offene Sonderform. E- und A-Form liegen 5 Buende
 // auseinander, decken also zwei Hals-Regionen ab.
-function candidates(root, quality) {
+function candidates(root, quality, safe) {
   const pc = NOTE_PC[root];
   if (pc === undefined || !(quality in SHAPES_E)) return [];
   const out = [];
+  // Nur Tonklassen greifen, die alle nahen Erkennungshypothesen gemeinsam
+  // tragen. So wird aus unsicherem A/Am ein A5 statt einer geratenen Terz.
+  const secure = Array.isArray(safe) && safe.length ? new Set(safe) : null;
+  const keepSafe = frets => frets.map((f, string) => {
+    if (f === null || f < 0) return null;
+    const sounding = (OPEN_PC[string] + f) % 12;
+    return !secure || secure.has(sounding) ? f : null;
+  });
   const push = (shape, base, tmpl) => {
     // Barre oberhalb Bund 9 ist unpraktikabel - die jeweils andere Form (E/A
     // liegen 5 Buende auseinander) deckt denselben Akkord tiefer ab.
     if (base > 9) return;
-    out.push({ shape, base, anchor: base,
-               frets: tmpl.map(o => o === null ? null : base + o) });
+    const frets = keepSafe(tmpl.map(o => o === null ? null : base + o));
+    if (!frets.some(f => f !== null)) return;
+    out.push({ shape, base, anchor: base, frets });
   };
   push("E", (((pc - 4) % 12) + 12) % 12, SHAPES_E[quality]);   // Grundton Saite 6
   push("A", (((pc - 9) % 12) + 12) % 12, SHAPES_A[quality]);   // Grundton Saite 5
   const open = OPEN[root + quality];
-  if (open) out.push({ shape: "open", base: 0, anchor: anchorOf(open), frets: open.slice() });
+  if (open) {
+    const frets = keepSafe(open);
+    if (frets.some(f => f !== null))
+      out.push({ shape: "open", base: 0, anchor: anchorOf(frets), frets });
+  }
   return out;
 }
 
@@ -840,7 +885,7 @@ function transCost(a, b) {
 // Voicing fuer window[0] - der erste Knoten des bewegungsaermsten Pfads. Nur
 // dieser wird festgeschrieben; der Lookahead bewahrt ihn nur vor Sackgassen.
 function planVoicing(window, last) {
-  const cand = window.map(c => candidates(c.root, c.q)).filter(a => a.length);
+  const cand = window.map(c => candidates(c.root, c.q, c.safe)).filter(a => a.length);
   if (!cand.length) return null;
   const dp = [cand[0].map(v => (last ? transCost(last, v) : 0) + nodeCost(v))];
   const bp = [cand[0].map(() => -1)];
@@ -924,7 +969,7 @@ function futureWindow(seg) {
     const m = c.c.match(/^([A-G]#?)(.*)$/);
     if (!m || !(m[2] in SHAPES_E)) continue;
     if (out.length && out[out.length - 1].name === c.c) continue;
-    out.push({ root: m[1], q: m[2], name: c.c });
+    out.push({ root: m[1], q: m[2], name: c.c, safe: c.v || null });
     if (out.length >= 6) break;              // so weit reicht der Lookahead
   }
   return out;
@@ -955,6 +1000,19 @@ function decideVoicing(seg) {
 // (der Name folgt der Schreibweise, das Griffbrett nicht). Wie der grosse Akkord
 // cacht es sein Ergebnis, damit nicht jeder Frame die SVG neu baut.
 let fbShown = "";
+function safeGuitarName(seg) {
+  if (!seg || !Array.isArray(seg.v) || !seg.v.length) return seg ? seg.c : "";
+  const m = seg.c.match(/^([A-G]#?)(.*)$/);
+  if (!m) return seg.c;
+  const root = NOTE_PC[m[1]], tones = new Set(seg.v);
+  const hasMinor3 = tones.has((root + 3) % 12);
+  const hasMajor3 = tones.has((root + 4) % 12);
+  if (!hasMinor3 && !hasMajor3) return m[1] + "5";
+  if (m[2] === "7" && !tones.has((root + 10) % 12)) return m[1];
+  if (m[2] === "maj7" && !tones.has((root + 11) % 12)) return m[1];
+  if (m[2] === "m7" && !tones.has((root + 10) % 12)) return m[1] + "m";
+  return seg.c;
+}
 function renderFretboard(seg) {
   const name = seg ? seg.c : null;
   const key = (name || "-") + "|" + (name ? seg.at.toFixed(2) : "") + "|" + schreibweise;
@@ -963,7 +1021,7 @@ function renderFretboard(seg) {
   const v = seg && name && name !== "?" && name !== "-" ? decideVoicing(seg) : null;
   if (!v) { $("fbdiagram").innerHTML = ""; $("fbname").innerHTML = ""; return; }
   $("fbdiagram").innerHTML = fretSvg(v);
-  $("fbname").innerHTML = chordHtml(name);
+  $("fbname").innerHTML = chordHtml(safeGuitarName(seg));
 }
 
 // BASS-GRIFFBRETT, LAGENBEWUSST. Ein Bassist denkt in MUSTERN auf dem Hals, nicht
@@ -1283,8 +1341,28 @@ function apply(state) {
   horizon = Math.max(1.5, (state.lead || 3) + 0.8);
   tonart = state.key || null;
   if ("muted" in state) zeigeStumm(state.muted);
+  if ("control_guitar" in state) zeigeKontrollgitarre(state.control_guitar);
   neuSchreibenFallsNoetig();
   syncClock(state.t);
+}
+
+let kontrollgitarre = false;
+function zeigeKontrollgitarre(enabled) {
+  kontrollgitarre = !!enabled;
+  for (const opt of document.querySelectorAll(".opt[data-control]"))
+    opt.setAttribute("aria-checked",
+      String((opt.dataset.control === "on") === kontrollgitarre));
+}
+
+async function kontrollgitarreSetzen(enabled) {
+  // Server-API ist ein Toggle; eine bereits gewaehlte Radio-Option darf darum
+  // keinen zweiten Wechsel ausloesen.
+  if (!!enabled === kontrollgitarre) return;
+  try {
+    const antwort = await fetch("/control-guitar", { method: "POST" });
+    if (!antwort.ok) return;
+    zeigeKontrollgitarre((await antwort.json()).control_guitar);
+  } catch (e) {}
 }
 
 // STUMM. Nicht angehalten: Die Quelle laeuft weiter, der Ringpuffer laeuft
@@ -1363,6 +1441,8 @@ for (const opt of document.querySelectorAll(".opt"))
     if (opt.dataset.mode) setzeModus(opt.dataset.mode);
     else if (opt.dataset.inst) setzeInstrument(opt.dataset.inst);
     else if (opt.dataset.fret) setzeGriffbrett(opt.dataset.fret === "on");
+    else if (opt.dataset.control)
+      kontrollgitarreSetzen(opt.dataset.control === "on");
   });
 
 document.addEventListener("keydown", ev => {
@@ -1379,6 +1459,7 @@ document.addEventListener("keydown", ev => {
 setzeInstrument(instrument);   // gespeicherte Wahl anwenden und markieren
 setzeModus(modus);
 setzeGriffbrett(griffbrettAn);
+zeigeKontrollgitarre(false);
 
 if (new URLSearchParams(location.search).has("demo")) {
   // Demo in F-Dur: die Progression enthaelt A# (= Bb), damit man die

@@ -73,6 +73,19 @@ class Engine:
         self._on_change()
         return stumm
 
+    @property
+    def control_guitar(self) -> bool:
+        return self._loop.control_guitar if self._loop else False
+
+    def toggle_control_guitar(self) -> bool:
+        if not self._loop:
+            return False
+        enabled = self._loop.toggle_control_guitar()
+        if self.broadcaster:
+            self.broadcaster.republish(control_guitar=enabled)
+        self._on_change()
+        return enabled
+
     # --- An und aus ---------------------------------------------------------
     def start(self):
         """Umleitung aufbauen, Stream starten, Analyse im Hintergrund laufen lassen."""
@@ -87,8 +100,7 @@ class Engine:
             self._on_change()
             try:
                 args = self.args
-                nutzt_routing = (routing.available() and not args.no_route
-                                 and args.input is None)
+                nutzt_routing = routing.uses_routing(args)
                 if nutzt_routing:
                     self._route = routing.LinuxRouting()
                     self._route.__enter__()
@@ -147,10 +159,15 @@ class Engine:
             thread.join(timeout=3.0)
         with self._lock:
             self._abbauen()
-            self.status = "stopped"
+            # Nach einem Fehler bleibt "error" stehen, auch wenn der Abbau glatt
+            # durchlief: Der Grund muss lesbar bleiben. Sonst meldete der
+            # Wachhund einen toten Stream - und die Oberflaeche zeigte
+            # anschliessend ein harmloses "Stopped", das niemandem sagt, warum.
+            self.status = "error" if self.fehler else "stopped"
             self.lead = 0.0
         if self.broadcaster:
-            self.broadcaster.republish(muted=False, running=False)
+            self.broadcaster.republish(muted=False, control_guitar=False,
+                                       running=False)
         self._on_change()
 
     def _abbauen(self):
@@ -184,3 +201,10 @@ class Engine:
             self.status = "error"
             self.fehler = str(exc)
             self._on_change()
+            # Ein toter Stream mit STEHENDER Umleitung ist der schlimmste
+            # Zustand ueberhaupt: Der Systemton laeuft weiter in den Null-Sink,
+            # zu hoeren ist nichts mehr, und die Anzeige, die das erklaeren
+            # koennte, steht still. Also abbauen - aus einem eigenen Thread,
+            # denn stop() wartet auf GENAU DIESEN hier und wuerde sich sonst
+            # selbst joinen.
+            threading.Thread(target=self.stop, daemon=True).start()
