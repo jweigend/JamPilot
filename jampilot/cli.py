@@ -34,6 +34,20 @@ ANALYSIS_HOP = 0.25
 BTC_LIVE_WINDOW = 10.0
 BTC_EDGE_GUARD = 1.0
 
+# Eine schon veroeffentlichte Akkordgrenze bleibt liegen, solange die frische
+# Modellausgabe sie nur um so viel verschiebt: Das Frameraster wandert pro Hop
+# (s. _merge_model_segments), und staendig springende Grenzen zerlegen die
+# Chips der Vorlaufansicht. Muss unter MIN_SEGMENT_SECONDS (0.25s) bleiben,
+# sonst schnappt eine Grenze an die falsche Nachbargrenze.
+ONSET_HYSTERESIS = 0.2
+
+# Eine NEUE Grenze kommt erst in die Zeitleiste, wenn schon der VORIGE
+# Modelllauf sie gesehen hat (gleicher Name, Lage bis auf diese Toleranz).
+# Das filtert Geister-Segmente, die nur einen einzigen Lauf lang existieren -
+# und verzoegert echte Segmente nicht: Der vorige Lauf reicht ueber den
+# Horizont hinaus, dort stand die Grenze bereits.
+BTC_DEBOUNCE_MATCH = 0.3
+
 # Kuerzer als das spielt niemand einen Akkord. Ein Segment darunter ist kein
 # Wechsel, sondern ein Fehlgriff der Erkennung - und wird zurueckgenommen.
 MIN_CHORD_SECONDS = 0.25
@@ -421,6 +435,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
 
     # Zeitleiste wie bisher: (Onset-Position im Stream, kanonischer Akkord).
     timeline: list[tuple[float, str]] = []
+    previous_segments: list[tuple[float, str]] | None = None   # Debounce
     lead = max(args.delay - BTC_EDGE_GUARD, 0.0)
     key_fed_until = 0.0
 
@@ -475,7 +490,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
 
             audible_pos = loop.audible_position()
             horizon = window_end / sr - BTC_EDGE_GUARD
-            _merge_model_segments(timeline, segments, audible_pos, horizon)
+            _merge_model_segments(timeline, segments, audible_pos, horizon,
+                                  previous_segments)
+            previous_segments = segments
             lead = max(horizon - audible_pos, 0.0)
             if engine is not None:
                 engine.lead = lead
@@ -542,20 +559,32 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
         print(f"Stream warnings: {loop.xruns} (last: {loop.last_status})")
 
 
-def _merge_model_segments(timeline, segments, audible_pos, horizon):
+def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=None):
     """BTC ist fuehrend: der unerhoerte Teil der Zeitleiste wird jedem Hop aus
     der frischen Modellausgabe neu aufgebaut.
 
-    Drei Regeln:
+    Regeln:
       - Gehoertes (Onset <= audible_pos) ist unantastbar - wie bisher.
       - Segmente jenseits `horizon` warten: am Fensterrand fehlt der
         bidirektionalen Attention der Zukunftskontext, dort flackern Labels.
       - Ein Segment, das an der Hoergrenze bereits laeuft, aendert das Etikett
         des Gehoerten nicht mehr; erst sein Nachfolger schreibt wieder.
+      - Onset-Hysterese: Das CQT-Frameraster wandert pro Hop um eine NICHT
+        ganze Framezahl (0.25s sind ~2.7 Frames), dieselbe Akkordgrenze landet
+        also jedes Mal ein paar Millisekunden woanders. Ein bereits
+        veroeffentlichtes Segment gleichen Namens in aehnlicher Lage behaelt
+        deshalb seinen Onset - sonst springen die Chips der Vorlaufansicht
+        viermal pro Sekunde (der Browser schluesselt sie nach Position+Name).
+      - Debounce: Eine Grenze, die weder veroeffentlicht ist noch im vorigen
+        Modelllauf (`previous`, ungeschnitten) vorkam, wartet einen Hop.
+        Gemessen (Simulation ueber sting/peg): Hysterese + Debounce druecken
+        die Anzeige-Unruhe von 1.1 auf 0.17-0.26 Chip-Wechsel je Hop.
     """
     base = audible_pos
+    published = []                      # bisheriger unerhoerter Teil
     while timeline and timeline[-1][0] > base:
-        timeline.pop()
+        published.append(timeline.pop())
+    published.reverse()
     last = timeline[-1][1] if timeline else None
 
     for i, (pos, name) in enumerate(segments):
@@ -569,9 +598,22 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon):
                 timeline.append((pos, name))
                 last = name
             continue
-        if name != last:
-            timeline.append((pos, name))
-            last = name
+        if name == last:
+            continue
+        matched = False
+        for j, (alt_pos, alt_name) in enumerate(published):
+            if alt_name == name and abs(alt_pos - pos) <= ONSET_HYSTERESIS:
+                if not timeline or alt_pos > timeline[-1][0]:
+                    pos = alt_pos       # bekannte Grenze: liegen lassen
+                published.pop(j)        # jede alte Grenze zieht nur einmal
+                matched = True
+                break
+        if not matched and previous is not None:
+            if not any(prev_name == name and abs(prev_pos - pos) <= BTC_DEBOUNCE_MATCH
+                       for prev_pos, prev_name in previous):
+                continue                # Geist: erst wiedersehen, dann glauben
+        timeline.append((pos, name))
+        last = name
 
 
 def _display_loop_template(loop, args, broadcaster=None, stop=None, engine=None):

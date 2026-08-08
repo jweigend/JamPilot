@@ -91,3 +91,34 @@ class TestMergeModelSegments:
         _merge_model_segments(timeline, [(0.0, "-"), (0.5, "C")],
                               audible_pos=-2.0, horizon=1.5)
         assert timeline == [(0.0, "-"), (0.5, "C")]
+
+    def test_hysterese_haelt_veroeffentlichte_grenze(self):
+        # Das Frameraster wandert pro Hop: dieselbe Grenze kommt ein paar ms
+        # verschoben wieder. Die veroeffentlichte Position bleibt liegen.
+        timeline = [(0.0, "C"), (4.0, "G")]
+        _merge_model_segments(timeline, [(0.0, "C"), (4.09, "G")],
+                              audible_pos=3.0, horizon=8.0)
+        assert timeline == [(0.0, "C"), (4.0, "G")]
+
+    def test_hysterese_schnappt_nicht_auf_andere_akkorde(self):
+        timeline = [(0.0, "C"), (4.0, "G")]
+        _merge_model_segments(timeline, [(0.0, "C"), (4.05, "Am")],
+                              audible_pos=3.0, horizon=8.0)
+        assert timeline == [(0.0, "C"), (4.05, "Am")]
+
+    def test_debounce_haelt_geister_zurueck(self):
+        # Eine Grenze, die weder veroeffentlicht ist noch im vorigen Lauf
+        # vorkam, wartet einen Hop.
+        timeline = [(0.0, "C")]
+        _merge_model_segments(timeline, [(0.0, "C"), (5.0, "G")],
+                              audible_pos=3.0, horizon=8.0,
+                              previous=[(0.0, "C")])
+        assert timeline == [(0.0, "C")]
+
+    def test_debounce_laesst_bestaetigtes_durch(self):
+        # Der vorige Lauf sah die Grenze schon (auch jenseits des Horizonts).
+        timeline = [(0.0, "C")]
+        _merge_model_segments(timeline, [(0.0, "C"), (5.0, "G")],
+                              audible_pos=3.0, horizon=8.0,
+                              previous=[(0.0, "C"), (5.1, "G")])
+        assert timeline == [(0.0, "C"), (5.0, "G")]
