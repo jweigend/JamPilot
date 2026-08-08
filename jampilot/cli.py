@@ -213,6 +213,9 @@ def cmd_analyze(args):
         erkannt.append(((start + 0.75 * window) / samplerate, name))
 
     key = keys.key
+    # Offline gilt die Tonart der GANZEN Datei, und ausgegeben wird erst am
+    # Ende: Hier gibt es nichts, was flackern koennte, also auch keinen Grund
+    # fuer die traege Schreibweise des Live-Betriebs (KeyEstimator.accidental).
     accidental = key.accidental if key else SHARP
     print(f"  Key: {key.label} ({'b' if accidental != SHARP else '#'})\n" if key
           else "  Key: undetermined (too little music) - chords spelled with sharps\n")
@@ -348,7 +351,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     from .chroma import FrameHistory, analyze_window, rms
     from .chords import SILENCE_RMS, ChordSmoother, match_chord
     from .harmony import interpret_chord, safe_pitch_classes
-    from .tonality import SHARP, KeyEstimator, spell
+    from .tonality import KeyEstimator, spell
 
     sr = args.samplerate
     window_frames = int(round(ANALYSIS_WINDOW * sr))
@@ -522,7 +525,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                                 "v": list(safe_by_chord.get(name, ())) or None}
                                for (pos, name), bassnote in zip(timeline, basslinie)],
                     "lead": round(lead, 2),
-                    "key": key.as_dict() if key else None,
+                    # Die Schreibweise kommt aus dem Schaetzer, nicht aus `key`:
+                    # sie zieht traeger nach (siehe KeyEstimator.accidental).
+                    "key": key.as_dict(keys.accidental) if key else None,
                     # Faehrt in jedem Zustand mit, nicht nur beim Umschalten: Ein
                     # Browser, der sich spaeter verbindet, muss die Stummschaltung
                     # sehen - sonst zeigt er munter Akkorde an, waehrend nichts zu
@@ -533,7 +538,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
 
             # Im Terminal gibt es keinen Dialog - hier gilt immer die erkannte
             # Tonart, und solange keine feststeht, das Kreuz.
-            accidental = key.accidental if key else SHARP
+            accidental = keys.accidental
             # Der hoerbare Akkord mit gemessenem Bass: C/E statt C.
             jetzt = bassmodul.slash(audible, bass_jetzt)
             sys.stdout.write(
@@ -541,7 +546,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 f"{spell(current or '-', accidental):<6s} "
                 f"| Now playing: {spell(jetzt, accidental):<8s} "
                 f"| Bass: {spell(bass_jetzt or '-', accidental):<3s} "
-                f"| Key: {key.label if key else '...':<9s}"
+                f"| Key: {key.label_in(accidental) if key else '...':<9s}"
             )
             sys.stdout.flush()
     except KeyboardInterrupt:
