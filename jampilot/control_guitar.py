@@ -23,6 +23,17 @@ CONTROL_GAIN = 0.34
 PLAYBACK_GAIN = 0.58
 PLUCK_SECONDS = 1.35
 
+# Klangcharakter: cleane E-Gitarre statt perkussiver Akustik. Der Anschlag
+# wird doppelt entschaerft - das Anregungsrauschen laeuft durch einen Tiefpass
+# (weicherer "Pick", weniger Drahtklirren) und die ersten Millisekunden
+# blenden ein, statt hart einzusetzen. Dazu etwas laengeres Sustain (cleane
+# E-Gitarre steht laenger als eine gedaempfte Akustische) und ein expliziter
+# Ausklang, damit das laengere Sustain am Puffer-Ende nicht abreisst.
+EXCITE_SMOOTHING = 3        # Glaettungsdurchlaeufe ueber den Rauschimpuls
+ATTACK_SECONDS = 0.012
+SUSTAIN = 0.998             # Verlustfaktor je Sample (vorher 0.996)
+RELEASE_SECONDS = 0.15
+
 
 def _parse(chord: str) -> tuple[int, str] | None:
     if not chord or chord[0] not in "ABCDEFG":
@@ -66,16 +77,31 @@ def _pluck(midi: int, samplerate: int, seed: int) -> np.ndarray:
     length = int(round(PLUCK_SECONDS * samplerate))
     rng = np.random.default_rng(seed)
     ring = rng.uniform(-1.0, 1.0, period).astype(np.float32)
+    # Weicher Anschlag, Teil 1: den Rauschimpuls tiefpassfiltern (zirkular,
+    # der Ring ist eine Schleife). Das nimmt dem ersten Umlauf das Klirren -
+    # klassischer Karplus-Strong-Griff fuer "weiches Plektrum".
+    for _ in range(EXCITE_SMOOTHING):
+        ring = (np.roll(ring, 1) + ring + np.roll(ring, -1)) / 3.0
+    ring *= 3.0 / (EXCITE_SMOOTHING + 1)     # Lautstaerkeverlust grob ausgleichen
     out = np.empty(length, dtype=np.float32)
     index = 0
     for i in range(length):
         current = ring[index]
         nxt = ring[(index + 1) % period]
         out[i] = current
-        ring[index] = .996 * .5 * (current + nxt)
+        ring[index] = SUSTAIN * .5 * (current + nxt)
         index = (index + 1) % period
-    # Kurzer Finger-/Plektrum-Attack, danach natuerliches Ausschwingen.
+    # Weicher Anschlag, Teil 2: einblenden statt hart einsetzen.
+    n_att = min(int(ATTACK_SECONDS * samplerate), length)
+    if n_att > 1:
+        out[:n_att] *= 0.5 - 0.5 * np.cos(
+            np.pi * np.arange(n_att, dtype=np.float32) / n_att)
+    # Natuerliches Ausschwingen plus expliziter Ausklang am Ende.
     out *= np.linspace(1.0, .72, length, dtype=np.float32)
+    n_rel = min(int(RELEASE_SECONDS * samplerate), length)
+    if n_rel > 1:
+        out[-n_rel:] *= 0.5 + 0.5 * np.cos(
+            np.pi * np.arange(n_rel, dtype=np.float32) / n_rel)
     return out
 
 
