@@ -147,16 +147,33 @@ def find_onset_frame(frames: np.ndarray, prev_name: str | None, new_name: str) -
     unit = frames / (np.linalg.norm(frames, axis=0, keepdims=True) + 1e-9)
     score_new = new_template @ unit
 
+    # Der Schnitt braucht ZWEI Belege, und die Latte ist der schwaechere davon:
+    # der neue Akkord muss den alten schlagen UND ueberhaupt klingen.
+    #
+    # Die zweite Bedingung fehlte, und daran zerbrach jeder Break vor dem
+    # Wechsel. Ein rein relatives Kriterium fragt nur "passt neu besser als
+    # alt". Sobald die Band absetzt, faellt der alte Score zusammen - der
+    # Gewinn wird positiv, OBWOHL der neue Akkord noch gar nicht da ist, und
+    # der Schnitt rutscht an den Anfang des Breaks. Gemessen ueber den vollen
+    # Pfad: ohne Break +30 ms, mit 0.5s Break -240 ms, mit 2s Break bis
+    # -693 ms. Genau die Stellen, an denen die Anzeige den Zielakkord schon
+    # im Break zeigte und man nicht mehr dazu spielen konnte.
+    #
+    # Die absolute Latte kann nicht aus der Lautstaerke kommen: librosa
+    # normiert jeden Chroma-Frame (norm=inf), im Frame-Chroma steht keine
+    # Lautstaerke mehr - ein Break-Frame aus Beckenrauschen kommt auf voller
+    # Amplitude an. Sie kommt deshalb aus der Aehnlichkeit selbst, gegen
+    # dieselbe Schwelle, an der auch match_chord "kein Akkord" sagt.
     prev_template = _TEMPLATE_BY_NAME.get(prev_name) if prev_name else None
+    # Ohne Vorgaenger (Programmstart, nach Stille) bleibt die Schwelle allein
+    # stehen. Traegt der Akkord schon das ganze Fenster, wird k=0 - der Einsatz
+    # lag vor dem Fenster, frueher koennen wir ihn nicht gesehen haben. Das ist
+    # die ehrliche Antwort; ein Schnitt gegen den eigenen Mittelwert wuerde
+    # hier einen Wechsel erfinden.
+    latte = np.full(frames.shape[1], MATCH_THRESHOLD)
     if prev_template is not None:
-        gain = score_new - prev_template @ unit
-    else:
-        # Kein Vorgaenger (Programmstart, nach Stille): gegen die Schwelle
-        # schneiden statt gegen ein Template. Traegt der Akkord schon das ganze
-        # Fenster, wird k=0 - der Einsatz lag vor dem Fenster, frueher koennen
-        # wir ihn nicht gesehen haben. Das ist die ehrliche Antwort; ein Schnitt
-        # gegen den eigenen Mittelwert wuerde hier einen Wechsel erfinden.
-        gain = score_new - MATCH_THRESHOLD
+        latte = np.maximum(latte, prev_template @ unit)
+    gain = score_new - latte
 
     # k maximiert sum(gain[k:]): ab dort traegt der neue Akkord das Fenster.
     suffix_sums = np.concatenate([np.cumsum(gain[::-1])[::-1], [0.0]])
