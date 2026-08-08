@@ -246,12 +246,19 @@ def features_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
 BTC_BASS_BINS = 72
 
 # Grenz-Verfeinerung: Die Modellgrenze liegt auf dem 93-ms-Raster und im
-# Schnitt ~140 ms HINTER dem annotierten Wechsel. Im kleinen Fenster darum
-# such ein Akkordton-Schnitt im HPSS-Chroma (23-ms-Raster) den echten
-# Umschlagpunkt, Onset-Staerke gewichtet mit - Wechsel fallen auf Anschlaege.
-# Gegen die Isophonics-Referenz gemessen (tests/reference/README.md):
-# median |dt| 187 -> 121 ms, Anteil <=1 Frame verdoppelt (25% -> 42%).
-REFINE_RADIUS = 0.3        # Suchweite um die Modellgrenze
+# Schnitt ~140 ms HINTER dem annotierten Wechsel. Im Fenster darum sucht ein
+# Akkordton-Schnitt im HPSS-Chroma (23-ms-Raster) den echten Umschlagpunkt,
+# Onset-Staerke gewichtet mit - Wechsel fallen auf Anschlaege.
+#
+# Das Fenster ist bewusst ASYMMETRISCH: weit zurueck, kaum vorwaerts. Der
+# wahre Wechsel liegt fast immer VOR der Modellgrenze (Nachlauf-Bias), und auf
+# einer chaotischen Eins (Beckencrash, Bassdrum, Gesangseinsatz) ist das
+# Chroma verschmiert - eine symmetrische Suche schob die Grenze dort nach
+# hinten, teils bis auf die Zwei. Gegen die Isophonics-Referenz gemessen
+# (tests/reference/README.md): median |dt| 187 -> 111 ms, Anteil <=1 Frame
+# 25% -> 44%, Nach-hinten-Schiebungen > 150 ms: 50 -> 0.
+REFINE_BACK = 0.40         # Suchweite VOR die Modellgrenze
+REFINE_FORWARD = 0.05      # ... und dahinter (nur Raster-Restfehler)
 REFINE_CONTEXT = 0.75      # Audio-Slice je Seite (HPSS braucht Kontext)
 REFINE_ONSET_WEIGHT = 1.0
 _FINE_HOP = 512            # 23-ms-Raster der Feinsuche (bei 22050 Hz)
@@ -275,11 +282,11 @@ def refine_boundary(samples: np.ndarray, samplerate: int, boundary: float,
                     prev_name: str, new_name: str) -> float:
     """Verfeinerte Position einer Segmentgrenze (Sekunden relativ zu samples).
 
-    Prinzip: Im +-REFINE_RADIUS-Fenster wird der Schnittpunkt k gesucht, hinter
-    dem das HPSS-Chroma den NEUEN Akkordtoenen aehnelt und davor den ALTEN -
-    Onset-Staerke des Rohsignals zieht den Schnitt auf den Anschlag. Kann die
-    Grenze nicht verfeinert werden (Stille/Unbekannt/Randlage), kommt sie
-    unveraendert zurueck.
+    Prinzip: Im Fenster [-REFINE_BACK, +REFINE_FORWARD] wird der Schnittpunkt
+    k gesucht, hinter dem das HPSS-Chroma den NEUEN Akkordtoenen aehnelt und
+    davor den ALTEN - Onset-Staerke des Rohsignals zieht den Schnitt auf den
+    Anschlag. Kann die Grenze nicht verfeinert werden (Stille/Unbekannt/
+    Randlage), kommt sie unveraendert zurueck.
     """
     import librosa
 
@@ -304,8 +311,8 @@ def refine_boundary(samples: np.ndarray, samplerate: int, boundary: float,
     onset = librosa.onset.onset_strength(y=y, sr=BTC_SR, hop_length=_FINE_HOP)
 
     mitte = REFINE_CONTEXT / fine
-    lo = max(0, int(mitte - REFINE_RADIUS / fine))
-    hi = min(chroma.shape[1], int(mitte + REFINE_RADIUS / fine) + 1)
+    lo = max(0, int(mitte - REFINE_BACK / fine))
+    hi = min(chroma.shape[1], int(mitte + REFINE_FORWARD / fine) + 1)
     if hi - lo < 4:
         return boundary
     seg = chroma[:, lo:hi]

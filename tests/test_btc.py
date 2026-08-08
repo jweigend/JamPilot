@@ -108,6 +108,14 @@ class TestMergeModelSegments:
                               audible_pos=3.0, horizon=8.0)
         assert timeline == [(0.0, "C"), (5.0, "G")]
 
+    def test_hysterese_erkennt_verfeinerte_fruehere_grenze(self):
+        # Eine verfeinerte Grenze liegt bis REFINE_BACK VOR der rohen
+        # Modellgrenze - sie muss trotzdem als dieselbe erkannt werden.
+        timeline = [(0.0, "C"), (5.0, "G")]        # 5.0 = verfeinert
+        _merge_model_segments(timeline, [(0.0, "C"), (5.38, "G")],
+                              audible_pos=3.0, horizon=8.0)
+        assert timeline == [(0.0, "C"), (5.0, "G")]
+
     def test_hysterese_schnappt_nicht_auf_andere_akkorde(self):
         timeline = [(0.0, "C"), (5.0, "G")]
         _merge_model_segments(timeline, [(0.0, "C"), (5.05, "Am")],
@@ -168,11 +176,19 @@ class TestRefineBoundary:
             y += (np.sin(2 * np.pi * f * t) * (t >= wechsel)).astype(np.float32)
         return 0.2 * y, sr
 
-    def test_zieht_versetzte_grenze_auf_den_wechsel(self):
+    def test_zieht_spaete_grenze_zurueck_auf_den_wechsel(self):
+        # Der Normalfall: Die Modellgrenze laeuft nach, die Suche zieht zurueck.
         y, sr = self._zwei_akkorde(wechsel=3.0)
-        for falsch in (2.8, 3.2):
+        for falsch in (3.15, 3.3):
             fein = btc.refine_boundary(y, sr, falsch, "C", "F")
             assert abs(fein - 3.0) < 0.07, f"aus {falsch} wurde {fein}"
+
+    def test_nach_hinten_ist_gedeckelt(self):
+        # Bewusst asymmetrisch: auf einer chaotischen Eins darf die Suche die
+        # Grenze nicht Richtung Zwei schieben (max REFINE_FORWARD nach hinten).
+        y, sr = self._zwei_akkorde(wechsel=3.0)
+        fein = btc.refine_boundary(y, sr, 2.8, "C", "F")
+        assert fein <= 2.8 + btc.REFINE_FORWARD + 0.001
 
     def test_unbekannte_namen_bleiben_unveraendert(self):
         y, sr = self._zwei_akkorde()

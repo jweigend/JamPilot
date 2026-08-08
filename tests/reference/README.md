@@ -47,18 +47,22 @@ RELATIVE Vergleiche unter festgehaltenen Offsets.
 
 ## Timing-Messung (unter Chroma-Korrelations-Offsets)
 
-| Verfahren | median \|dt\| | ≤50ms | ≤93ms | ≤250ms |
-|---|---|---|---|---|
-| BTC roh (93-ms-Raster) | 187ms | 16% | 25% | 65% |
-| + `refine_boundary` (**aktiv**) | **128ms** | **24%** | **43%** | **74%** |
+| Verfahren | median \|dt\| | ≤93ms | ≤250ms | median dt | Schiebungen nach hinten |
+|---|---|---|---|---|---|
+| BTC roh (93-ms-Raster) | 187ms | 25% | 65% | +138ms | - |
+| + `refine_boundary` symmetrisch ±0.3s | 128ms | 43% | 74% | +72ms | 50 |
+| + `refine_boundary` asymmetrisch (**aktiv**) | **117ms** | **43%** | **75%** | **+50ms** | **0** |
 
-`btc.refine_boundary`: Akkordton-Schnitt im HPSS-Chroma (23-ms-Raster,
-Suchweite ±0.3s um die Modellgrenze), Onset-Staerke gewichtet mit - Wechsel
-fallen auf Anschlaege. Verworfen wurden: reiner Onset-Snap (schnappt auf
-Schlagzeug/Melodie, verschlechtert), Logit-Kreuzung des Modells (kein Gewinn),
-Beat-Raster-Snap (librosas Beat-Phase liegt selbst ~160 ms neben den
-GT-Wechseln). Die BTC-Rohgrenzen laufen systematisch ~140 ms NACH; die
-Verfeinerung halbiert den Nachlauf und verdoppelt die 1-Frame-Trefferquote.
+`btc.refine_boundary`: Akkordton-Schnitt im HPSS-Chroma (23-ms-Raster),
+Onset-Staerke gewichtet mit - Wechsel fallen auf Anschlaege. Das Suchfenster
+ist ASYMMETRISCH (-0.40s/+0.05s): Der wahre Wechsel liegt fast immer VOR der
+Modellgrenze, und auf einer chaotischen Eins (Beckencrash, Bassdrum, Gesang)
+schob die symmetrische Suche die Grenze nach hinten - im Praxistest bis auf
+die Zwei des Taktes (Musiktest-Befund, durch die 50 Schiebungen bestaetigt).
+Verworfen wurden: reiner Onset-Snap (schnappt auf Schlagzeug/Melodie,
+verschlechtert), Logit-Kreuzung des Modells (kein Gewinn), Beat-Raster-Snap
+(librosas Beat-Phase liegt selbst ~160 ms neben den GT-Wechseln),
+Klarheitsgewichtung (kein Gewinn).
 
 ## Historische erste Messung (unter den alten Frame-Agreement-Offsets)
 

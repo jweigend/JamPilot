@@ -55,6 +55,12 @@ BTC_FREEZE_AHEAD = 1.5
 # Horizont hinaus, dort stand die Grenze bereits.
 BTC_DEBOUNCE_MATCH = 0.3
 
+# Verfeinerte Grenzen (btc.refine_boundary) liegen bis zu so viel FRUEHER als
+# die rohe Modellgrenze des naechsten Laufs - die Hysterese-Fenster im Merge
+# sind um diesen Betrag nach hinten verlaengert, sonst wuerde dieselbe Grenze
+# jeden Hop neu verfeinert. Muss btc.REFINE_BACK entsprechen.
+_REFINED_LOOKBACK = 0.40
+
 # Kuerzer als das spielt niemand einen Akkord. Ein Segment darunter ist kein
 # Wechsel, sondern ein Fehlgriff der Erkennung - und wird zurueckgenommen.
 MIN_CHORD_SECONDS = 0.25
@@ -678,7 +684,11 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
             continue
         matched = False
         for j, (alt_pos, alt_name) in enumerate(published):
-            if alt_name == name and abs(alt_pos - pos) <= ONSET_HYSTERESIS:
+            # Asymmetrisch: eine veroeffentlichte Grenze wurde ggf. verfeinert
+            # und liegt dann bis REFINE_BACK FRUEHER als die rohe Modellgrenze.
+            if (alt_name == name
+                    and -ONSET_HYSTERESIS <= pos - alt_pos
+                    <= ONSET_HYSTERESIS + _REFINED_LOOKBACK):
                 if not timeline or alt_pos > timeline[-1][0]:
                     pos = alt_pos       # bekannte Grenze: liegen lassen
                 published.pop(j)        # jede alte Grenze zieht nur einmal
@@ -696,7 +706,8 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
     # Hop stehen - erst zwei einige Laeufe duerfen einen Chip abraeumen.
     if previous is not None:
         for alt_pos, alt_name in published:
-            if any(abs(pos - alt_pos) <= ONSET_HYSTERESIS
+            if any(-ONSET_HYSTERESIS <= pos - alt_pos
+                   <= ONSET_HYSTERESIS + _REFINED_LOOKBACK
                    for pos, _ in timeline if pos > base):
                 continue                # Platz neu besetzt: das WAR die Revision
             if any(prev_name == alt_name and abs(prev_pos - alt_pos) <= BTC_DEBOUNCE_MATCH
