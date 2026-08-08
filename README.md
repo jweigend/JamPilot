@@ -23,9 +23,12 @@ Two things worth knowing before you start, because you would find them out anywa
   video you are also watching.
 - **Chords, not tabs.** JamPilot names the harmony — `Bm`, `C`, `D`, and the bass
   note under it if you want (`C/E`). It does not give you riffs, fingerings or
-  solos. And it hears triads and sevenths: pop, rock, blues, folk are its home.
-  Dense jazz voicings are not — `sus`, `dim` and `aug` are still on the roadmap,
-  and on a Real Book standard it will simplify what it hears.
+  solos. It hears a full working vocabulary — triads, sevenths, `sus`, `dim`,
+  `aug`, `6` — with pop, rock, blues, folk as its home turf. Extensions beyond
+  the seventh (`9`, `13`, altered notes) are folded into their core chord, so on
+  a Real Book standard it will simplify what it hears. Why recognition works the
+  way it does — and why it can never be 100 % — is the story of
+  [HOW-IT-WORKS.md](HOW-IT-WORKS.md).
 
 Written entirely in Python and platform-independent — fully tested on Linux, also
 running on macOS, with Windows explored ([see the table](#platforms)). It all
@@ -49,7 +52,7 @@ worked out (G major); top right, a QR code to put the same display on your phone
 ```
 System audio ──► ring buffer (N s) ──► speakers (delayed, unchanged)
       │
-      └──► chroma analysis ──► chord display (N s of lead)
+      └──► chord analysis ──► chord display (N s of lead)
 ```
 
 The delay is not a defect to be minimised. **It is the feature**: it buys the
@@ -74,8 +77,8 @@ glance, while both your hands are busy:
   display on your music stand. The computer does the listening; every other
   device is just a screen.
 - Click or tap for fullscreen, `Space` to mute. The **gear** switches spelling
-  (♯/♭) and the instrument mode (chords or bass) — both are per-device, so your
-  phone and your laptop may disagree.
+  (♯/♭) and the instrument mode (chords, bass or guitar) — both are per-device,
+  so your phone and your laptop may disagree.
 
 **The control window** opens next to it — a small native window, and it is not
 the main interface. It is the **way back**:
@@ -143,7 +146,7 @@ and watch the chords arrive before it does.
 ### Platforms
 
 JamPilot is written **entirely in Python and is platform-independent**: the
-capture, the delay buffer, the chroma analysis, the control window and the web
+capture, the delay buffer, the chord analysis, the control window and the web
 display are the *same* code everywhere. The only part that differs per operating
 system is how the system sound is tapped silently — and even that already has a
 portable path (`--no-route` with an explicit loopback device).
@@ -168,45 +171,37 @@ system library and not a Python package (`sudo apt install libportaudio2`,
 2. **Delay**: A ring buffer exactly one delay long; at the write position the
    old value is played out and the new one written. The signal is not altered,
    only shifted.
-3. **Analysis**: A 1.5 s window of the fresh signal goes through **harmonic
-   separation** (HPSS — removes drums/percussion) and a **constant-Q chroma**
-   analysis (librosa, 36 bins/octave — logarithmic resolution also catches low
-   roots). The chord is decided by the pitch-class *set* alone; **which** of
-   those notes lies at the bottom is a separate question, answered by a separate
-   signal — a **bass chroma** over 32–260 Hz (`bass.py`). Letting the bass vote
-   on the chord used to be a `BASS_BONUS`, and it wrecked every inversion: it
-   dragged the root onto the bass note, turning C/E into Em and F/A into Am —
-   chords promising notes (the B in Em, the E in Am) that are not being played.
-   Measured, it prevented not one wrong note and caused three. The
-   result is matched against chord templates (major, minor, 7, maj7, m7 × 12
-   roots); four-note chords must beat the triad by a calibrated margin, because
-   overtones fake sevenths. A majority vote over the last three detections
-   suppresses flicker. The selftest measures both pipelines on synthetic
-   material with drums and a melody: FFT fallback 1/8, HPSS+CQT 8/8.
-4. **Timing**: A detection says *what* is sounding — not *since when*.
-   Back-computing the onset from the detection latency fails, because that
-   latency varies with the material. So the change is *searched for*: the CQT
-   frame chroma (23 ms grid, computed anyway) is cut at the point that best
-   splits it into "before = old chord" / "from here = new chord". That puts the
-   onset within ±30 ms instead of on the analysis tick (~500 ms).
-   The search runs over a **frame history**, not just the current 1.5 s window:
-   how long detection takes depends on the material — for ambiguous changes
-   (C/Am, G/Em) it exceeds 1.5 s. If the search cannot reach back to the onset,
-   it clamps to the start of the window, and that error is **one-sided**: the
-   display is late, never early. Measured: at 2 s of detection latency, the
-   window-only search reported the change up to 600 ms late; with the history
-   the error stays at −30 ms, regardless of latency. The frames are merely kept
-   — no extra CQT (9 µs and 13 KB per tick).
+3. **Analysis**: The chord labels come from a **learned model** — BTC, a small
+   bidirectional transformer for chord recognition (Park et al., ISMIR 2019),
+   ported to pure NumPy (`btc.py`, 12 MB of weights, no PyTorch). Every 250 ms
+   it labels the most recent 10 seconds of the fresh signal: **14 chord
+   qualities × 12 roots**, from plain triads to `m7b5` and `dim7`. The model
+   replaced the original chroma-template matcher after measurements on
+   hand-annotated recordings — the error rate on chord labels was cut in half,
+   and the old maj7 bias (overtones faking sevenths) disappeared. The full
+   story, numbers included, is in [HOW-IT-WORKS.md](HOW-IT-WORKS.md).
+   **Which** of those notes lies at the bottom is a separate question, answered
+   by a separate signal: a **bass chroma** over 32–260 Hz, folded out of the
+   same CQT the model consumes (`bass.py`). Only that measurement makes
+   inversions visible — `C/E` is not in any chord label, and deriving the bass
+   from the chord instead of measuring it wrecked every inversion when it was
+   tried.
+4. **Timing**: The model says *what* is sounding on a ~93 ms grid — and it
+   tends to place a boundary *behind* the audible change. So every fresh
+   boundary is refined once: within an asymmetric search window (far back,
+   barely forward), a chord-tone cut through a 23 ms HPSS chroma — weighted by
+   onset strength, so the cut lands on an attack — pulls the boundary onto the
+   audio event (`refine_boundary`). Measured against hand-annotated changes,
+   that takes the median error from 187 ms to 117 ms without ever pushing a
+   boundary late into the bar.
+   A segment shorter than **250 ms** is not a chord, it is flicker of the
+   recogniser, and it is merged away. Because the lead shows every chord
+   seconds before it becomes audible, a corrected reading is *withdrawn* rather
+   than flashed on screen — what has already been heard stays untouched.
    How far the output lags is taken from PortAudio's **DAC timestamps**, not
    from the reported latency — which was off by 60 ms in testing. Analysis
    windows always end on a fixed stream grid; if an analysis takes too long, a
    grid point is dropped and the grid stays exact.
-   A segment shorter than **250 ms** is not a chord, it is a misfire of the
-   detector. Because the lead shows it seconds before it becomes audible, it is
-   *withdrawn* rather than flashed on screen; the chord that takes its place
-   inherits the earlier onset (*when* the change happened was already settled —
-   only *what* is played gets corrected). A chain of misfires therefore
-   converges on a single change without moving its time.
 5. **Display**: `In 2.9s: G | Now playing: C`. The browser receives the chords
    with their onset in stream seconds plus the currently audible position, syncs
    its clock against it with a minimum filter (NTP principle: delivery time is
@@ -424,8 +419,10 @@ constant-Q transform uses long windows at low frequencies by construction. See
 ```
 run.sh             the one entry point: sets up, starts, builds (--bundle)
 jampilot/
+  btc.py           the chord recogniser: BTC transformer (NumPy port) + boundary refinement
+  data/            model weights (btc_large_voca.npz) and the web page (index.html)
   chroma.py        FFT → chroma vector (12 pitch classes), CQT frame chroma
-  chords.py        chord templates, matching, smoothing, onset search
+  chords.py        chord templates, matching, smoothing, onset search (legacy path)
   bass.py          the measured bass note → inversions / slash chords
   tonality.py      key detection → spelling (♯ or ♭)
   delay_stream.py  duplex stream with the delay ring buffer (sounddevice/PortAudio)
@@ -433,14 +430,14 @@ jampilot/
   engine.py        routing + stream + analysis as one switchable thing
   gui.py           the control window (Qt) - the way back when the page is closed
   desktop.py       the .desktop launcher - the way in, for a double-click
-  web.py           SSE server + fullscreen display with the timeline
+  web.py           SSE server; the page it serves lives in data/index.html
   selftest.py      synthetic chords as a pipeline test
   cli.py           command-line frontend, timeline logic
 packaging/
   venv.sh          the environment, stamped: expensive once, free afterwards
   build.sh         the reproducible build (and it skips when nothing changed)
   jampilot.spec    PyInstaller: one file on Linux, a real .app on macOS
-tests/             pytest suite (273 tests)
+tests/             pytest suite (347 tests)
 docs/exploration/  design documents (in German)
 ```
 
@@ -451,11 +448,14 @@ everything a user sees is English.
 
 ```bash
 ./run.sh selftest                 # the pipeline, no sound card needed
-.venv/bin/python -m pytest        # the suite (273 tests)
+.venv/bin/python -m pytest        # the suite (347 tests)
 ```
 
 The suite covers the places where bugs creep in *quietly*:
 
+- **The recogniser port** (`test_btc.py`) — the NumPy port reproduces the
+  original Torch model bit-exactly on a golden window; segment merging and
+  boundary refinement behave.
 - **Onset accuracy** (`test_onset_accuracy.py`, `test_frame_history.py`) — pins
   down that a chord change is found to within < 100 ms and with < 50 ms spread.
   Fires as soon as anyone touches the window, the pooling or the onset search.
@@ -488,8 +488,12 @@ The suite covers the places where bugs creep in *quietly*:
 
 - More controls in the web display: lead slider, on/off, device selection (right
   now only the spelling lives there; the rest of the control is in the CLI).
-- Better detection: sus/dim/aug templates, inversions (slash chords),
-  beat-synchronous segmentation.
+- An incremental CQT in the live path — the 10 s analysis window is currently
+  recomputed from scratch every 250 ms, and that is the biggest lever for old
+  hardware.
+- An honest look at music outside the model's training terrain (see
+  [HOW-IT-WORKS.md](HOW-IT-WORKS.md) on why a learned recogniser has a home
+  style).
 - Turn the last stage from a chord *detector* into a **harmonic interpreter** —
   one that decides from key, bass, chord history, metre and genre which chord is
   most *useful to the player*, and that uses the lead to revise its own display

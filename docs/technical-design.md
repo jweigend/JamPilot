@@ -8,6 +8,14 @@ die Aussage trägt.
 Stand: 2026-07-17. Bei Änderungen an Fenstergrößen, Akkordtypen oder Prior bitte
 hier mitziehen.
 
+> **Veraltet (2026-08-08):** Dieses Dokument beschreibt den
+> Template-Matching-Pfad, der seit dem Umbau auf das BTC-Modell stillgelegt
+> ist (er liegt weiter in `_display_loop_template` / `_cmd_analyze_template`).
+> Überblick über den aktuellen Stand und die Gründe des Umstiegs:
+> [../HOW-IT-WORKS.de.md](../HOW-IT-WORKS.de.md) (englisch:
+> [../HOW-IT-WORKS.md](../HOW-IT-WORKS.md)). Die Abschnitte zu Zeitrastern,
+> Chroma und Bassmessung gelten sinngemäß weiter.
+
 ---
 
 ## 1. Die Signalkette in einem Satz
