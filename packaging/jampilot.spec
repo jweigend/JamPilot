@@ -59,6 +59,11 @@ for paket in ("librosa", "numba", "llvmlite", "soundfile", "sounddevice",
 datas = [(quelle, ziel) for quelle, ziel in datas
          if not quelle.endswith((".nbc", ".nbi"))]
 
+# [POC-BTC] Die Modellgewichte des BTC-Erkenners (11 MB) liegen als Paketdaten
+# neben dem Code; der statische Scanner sieht nur Importe, keine Datendateien.
+datas += [(os.path.join(projekt, "jampilot", "data", "btc_large_voca.npz"),
+           os.path.join("jampilot", "data"))]
+
 excludes = [
     # Nur, was NACHWEISLICH nicht importiert wird. Jeder weitere Ausschluss
     # wurde ausprobiert und endete im Absturz: sklearn, pooch, joblib,

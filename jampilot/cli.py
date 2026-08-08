@@ -27,6 +27,13 @@ import numpy as np
 ANALYSIS_WINDOW = 1.5
 ANALYSIS_HOP = 0.25
 
+# [POC-BTC] BTC-Transformer fuehrend (siehe _display_loop). Das Modell sieht
+# pro Lauf ein 10-s-Fenster (108 Frames); der juengste Rand hat keinen
+# Zukunftskontext und flackert - Segmente dort warten bis zum naechsten Hop.
+# Beides zehrt vom --delay-Puffer (Default 4s), nicht von der Anzeige.
+BTC_LIVE_WINDOW = 10.0
+BTC_EDGE_GUARD = 1.0
+
 # Kuerzer als das spielt niemand einen Akkord. Ein Segment darunter ist kein
 # Wechsel, sondern ein Fehlgriff der Erkennung - und wird zurueckgenommen.
 MIN_CHORD_SECONDS = 0.25
@@ -166,6 +173,46 @@ def _load_wav_mono(path: str) -> tuple[np.ndarray, int]:
 
 
 def cmd_analyze(args):
+    # [POC-BTC] BTC-Transformer fuehrend. Der bisherige Template-Matching-Pfad
+    # liegt unveraendert in _cmd_analyze_template und wird bei Bedarf Stueck
+    # fuer Stueck reaktiviert (Bass/Slash, Safe-Voicings, Key-Prior).
+    from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
+                      fold_chroma, segments_from_labels)
+    from .tonality import SHARP, KeyEstimator, spell
+
+    samples, samplerate = _load_wav_mono(args.file)
+    print(f"{args.file}: {len(samples) / samplerate:.1f}s @ {samplerate} Hz\n")
+    # Unter Fensterlaenge ist auch fuer das Modell nichts zu holen - und die
+    # Meldung soll dieselbe bleiben wie bisher.
+    if len(samples) < ANALYSIS_WINDOW * samplerate:
+        print(f"  File is shorter than the analysis window ({ANALYSIS_WINDOW}s).")
+        return
+
+    features = features_from_audio(samples, samplerate)
+    labels = BTCModel().predict(features)
+
+    # Tonart nur fuer die Schreibweise (# oder b) - wie bisher ueber die ganze
+    # Datei, aber aus dem gefalteten BTC-CQT statt aus der Chroma-Pipeline.
+    keys = KeyEstimator(BTC_FRAME_SECONDS, half_life=None)
+    for frame in fold_chroma(features):
+        keys.add(frame)
+    key = keys.key
+    accidental = key.accidental if key else SHARP
+    print(f"  Key: {key.label} ({'b' if accidental != SHARP else '#'})\n" if key
+          else "  Key: undetermined (too little music) - chords spelled with sharps\n")
+
+    for zeit, name in segments_from_labels(labels):
+        # N = nichts erklingt -> "-" wie bisher; "?" (X) geht durch.
+        print(f"  {zeit:6.1f}s  {spell('-' if name == 'N' else name, accidental)}")
+
+
+def _cmd_analyze_template(args):
+    """[POC-BTC] stillgelegt: Offline-Analyse ueber Template-Matching.
+
+    Vollstaendig funktionsfaehig, aber nicht mehr verdrahtet - cmd_analyze
+    laeuft ueber das BTC-Modell. Hier liegen die Faehigkeiten, die BTC nicht
+    hat (gemessener Slash-Bass), fuer die spaetere Reaktivierung.
+    """
     from . import bass as bassmodul
     from .chroma import analyze_window, rms
     from .chords import SILENCE_RMS, match_chord
@@ -341,6 +388,199 @@ def cmd_run(args):
 
 def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     """Analyse und Anzeige, bis Strg+C kommt oder `stop` gesetzt wird.
+
+    [POC-BTC] BTC-Transformer fuehrend: Jeder Hop laesst das Modell ueber die
+    juengsten BTC_LIVE_WINDOW Sekunden laufen; der noch nicht hoerbare Teil der
+    Zeitleiste wird komplett aus der frischen Modellausgabe neu aufgebaut.
+    Gehoertes bleibt unantastbar, der juengste Fensterrand (BTC_EDGE_GUARD,
+    dort fehlt der bidirektionalen Attention der Zukunftskontext) wartet bis
+    zum naechsten Hop. Der Template-Pfad liegt in _display_loop_template.
+
+    Dabei bewusst stillgelegt (Reaktivierung Stueck fuer Stueck nach dem
+    Musiktest):
+      - Gemessener Slash-Bass (bass.py): BTC kennt keine Umkehrungen.
+        Anzeige-Feld "b" und Bass-Zeile senden None.
+      - Safe-Voicings / Powerchord-Rueckzug (harmony.safe_pitch_classes):
+        es gibt keine Kandidatenliste mehr. Feld "v" sendet None.
+      - Key-Prior (harmony.interpret_chord): Labels kommen fertig vom Modell.
+        Die Tonart selbst laeuft weiter - nur fuer die Schreibweise.
+      - ChordSmoother und Onset-Suche (find_onset_frame): Glaettung und
+      	Grenzen kommen aus dem Modell (93-ms-Raster + Mindestdauer).
+
+    `stop` (threading.Event) und `engine` wie im Template-Pfad.
+    """
+    from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
+                      fold_chroma, segments_from_labels)
+    from .tonality import KeyEstimator, spell
+
+    sr = args.samplerate
+    window_frames = int(round(BTC_LIVE_WINDOW * sr))
+    hop_frames = int(round(ANALYSIS_HOP * sr))
+    model = BTCModel()
+    keys = KeyEstimator(ANALYSIS_HOP)
+
+    # Zeitleiste wie bisher: (Onset-Position im Stream, kanonischer Akkord).
+    timeline: list[tuple[float, str]] = []
+    lead = max(args.delay - BTC_EDGE_GUARD, 0.0)
+    key_fed_until = 0.0
+
+    print(f"Running: output delayed by {loop.delay_seconds:.1f}s. Ctrl+C quits.")
+    if args.delay < BTC_EDGE_GUARD + 1.0:
+        print("Note: --delay is tight; choose >= 3s for a useful lead.")
+    print()
+
+    debug_path = os.environ.get("JAMPILOT_DEBUG")
+    debug = open(debug_path, "w") if debug_path else None
+    if debug:
+        debug.write(f"# latency in={loop._stream.latency[0]:.3f} "
+                    f"out={loop._stream.latency[1]:.3f}\n")
+        debug.write("# wall\twindow_end\tcurrent\taudible_pos\n")
+
+    grid = None
+    stillstand_bei, stillstand_seit = -1, time.monotonic()
+    try:
+        while not (stop is not None and stop.is_set()):
+            captured = loop.captured_frames
+            if captured != stillstand_bei:
+                stillstand_bei, stillstand_seit = captured, time.monotonic()
+            elif time.monotonic() - stillstand_seit > STREAM_STALL_TIMEOUT:
+                raise StreamStalled(
+                    f"No audio from the device for {STREAM_STALL_TIMEOUT:.0f}s "
+                    f"- unplugged or switched off? JamPilot has stopped and "
+                    f"restored your system sound; start it again once the "
+                    f"device is back."
+                )
+            # Erst mit etwas Kontext lohnt ein Modelllauf.
+            if captured < int(2.0 * sr):
+                time.sleep(ANALYSIS_HOP)
+                continue
+            if grid is None:
+                grid = captured // hop_frames * hop_frames
+            if captured < grid:
+                time.sleep(min(0.02, (grid - captured) / sr))
+                continue
+
+            window_end = captured // hop_frames * hop_frames
+            grid = window_end + hop_frames
+            audio = loop.audio_ending_at(window_end,
+                                         min(window_frames, window_end))
+            if audio is None:
+                continue
+            window_start = (window_end - len(audio)) / sr
+
+            features = features_from_audio(audio, sr)
+            labels = model.predict(features)
+            segments = [(pos, "-" if name == "N" else name)
+                        for pos, name in segments_from_labels(labels, offset=window_start)]
+
+            audible_pos = loop.audible_position()
+            horizon = window_end / sr - BTC_EDGE_GUARD
+            _merge_model_segments(timeline, segments, audible_pos, horizon)
+            lead = max(horizon - audible_pos, 0.0)
+            if engine is not None:
+                engine.lead = lead
+
+            # Tonart (nur Schreibweise): gefaltetes Chroma der NEU gesehenen
+            # Frames, damit kein Material doppelt in die Statistik faellt.
+            folded = fold_chroma(features)
+            first_new = max(0, int((key_fed_until - window_start) / BTC_FRAME_SECONDS) + 1)
+            if first_new < len(folded):
+                keys.add(folded[first_new:].mean(axis=0))
+                key_fed_until = window_start + len(folded) * BTC_FRAME_SECONDS
+
+            # Vergangenes behalten wir kurz - die Anzeige blendet Akkorde
+            # hinter der JETZT-Linie noch aus.
+            while len(timeline) > 1 and timeline[1][0] <= audible_pos - 2.0:
+                timeline.pop(0)
+            # [POC-BTC] Kontrollgitarre ohne Safe-Voicings (drittes Feld None);
+            # unbekannte neue Qualitaeten (dim7, sus4, ...) schlagen nicht an.
+            loop.set_control_timeline([
+                (pos, name, None) for pos, name in timeline
+            ])
+            audible = "-"
+            for pos, name in timeline:
+                if pos > audible_pos:
+                    break
+                audible = name
+            current = timeline[-1][1] if timeline else "-"
+
+            if debug:
+                debug.write(f"{time.time():.3f}\t{window_end / sr:.3f}\t"
+                            f"{current}\t{audible_pos:.3f}\n")
+                debug.flush()
+
+            key = keys.key
+            if broadcaster:
+                # Protokoll unveraendert; [POC-BTC]: "b" (gemessener Bass) und
+                # "v" (Safe-Voicings) senden None, siehe Docstring.
+                broadcaster.publish({
+                    "t": round(audible_pos, 3),
+                    "chords": [{"c": name, "at": round(pos, 3), "b": None,
+                                "v": None}
+                               for pos, name in timeline],
+                    "lead": round(lead, 2),
+                    "key": key.as_dict(keys.accidental) if key else None,
+                    "muted": loop.muted,
+                    "control_guitar": loop.control_guitar,
+                })
+
+            accidental = keys.accidental
+            sys.stdout.write(
+                f"\r  In {max(lead, 0.0):3.1f}s: "
+                f"{spell(current, accidental):<6s} "
+                f"| Now playing: {spell(audible, accidental):<8s} "
+                f"| Bass: {'-':<3s} "
+                f"| Key: {key.label_in(accidental) if key else '...':<9s}"
+            )
+            sys.stdout.flush()
+    except KeyboardInterrupt:
+        print("\nStopped.")
+    finally:
+        if debug:
+            debug.close()
+    if loop.xruns:
+        print(f"Stream warnings: {loop.xruns} (last: {loop.last_status})")
+
+
+def _merge_model_segments(timeline, segments, audible_pos, horizon):
+    """BTC ist fuehrend: der unerhoerte Teil der Zeitleiste wird jedem Hop aus
+    der frischen Modellausgabe neu aufgebaut.
+
+    Drei Regeln:
+      - Gehoertes (Onset <= audible_pos) ist unantastbar - wie bisher.
+      - Segmente jenseits `horizon` warten: am Fensterrand fehlt der
+        bidirektionalen Attention der Zukunftskontext, dort flackern Labels.
+      - Ein Segment, das an der Hoergrenze bereits laeuft, aendert das Etikett
+        des Gehoerten nicht mehr; erst sein Nachfolger schreibt wieder.
+    """
+    base = audible_pos
+    while timeline and timeline[-1][0] > base:
+        timeline.pop()
+    last = timeline[-1][1] if timeline else None
+
+    for i, (pos, name) in enumerate(segments):
+        if pos > horizon:
+            break
+        end = segments[i + 1][0] if i + 1 < len(segments) else float("inf")
+        if end <= base:
+            continue                    # vollstaendig gehoert
+        if pos <= base:
+            if not timeline:            # Anlauf: noch nichts gehoert
+                timeline.append((pos, name))
+                last = name
+            continue
+        if name != last:
+            timeline.append((pos, name))
+            last = name
+
+
+def _display_loop_template(loop, args, broadcaster=None, stop=None, engine=None):
+    """[POC-BTC] stillgelegt: Analyse ueber Template-Matching + Onset-Suche.
+
+    Vollstaendig funktionsfaehig, aber nicht mehr verdrahtet - engine.py ruft
+    _display_loop (BTC). Hier liegen die stillgelegten Faehigkeiten fuer die
+    spaetere Reaktivierung: gemessener Slash-Bass, Safe-Voicings, Key-Prior,
+    ChordSmoother, 23-ms-Onset-Suche.
 
     `stop` (threading.Event) und `engine` gibt es, seit der Betrieb abschaltbar
     ist: Laeuft die Schleife im Hintergrundthread des Kontrollfensters, kann sie
@@ -559,7 +799,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
 
 
 def _locate_onset(chord, previous, history, window_end, last_onset):
-    """Stream-Position, an der `chord` einsetzt.
+    """[POC-BTC] stillgelegt - nur noch vom Template-Pfad benutzt.
+
+    Stream-Position, an der `chord` einsetzt.
 
     Gesucht wird nicht im Analysefenster, sondern in der Frame-Historie ab dem
     letzten bekannten Wechsel. Sonst begrenzt die Fensterlaenge, wie weit die
@@ -598,7 +840,9 @@ def _locate_onset(chord, previous, history, window_end, last_onset):
 
 
 def _bass_per_segment(timeline, track, front: float) -> list[str | None]:
-    """Zu jedem Zeitleisten-Segment die vorherrschende Bassnote (kanonisch).
+    """[POC-BTC] stillgelegt - nur noch vom Template-Pfad benutzt.
+
+    Zu jedem Zeitleisten-Segment die vorherrschende Bassnote (kanonisch).
 
     Ein Segment reicht von seinem Onset bis zum naechsten; das letzte bis zur
     Analysefront. Waehrend einer Stille gibt es keinen Bass - und wo die Messung
@@ -617,7 +861,9 @@ def _bass_per_segment(timeline, track, front: float) -> list[str | None]:
 
 
 def _commit(timeline, onset, chord, audible_pos):
-    """Traegt `chord` in die Zeitleiste ein. Gibt den Onset zurueck, oder None,
+    """[POC-BTC] stillgelegt - nur noch vom Template-Pfad benutzt.
+
+    Traegt `chord` in die Zeitleiste ein. Gibt den Onset zurueck, oder None,
     wenn kein neues Segment entstand.
 
     Ein Segment unter MIN_CHORD_SECONDS ist kein Akkord, sondern ein Fehlgriff

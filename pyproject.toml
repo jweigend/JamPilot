@@ -19,6 +19,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["jampilot"]
 
+# [POC-BTC] Gewichte des BTC-Erkenners gehoeren mit ins Paket.
+[tool.setuptools.package-data]
+jampilot = ["data/*.npz"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = ["ignore::UserWarning"]   # librosa warnt bei kurzen Fenstern

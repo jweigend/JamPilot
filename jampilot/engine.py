@@ -104,13 +104,17 @@ class Engine:
                 if nutzt_routing:
                     self._route = routing.LinuxRouting()
                     self._route.__enter__()
+                    # [POC-BTC] Der Analysepuffer muss das 10-s-Modellfenster
+                    # halten (Default waeren 3s).
                     self._loop = DelayedLoopback("default", "default", args.delay,
-                                                 samplerate=args.samplerate)
+                                                 samplerate=args.samplerate,
+                                                 analysis_seconds=11.0)
                     self._loop.start()
                     self._route.move_own_playback_to(args.output)
                 else:
                     self._loop = DelayedLoopback(args.input or "default", args.output,
-                                                 args.delay, samplerate=args.samplerate)
+                                                 args.delay, samplerate=args.samplerate,
+                                                 analysis_seconds=11.0)  # [POC-BTC] s.o.
                     self._loop.start()
             except BaseException as exc:
                 # Halb aufgebaut ist schlimmer als gar nicht: sonst bleibt der
