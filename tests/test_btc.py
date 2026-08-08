@@ -75,10 +75,18 @@ class TestMergeModelSegments:
         assert timeline == [(0.0, "C"), (2.0, "G")]
 
     def test_unerhoertes_wird_neu_aufgebaut(self):
-        timeline = [(0.0, "C"), (4.0, "G")]
-        _merge_model_segments(timeline, [(0.0, "C"), (4.5, "Am"), (6.0, "F")],
+        timeline = [(0.0, "C"), (5.0, "G")]
+        _merge_model_segments(timeline, [(0.0, "C"), (5.5, "Am"), (6.5, "F")],
                               audible_pos=3.0, horizon=8.0)
-        assert timeline == [(0.0, "C"), (4.5, "Am"), (6.0, "F")]
+        assert timeline == [(0.0, "C"), (5.5, "Am"), (6.5, "F")]
+
+    def test_einfrierzone_schuetzt_kurz_bevorstehendes(self):
+        # Onset 4.0 liegt zwar in der Zukunft, aber naeher als BTC_FREEZE_AHEAD
+        # an der JETZT-Linie (3.0): diesen Chip liest der Musiker gerade.
+        timeline = [(0.0, "C"), (4.0, "G")]
+        _merge_model_segments(timeline, [(0.0, "C"), (4.0, "Am")],
+                              audible_pos=3.0, horizon=8.0)
+        assert timeline == [(0.0, "C"), (4.0, "G")]
 
     def test_fensterrand_wartet(self):
         timeline = [(0.0, "C")]
@@ -93,18 +101,18 @@ class TestMergeModelSegments:
         assert timeline == [(0.0, "-"), (0.5, "C")]
 
     def test_hysterese_haelt_veroeffentlichte_grenze(self):
-        # Das Frameraster wandert pro Hop: dieselbe Grenze kommt ein paar ms
+        # Das Frameraster wandert pro Hop: dieselbe Grenze kommt etwas
         # verschoben wieder. Die veroeffentlichte Position bleibt liegen.
-        timeline = [(0.0, "C"), (4.0, "G")]
-        _merge_model_segments(timeline, [(0.0, "C"), (4.09, "G")],
+        timeline = [(0.0, "C"), (5.0, "G")]
+        _merge_model_segments(timeline, [(0.0, "C"), (5.3, "G")],
                               audible_pos=3.0, horizon=8.0)
-        assert timeline == [(0.0, "C"), (4.0, "G")]
+        assert timeline == [(0.0, "C"), (5.0, "G")]
 
     def test_hysterese_schnappt_nicht_auf_andere_akkorde(self):
-        timeline = [(0.0, "C"), (4.0, "G")]
-        _merge_model_segments(timeline, [(0.0, "C"), (4.05, "Am")],
+        timeline = [(0.0, "C"), (5.0, "G")]
+        _merge_model_segments(timeline, [(0.0, "C"), (5.05, "Am")],
                               audible_pos=3.0, horizon=8.0)
-        assert timeline == [(0.0, "C"), (4.05, "Am")]
+        assert timeline == [(0.0, "C"), (5.05, "Am")]
 
     def test_debounce_haelt_geister_zurueck(self):
         # Eine Grenze, die weder veroeffentlicht ist noch im vorigen Lauf
@@ -122,3 +130,28 @@ class TestMergeModelSegments:
                               audible_pos=3.0, horizon=8.0,
                               previous=[(0.0, "C"), (5.1, "G")])
         assert timeline == [(0.0, "C"), (5.0, "G")]
+
+    def test_entfernen_braucht_auch_zwei_laeufe(self):
+        # Der neue Lauf laesst G weg, der vorige sah es noch: Der Chip bleibt
+        # einen Hop stehen, statt wegzublinken.
+        timeline = [(0.0, "C"), (5.0, "G")]
+        _merge_model_segments(timeline, [(0.0, "C")],
+                              audible_pos=3.0, horizon=8.0,
+                              previous=[(0.0, "C"), (5.05, "G")])
+        assert timeline == [(0.0, "C"), (5.0, "G")]
+
+    def test_bestaetigtes_entfernen_raeumt_ab(self):
+        # Zwei Laeufe nacheinander ohne G: jetzt darf der Chip verschwinden.
+        timeline = [(0.0, "C"), (5.0, "G")]
+        _merge_model_segments(timeline, [(0.0, "C")],
+                              audible_pos=3.0, horizon=8.0,
+                              previous=[(0.0, "C")])
+        assert timeline == [(0.0, "C")]
+
+    def test_revision_ersetzt_ohne_luecke(self):
+        # Bestaetigte Umbenennung: der Platz wird ersetzt, nicht erst geleert.
+        timeline = [(0.0, "C"), (5.0, "G")]
+        _merge_model_segments(timeline, [(0.0, "C"), (5.0, "Am")],
+                              audible_pos=3.0, horizon=8.0,
+                              previous=[(0.0, "C"), (5.0, "Am")])
+        assert timeline == [(0.0, "C"), (5.0, "Am")]

@@ -37,9 +37,16 @@ BTC_EDGE_GUARD = 1.0
 # Eine schon veroeffentlichte Akkordgrenze bleibt liegen, solange die frische
 # Modellausgabe sie nur um so viel verschiebt: Das Frameraster wandert pro Hop
 # (s. _merge_model_segments), und staendig springende Grenzen zerlegen die
-# Chips der Vorlaufansicht. Muss unter MIN_SEGMENT_SECONDS (0.25s) bleiben,
-# sonst schnappt eine Grenze an die falsche Nachbargrenze.
-ONSET_HYSTERESIS = 0.2
+# Chips der Vorlaufansicht. Gegen falsches Anschnappen schuetzen Namensgleichheit,
+# Einmal-Verbrauch je alter Grenze und der Monotonie-Waechter - nicht die Weite.
+ONSET_HYSTERESIS = 0.35
+
+# Naeher als das an der hoerbaren Position wird NICHTS mehr umgebaut: Diese
+# Chips liest der Musiker gerade, um den Griff vorzubereiten - eine Korrektur
+# dort ist schlimmer als ein stehengelassener Fehler. Revisionen darf das
+# Modell nur weiter draussen anbringen (bei --delay 4 bleiben dafuer ~1.5s
+# zwischen Veroeffentlichung am Horizont und dem Einfrieren).
+BTC_FREEZE_AHEAD = 1.5
 
 # Eine NEUE Grenze kommt erst in die Zeitleiste, wenn schon der VORIGE
 # Modelllauf sie gesehen hat (gleicher Name, Lage bis auf diese Toleranz).
@@ -575,13 +582,21 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
         veroeffentlichtes Segment gleichen Namens in aehnlicher Lage behaelt
         deshalb seinen Onset - sonst springen die Chips der Vorlaufansicht
         viermal pro Sekunde (der Browser schluesselt sie nach Position+Name).
-      - Debounce: Eine Grenze, die weder veroeffentlicht ist noch im vorigen
-        Modelllauf (`previous`, ungeschnitten) vorkam, wartet einen Hop.
-        Gemessen (Simulation ueber sting/peg): Hysterese + Debounce druecken
-        die Anzeige-Unruhe von 1.1 auf 0.17-0.26 Chip-Wechsel je Hop.
+      - Einfrierzone: Auch noch nicht Gehoertes naeher als BTC_FREEZE_AHEAD an
+        der hoerbaren Position bleibt stehen - diese Chips liest der Musiker
+        gerade. Revisionen passieren nur weiter draussen.
+      - Debounce, symmetrisch: Eine NEUE Grenze, die im vorigen Modelllauf
+        (`previous`, ungeschnitten) nicht vorkam, wartet einen Hop. Und ein
+        veroeffentlichter Chip VERSCHWINDET erst, wenn ihn auch der vorige
+        Lauf nicht mehr sah - sonst blinkte er bei jeder Ein-Hop-Laune des
+        Modells einen Viertelsekundenschlag weg und wieder her.
+        Gemessen (Live-Simulation sting/peg, Chip-Schluessel wie im Browser):
+        zusammen druecken die Regeln die Unruhe von 1.1 Chip-Wechseln je Hop
+        auf 0.04-0.08, in der Nahzone (<2s vor der JETZT-Linie) von 49-64
+        Ereignissen je 90s auf 6-7.
     """
-    base = audible_pos
-    published = []                      # bisheriger unerhoerter Teil
+    base = audible_pos + BTC_FREEZE_AHEAD
+    published = []                      # bisher veroeffentlicht, noch formbar
     while timeline and timeline[-1][0] > base:
         published.append(timeline.pop())
     published.reverse()
@@ -592,9 +607,9 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
             break
         end = segments[i + 1][0] if i + 1 < len(segments) else float("inf")
         if end <= base:
-            continue                    # vollstaendig gehoert
+            continue                    # vollstaendig hinter der Einfrierzone
         if pos <= base:
-            if not timeline:            # Anlauf: noch nichts gehoert
+            if not timeline:            # Anlauf: noch nichts veroeffentlicht
                 timeline.append((pos, name))
                 last = name
             continue
@@ -614,6 +629,27 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
                 continue                # Geist: erst wiedersehen, dann glauben
         timeline.append((pos, name))
         last = name
+
+    # Entfernungs-Debounce: uebrige veroeffentlichte Chips, die der neue Lauf
+    # nicht bestaetigt hat. Sah der VORIGE Lauf sie noch, bleiben sie einen
+    # Hop stehen - erst zwei einige Laeufe duerfen einen Chip abraeumen.
+    if previous is not None:
+        for alt_pos, alt_name in published:
+            if any(abs(pos - alt_pos) <= ONSET_HYSTERESIS
+                   for pos, _ in timeline if pos > base):
+                continue                # Platz neu besetzt: das WAR die Revision
+            if any(prev_name == alt_name and abs(prev_pos - alt_pos) <= BTC_DEBOUNCE_MATCH
+                   for prev_pos, prev_name in previous):
+                timeline.append((alt_pos, alt_name))
+        timeline.sort()
+        # Nach dem Einsortieren koennen Nachbarn gleichen Namens entstehen -
+        # der fruehere gewinnt, der spaetere ist nur noch dieselbe Aussage.
+        i = 1
+        while i < len(timeline):
+            if timeline[i][1] == timeline[i - 1][1]:
+                timeline.pop(i)
+            else:
+                i += 1
 
 
 def _display_loop_template(loop, args, broadcaster=None, stop=None, engine=None):
