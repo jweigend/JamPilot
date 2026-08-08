@@ -733,15 +733,21 @@ function fretSvg(shape) {
     p += '<line x1="' + sx(0) + '" y1="' + fy(k) + '" x2="' + sx(S - 1) + '" y2="'
        + fy(k) + '" stroke="' + col + '" stroke-width="'
        + (k === 0 && openTop ? 4.5 : 1.2) + '"/>';
-  if (!openTop)
-    p += '<text x="' + (sx(0) - 9) + '" y="' + (yOf(base) + 4) + '" fill="' + acc
-       + '" font-size="13" font-weight="600" text-anchor="end" '
-       + 'font-family="sans-serif">' + base + 'fr</text>';
   // Barre: mehrere Saiten auf dem Grundtonbund (nur oberhalb des Sattels).
   let bStart = -1, bEnd = -1;
   for (let i = 0; i < S; i++)
     if (frets[i] === base && base > 0) { if (bStart < 0) bStart = i; bEnd = i; }
   const barre = base > 0 && bEnd > bStart;
+  if (!openTop) {
+    // Die Bundlagen-Ziffer steht am Griff selbst - auf Hoehe des Barres bzw.
+    // ohne Barre am tiefsten gegriffenen Bund - und nennt DESSEN Bund. So
+    // liest sich "G am 3. Bund" direkt ab, ohne Zeilen zaehlen zu muessen.
+    const fingered = frets.filter(f => f !== null && f > 0);
+    const labelFret = barre || !fingered.length ? base : Math.min(...fingered);
+    p += '<text x="' + (sx(0) - 9) + '" y="' + (yOf(labelFret) + 4) + '" fill="' + acc
+       + '" font-size="13" font-weight="600" text-anchor="end" '
+       + 'font-family="sans-serif">' + labelFret + 'fr</text>';
+  }
   if (barre)
     p += '<rect x="' + (sx(bStart) - 5) + '" y="' + (yOf(base) - 5) + '" width="'
        + (sx(bEnd) - sx(bStart) + 10) + '" height="10" rx="5" fill="' + acc + '"/>';
@@ -935,10 +941,12 @@ function bassLineSvg(cur, nxt) {
     s += svgLine(sx(i), fy(0), sx(i), fy(nF), col, 1.4);
   for (let k = 0; k <= nF; k++)             // Buende (Sattel dick, wenn sichtbar)
     s += svgLine(sx(0), fy(k), sx(S - 1), fy(k), col, k === 0 && openTop ? 4.5 : 1.2);
-  if (!openTop)                             // Bundlagen-Ziffer links
-    s += '<text x="' + (sx(0) - 9) + '" y="' + (fy(0.5) + 4) + '" fill="' + curC
+  if (!openTop)                             // Bundlagen-Ziffer direkt am Finger:
+    // auf Hoehe des aktuellen Tons und mit DESSEN Bund ("G -> 3fr"), nicht am
+    // oberen Fensterrand - das Fenster liegt ja mittig um die Toene.
+    s += '<text x="' + (sx(0) - 9) + '" y="' + (yOf(cur.f) + 4) + '" fill="' + curC
        + '" font-size="12" font-weight="600" text-anchor="end" '
-       + 'font-family="sans-serif">' + base + 'fr</text>';
+       + 'font-family="sans-serif">' + cur.f + 'fr</text>';
   for (let f = base; f < base + nF; f++)    // Bundmarke zur Orientierung
     if ([3, 5, 7, 9, 12].includes(f))
       s += svgDot((sx(1) + sx(2)) / 2, yOf(f), 2.6, inlay, 1);
