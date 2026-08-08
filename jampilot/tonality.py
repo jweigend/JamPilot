@@ -43,6 +43,24 @@ KEY_HALF_LIFE = 30.0
 # derselbe Akkord hiesse abwechselnd A# und Bb. Lieber traege als flatternd.
 SWITCH_MARGIN = 0.05
 
+# So lange muss eine NEUE Schreibweise durchhalten, bevor sie die alte abloest -
+# gemessen in klingender Musik, nicht in Wanduhr-Zeit.
+#
+# Warum ueberhaupt eine zweite Traegheit, wo SWITCH_MARGIN doch schon bremst:
+# Die Tonart darf und soll dem Stueck folgen, denn an ihr haengt der
+# Akkord-Prior. Die Schreibweise ist das genaue Gegenteil - sie ist reine
+# Anzeige, und sie wird RUECKWIRKEND angewandt: Der Browser schreibt bei jeder
+# Aenderung die ganze Zeitleiste neu. Aus G# wird dann auch dort ein Ab, wo der
+# Ton schon gespielt ist. Wer mitspielt, liest also mitten im Griff einen neuen
+# Namen fuer denselben Bund - beim Bass, wo genau ein Ton dasteht, faellt das
+# am haertesten auf.
+#
+# Die Groesse ist bewusst MIN_KEY_SECONDS: Ein Wechsel der Schreibweise soll
+# mindestens so gut belegt sein wie die erste Tonart ueberhaupt. Eine echte
+# Modulation haelt das aus (sie kommt dann eben eine Viertelminute spaeter an,
+# und einmal statt fuenfmal), ein wanderndes Histogramm nicht.
+ACCIDENTAL_SETTLE = MIN_KEY_SECONDS
+
 SHARP = "sharp"
 FLAT = "flat"
 
@@ -95,18 +113,29 @@ class Key:
         """Grundton in der Schreibweise der eigenen Tonart: Bb-Moll, nie A#-Moll."""
         return spell(NOTE_NAMES[self.tonic], self.accidental)
 
+    def label_in(self, accidental: str) -> str:
+        """Label in einer VORGEGEBENEN Schreibweise.
+
+        Solange die Schreibweise noch nachzieht (ACCIDENTAL_SETTLE), muss das
+        Label mitgehen: "Db major" ueber lauter Akkorden mit Kreuzen sieht wie
+        ein Fehler aus, obwohl C# und Db derselbe Ton sind.
+        """
+        return (f"{spell(NOTE_NAMES[self.tonic], accidental)} "
+                f"{'minor' if self.minor else 'major'}")
+
     @property
     def label(self) -> str:
-        return f"{self.tonic_name} {'minor' if self.minor else 'major'}"
+        return self.label_in(self.accidental)
 
-    def as_dict(self) -> dict:
+    def as_dict(self, accidental: str | None = None) -> dict:
         # Was der Browser braucht: den Grundton kanonisch (er schreibt selbst),
         # die Tonart-Vorzeichen (fuer den Automatik-Modus) und das Label.
+        acc = accidental or self.accidental
         return {
             "tonic": NOTE_NAMES[self.tonic],
             "minor": self.minor,
-            "acc": self.accidental,
-            "label": self.label,
+            "acc": acc,
+            "label": self.label_in(acc),
         }
 
 
@@ -157,6 +186,9 @@ class KeyEstimator:
         self._histogram = np.zeros(12)
         self._heard = 0.0
         self._key: Key | None = None
+        self._accidental: str | None = None     # None = noch nie festgelegt
+        self._pending: str | None = None        # Schreibweise, die gerade anklopft
+        self._pending_seconds = 0.0
 
     @property
     def heard_seconds(self) -> float:
@@ -167,6 +199,16 @@ class KeyEstimator:
     def key(self) -> Key | None:
         """Die erkannte Tonart - oder None, solange zu wenig Musik da war."""
         return self._key
+
+    @property
+    def accidental(self) -> str:
+        """Die Schreibweise fuer die ANZEIGE - traeger als die Tonart.
+
+        Nicht `key.accidental` benutzen, wo etwas dargestellt wird: Das ist die
+        Schreibweise der gerade besten Tonart, und die darf wandern. Diese hier
+        wandert erst, wenn die neue sich ACCIDENTAL_SETTLE lang durchgesetzt hat.
+        """
+        return self._accidental or SHARP
 
     def add(self, chroma: np.ndarray):
         """Ein Analysefenster einbringen. Nur mit klingendem Chroma aufrufen -
@@ -193,6 +235,29 @@ class KeyEstimator:
         # Gemeldet wird die ungeschoente Korrelation, nicht die mit Bonus.
         self._key = Key(tonic=best % 12, minor=best >= 12,
                         confidence=float(scores[best]))
+        self._settle_accidental(self._key.accidental)
+
+    def _settle_accidental(self, wanted: str):
+        """Die Schreibweise nachziehen - aber erst nach ACCIDENTAL_SETTLE.
+
+        Die ERSTE gilt sofort: Bis hierhin gab es ueberhaupt keine Tonart, und
+        bis dahin galten Kreuze als Vorgabe. Sie noch einmal zu verzoegern
+        verschoebe den einen unvermeidlichen Wechsel nur nach hinten.
+        """
+        if self._accidental is None or wanted == self._accidental:
+            self._accidental = self._accidental or wanted
+            self._pending, self._pending_seconds = None, 0.0
+            return
+
+        if wanted != self._pending:
+            self._pending, self._pending_seconds = wanted, 0.0
+        # Zeit zaehlt in klingender Musik: Eine Pause soll den Wechsel nicht
+        # aussitzen, sondern anhalten - sonst kippt die Schreibweise nach einer
+        # langen Stille auf Material, das laengst nicht mehr laeuft.
+        self._pending_seconds += self._hop
+        if self._pending_seconds >= ACCIDENTAL_SETTLE:
+            self._accidental = wanted
+            self._pending, self._pending_seconds = None, 0.0
 
 
 def estimate_key(chromas, hop_seconds: float = 1.0) -> Key | None:

@@ -5,6 +5,7 @@ import pytest
 
 from jampilot.chroma import NOTE_NAMES
 from jampilot.tonality import (
+    ACCIDENTAL_SETTLE,
     FLAT,
     MIN_KEY_SECONDS,
     SHARP,
@@ -171,6 +172,76 @@ class TestKeyEstimator:
         for i in range(int(90.0 / 0.25)):
             estimator.add(_chroma(*KADENZEN["D major"][i // 8 % 4]))
         assert estimator.key.label == "D major"
+
+
+class TestSchreibweiseZiehtNach:
+    """Die Anzeige-Schreibweise ist traeger als die Tonart - mit Absicht.
+
+    Die Tonart darf wandern, an ihr haengt der Akkord-Prior. Die Schreibweise
+    dagegen wird RUECKWIRKEND auf die ganze Zeitleiste angewandt: Kippt sie,
+    heisst derselbe, laengst gespielte Ton ploetzlich anders. Wer mitspielt,
+    liest dann mitten im Griff einen neuen Namen fuer denselben Bund.
+    """
+
+    def _fuettere(self, estimator, kadenz, sekunden, ab=0):
+        schritte = int(sekunden / 0.25)
+        for i in range(schritte):
+            estimator.add(_chroma(*kadenz[(ab + i) // 8 % len(kadenz)]))
+        return ab + schritte
+
+    def test_die_erste_gilt_sofort(self):
+        # Vorher gab es gar keine Tonart (Kreuze als Vorgabe). Auch diesen einen
+        # Wechsel noch zu verzoegern, verschoebe ihn nur - er kaeme trotzdem.
+        estimator = _hoere(KADENZEN["F major"], sekunden=MIN_KEY_SECONDS + 0.5)
+        assert estimator.key.accidental == FLAT
+        assert estimator.accidental == FLAT
+
+    def test_ein_wechsel_wartet_auf_bestaetigung(self):
+        estimator = _hoere(KADENZEN["F major"])
+        assert estimator.accidental == FLAT
+
+        # Kreuz-Material einspielen, bis die TONART umschwenkt.
+        i = 0
+        while estimator.key.accidental == FLAT:
+            estimator.add(_chroma(*KADENZEN["D major"][i // 8 % 4]))
+            i += 1
+            assert i < 4000, "die Tonart folgt dem neuen Material gar nicht"
+
+        # In genau diesem Moment steht die Anzeige noch still.
+        assert estimator.accidental == FLAT
+
+        # Haelt es sich, zieht sie nach - einmal, nicht flackernd.
+        self._fuettere(estimator, KADENZEN["D major"], ACCIDENTAL_SETTLE + 1.0, ab=i)
+        assert estimator.accidental == SHARP
+
+    def test_ein_kurzer_ausflug_aendert_die_anzeige_nicht(self):
+        """Der eigentliche Fall: eine Passage kippt die Tonart kurz - und zurueck.
+
+        Ohne die Traegheit wuerde die Anzeige jedes Mal mitgehen, und beim Bass
+        stuende abwechselnd G# und Ab fuer denselben Ton.
+        """
+        estimator = _hoere(KADENZEN["F major"])
+        i = 0
+        while estimator.key.accidental == FLAT:
+            estimator.add(_chroma(*KADENZEN["D major"][i // 8 % 4]))
+            i += 1
+
+        # Kuerzer als die Bestaetigungszeit - und dann zurueck ins alte Material.
+        i = self._fuettere(estimator, KADENZEN["D major"],
+                           ACCIDENTAL_SETTLE / 2, ab=i)
+        assert estimator.accidental == FLAT
+        self._fuettere(estimator, KADENZEN["F major"], 30.0, ab=i)
+        assert estimator.key.accidental == FLAT      # Tonart ist zurueck ...
+        assert estimator.accidental == FLAT          # ... und nichts hat gewackelt
+
+    def test_das_label_folgt_der_angezeigten_schreibweise(self):
+        # "Db major" ueber Akkorden mit Kreuzen sieht aus wie ein Fehler,
+        # obwohl C# und Db derselbe Ton sind.
+        key = Key(tonic=1, minor=False, confidence=0.9)
+        assert key.label == "Db major"
+        assert key.label_in(SHARP) == "C# major"
+        assert key.as_dict(SHARP) == {"tonic": "C#", "minor": False,
+                                      "acc": SHARP, "label": "C# major"}
 
 
 class TestEstimateKey:
