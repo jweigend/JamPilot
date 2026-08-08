@@ -242,3 +242,80 @@ class TestStumm:
         assert spruenge.max() < 0.1, f"Sprung von {spruenge.max():.2f} - das knackt"
         # Monoton fallend: keine Zacken, die man als Zwitschern hoeren wuerde.
         assert np.all(np.diff(ausblendung) <= 1e-6)
+
+
+class TestCountdown:
+    """Der Einzaehler in die Anfangsstille: 3 - 2 - 1, dann Musik."""
+
+    def _loop(self, delay, samplerate=1000, blocksize=50):
+        with patch("sounddevice.Stream"):
+            loop = DelayedLoopback(None, None, delay_seconds=delay,
+                                   samplerate=samplerate, blocksize=blocksize,
+                                   channels=2, analysis_seconds=1.0)
+        loop._stream.latency = (0.05, 0.09)
+        return loop
+
+    def _ausgabe(self, loop, frames=None, eingang=None, blocksize=50):
+        """Eingang einspeisen (Rampe oder gegebenes Signal), Ausgabe sammeln."""
+        if eingang is None:
+            eingang = np.arange(frames, dtype=np.float32)
+        out = []
+        for start in range(0, len(eingang) - blocksize + 1, blocksize):
+            indata = np.tile(eingang[start : start + blocksize, None], (1, 2))
+            outdata = np.zeros((blocksize, 2), dtype=np.float32)
+            loop._callback(indata, outdata, blocksize, Zeit(0.0), None)
+            out.append(outdata[:, 0].copy())
+        return np.concatenate(out)
+
+    def test_toene_liegen_auf_den_restsekunden(self):
+        loop = self._loop(delay=4.0)
+        ausgabe = self._ausgabe(loop, 4000)
+        for start in (1000, 2000, 3000):        # -3s, -2s, -1s vor der Musik
+            assert np.abs(ausgabe[start : start + 80]).max() > 0.1, start
+        for still in (500, 1500, 2500, 3500):   # dazwischen bleibt Stille
+            assert np.abs(ausgabe[still : still + 100]).max() == 0.0, still
+
+    def test_der_letzte_ton_ist_betont(self):
+        loop = self._loop(delay=4.0)
+        ausgabe = self._ausgabe(loop, 4000)
+        assert (np.abs(ausgabe[3000:3200]).max()
+                > np.abs(ausgabe[1000:1200]).max())
+
+    def test_endet_exakt_mit_der_fuellphase(self):
+        """Ab der ersten Musik ist die Ausgabe das reine verzoegerte Signal."""
+        loop = self._loop(delay=2.0)
+        ausgabe = self._ausgabe(loop, 3000)
+        assert np.array_equal(ausgabe[2000:3000],
+                              np.arange(0, 1000, dtype=np.float32))
+
+    def test_unter_einer_sekunde_delay_bleibt_es_still(self):
+        loop = self._loop(delay=0.5)
+        ausgabe = self._ausgabe(loop, 500)
+        assert np.abs(ausgabe).max() == 0.0
+
+    def test_zaehlt_auch_eine_spaeter_gestartete_quelle_ein(self):
+        """Der eigentliche Fall: JamPilot laeuft, dann startet die Quelle."""
+        loop = self._loop(delay=2.0)
+        eingang = np.concatenate([np.zeros(3000, dtype=np.float32),
+                                  np.full(2000, 0.5, dtype=np.float32)])
+        ausgabe = self._ausgabe(loop, eingang=eingang)
+        # Quelle startet bei 3000, hoerbar ab 5000 - der 1er-Ton eine Sekunde
+        # davor, dazwischen Stille, dann kommt die Musik unverfaelscht.
+        assert np.abs(ausgabe[4000:4140]).max() > 0.1
+        assert np.abs(ausgabe[4200:5000]).max() == 0.0
+        assert np.array_equal(ausgabe[4990:5000], np.zeros(10, dtype=np.float32))
+        assert np.all(ausgabe[5000:5100] == 0.5)
+
+    def test_eine_kurze_luecke_zaehlt_nicht_ein(self):
+        """Break im Song / Titelluecke: kuerzer als der Puffer -> keine Toene.
+
+        Waehrend so einer Luecke spielt der Ausgang noch altes Material;
+        Einzaehlen waere falsch und wuerde in die Musik hineinpiepsen."""
+        loop = self._loop(delay=2.0)
+        eingang = np.concatenate([np.full(2000, 0.5, dtype=np.float32),
+                                  np.zeros(1000, dtype=np.float32),
+                                  np.full(2000, 0.5, dtype=np.float32)])
+        ausgabe = self._ausgabe(loop, eingang=eingang)
+        # Die Luecke erscheint am Ausgang bei [4000, 5000) - und bleibt leer
+        # (ein falscher 1er-Ton laege genau dort, bei 4000).
+        assert np.abs(ausgabe[4000:5000]).max() == 0.0

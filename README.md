@@ -170,7 +170,13 @@ system library and not a Python package (`sudo apt install libportaudio2`,
    (BlackHole).
 2. **Delay**: A ring buffer exactly one delay long; at the write position the
    old value is played out and the new one written. The signal is not altered,
-   only shifted.
+   only shifted. When a source starts playing after a longer silence — press
+   play in Spotify, and for the length of the delay the speakers are
+   necessarily still silent, which looks like failure — a short **count-in**
+   is played into that gap: one beep per remaining second (3 – 2 – 1, the last
+   one accented), then the music arrives. A break inside a song does not
+   trigger it: the count-in only fires when the silence was at least one full
+   delay long, so the output really is quiet until the new material lands.
 3. **Analysis**: The chord labels come from a **learned model** — BTC, a small
    bidirectional transformer for chord recognition (Park et al., ISMIR 2019),
    ported to pure NumPy (`btc.py`, 12 MB of weights, no PyTorch). Every 250 ms
@@ -437,7 +443,7 @@ packaging/
   venv.sh          the environment, stamped: expensive once, free afterwards
   build.sh         the reproducible build (and it skips when nothing changed)
   jampilot.spec    PyInstaller: one file on Linux, a real .app on macOS
-tests/             pytest suite (347 tests)
+tests/             pytest suite (353 tests)
 docs/exploration/  design documents (in German)
 ```
 
@@ -448,7 +454,7 @@ everything a user sees is English.
 
 ```bash
 ./run.sh selftest                 # the pipeline, no sound card needed
-.venv/bin/python -m pytest        # the suite (347 tests)
+.venv/bin/python -m pytest        # the suite (353 tests)
 ```
 
 The suite covers the places where bugs creep in *quietly*:

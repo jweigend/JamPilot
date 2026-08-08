@@ -19,6 +19,11 @@ import sounddevice as sd
 
 from .control_guitar import PLAYBACK_GAIN
 
+# Unter dieser Block-RMS gilt der Eingang als still (dieselbe Schwelle, ab der
+# auch die Erkennung "kein Akkord" sagt - chords.SILENCE_RMS; hier als eigene
+# Konstante, damit der Audio-Callback keine Analyse-Module importiert).
+COUNTIN_SILENCE_RMS = 1e-4
+
 
 class DelayedLoopback:
     def __init__(
@@ -40,6 +45,23 @@ class DelayedLoopback:
         # der alte Wert ausgegeben, dann der neue geschrieben.
         self._ring = np.zeros((self.delay_frames, channels), dtype=np.float32)
         self._pos = 0
+
+        # Der Einzaehler. Startet die Quelle nach laengerer Stille (Programm-
+        # start ist der Spezialfall davon), liegen zwischen Lautsprecher und
+        # neuem Material genau delay Sekunden Stille - und die sehen aus wie
+        # ein Programm, das nicht funktioniert. In diese Luecke legt der
+        # Callback drei Toene: einer pro Restsekunde (3 - 2 - 1, der letzte
+        # betont), dann kommt die Musik. Die Klaenge sind vorberechnet
+        # (Abstand vor der Musik in Frames, Mono-Welle); gemischt wird im
+        # Callback nur.
+        self._count_beeps = tuple(
+            (k * samplerate,
+             self._render_beep(*((0.14, 0.32) if k == 1 else (0.09, 0.22))))
+            for k in (3, 2, 1))
+        self._count_events: tuple[tuple[int, np.ndarray], ...] = ()
+        # Der Stream beginnt "nach langer Stille": Musik, die schon beim Start
+        # laeuft oder kurz danach beginnt, wird genauso eingezaehlt.
+        self._silent_frames = self.delay_frames
 
         # Zirkularer Mono-Puffer mit dem juengsten Signal fuer die Analyse.
         # Zirkular (nicht np.roll) - roll allokiert bei jedem Callback ein
@@ -93,6 +115,17 @@ class DelayedLoopback:
         self.xruns = 0
         self.last_status = None
 
+    def _render_beep(self, dauer: float, amp: float) -> np.ndarray:
+        """Ein Ton des Einzaehlers (Mono). Sinus statt Sprache: braucht keine
+        Stimmdaten im Bundle und ist neutral zu jeder Tonart, die folgt."""
+        t = np.arange(int(dauer * self.samplerate)) / self.samplerate
+        beep = (amp * np.sin(2 * np.pi * 880.0 * t)).astype(np.float32)
+        # An- und Abstiegsrampe gegen Knacken an den Tonraendern.
+        fade = max(min(int(0.005 * self.samplerate), len(beep) // 2), 1)
+        beep[:fade] *= np.linspace(0.0, 1.0, fade, dtype=np.float32)
+        beep[-fade:] *= np.linspace(1.0, 0.0, fade, dtype=np.float32)
+        return beep
+
     def _callback(self, indata, outdata, frames, time_info, status):
         if status:
             self.xruns += 1
@@ -113,6 +146,44 @@ class DelayedLoopback:
             ring[pos:] = indata[:first]
             ring[: end - n] = indata[first:]
         self._pos = end % n
+
+        mono = indata.mean(axis=1)
+
+        # Einzaehler ausloesen: Beginnt nach Stille wieder Signal, wird auf
+        # dessen Ankunft hin eingezaehlt - die Toene liegen k Sekunden VOR der
+        # Startposition auf der Stream-Zeitachse und fallen damit genau in die
+        # Verzoegerungsluecke. Die Stille muss mindestens pufferlang gewesen
+        # sein: Nur dann ist der Lautsprecher bis zur Ankunft wirklich stumm.
+        # Ein Break im Song oder die Luecke zwischen zwei Titeln zaehlen NICHT
+        # ein - dort spielt der Ausgang noch altes Material.
+        if float(np.sqrt(np.mean(mono * mono))) < COUNTIN_SILENCE_RMS:
+            self._silent_frames += frames
+        else:
+            if self._silent_frames >= n:
+                start = self._frames_seen
+                self._count_events = tuple(
+                    (start - abstand, klang)
+                    for abstand, klang in self._count_beeps)
+            self._silent_frames = 0
+
+        # Faellige Toene mischen - dieselbe Ueberlappungslogik wie bei den
+        # Kontrollanschlaegen unten. Zu frueh geplante Toene (Delay kuerzer
+        # als der Abstand) liegen vor der Ausgabeposition und entfallen von
+        # selbst. Nach dem letzten Ton kostet der Zweig nur den Leertest.
+        if self._count_events:
+            played_start = self._frames_seen - n
+            played_end = played_start + frames
+            for onset, klang in self._count_events:
+                overlap_start = max(played_start, onset)
+                overlap_end = min(played_end, onset + len(klang))
+                if overlap_start < overlap_end:
+                    dst = overlap_start - played_start
+                    src = overlap_start - onset
+                    count = overlap_end - overlap_start
+                    outdata[dst : dst + count] += klang[src : src + count, None]
+            letzter_onset, letzter_klang = self._count_events[-1]
+            if played_start >= letzter_onset + len(letzter_klang):
+                self._count_events = ()
 
         # Kontrollanschlaege liegen auf derselben Stream-Zeitachse wie das
         # Original. `frames_seen - delay_frames` ist genau der erste Frame, der
@@ -159,7 +230,6 @@ class DelayedLoopback:
         # Lautsprecher hart verkoppelt sind: exakter als jede Latenzschaetzung.
         self._dac_anchor = (self._frames_seen - n, float(time_info.outputBufferDacTime))
 
-        mono = indata.mean(axis=1)
         buf = self._analysis
         size = len(buf)
         with self._lock:
