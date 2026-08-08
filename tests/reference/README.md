@@ -25,7 +25,42 @@ Eine falsche Version läge bei ~10 % (Zufallsniveau). Auch die 2019/2023-Mixe
 decken sich zeitlich mit den Annotationen der Originalmaster (konstanter
 Offset, keine Drift — die Treffer wären sonst zum Songende hin eingebrochen).
 
-## Erste Timing-Messung (BTC offline, voller Kontext)
+## Offset-Revision (wichtig fuer alle Timing-Zahlen)
+
+Die urspruenglichen Offsets oben stammen aus einem Frame-Agreement-Sweep
+(93-ms-Aufloesung) - fuer den Versions-NACHWEIS ausreichend, fuer
+Timing-Messungen zu grob (drei Schaetzer wichen bis zu 300 ms voneinander ab).
+Der verlaesslichste Schaetzer ist die **Chroma-Korrelation** (GT-Akkordtemplates
+gegen 23-ms-HPSS-Chroma, 10-ms-Sweep ueber den ganzen Track):
+
+| Track | Timing-Offset (Chroma-Korrelation) |
+|---|---|
+| let_it_be | +0.08s |
+| eight_days_a_week | -0.15s |
+| something | -0.06s |
+| its_too_late | +0.05s |
+| crazy_little_thing | -0.05s |
+
+Fuer Timing-Auswertungen DIESE Offsets verwenden. Absolute Fehlerzahlen tragen
+trotzdem eine Alignment-Unsicherheit von grob +-50 ms; belastbar sind vor allem
+RELATIVE Vergleiche unter festgehaltenen Offsets.
+
+## Timing-Messung (unter Chroma-Korrelations-Offsets)
+
+| Verfahren | median \|dt\| | ≤50ms | ≤93ms | ≤250ms |
+|---|---|---|---|---|
+| BTC roh (93-ms-Raster) | 187ms | 16% | 25% | 65% |
+| + `refine_boundary` (**aktiv**) | **128ms** | **24%** | **43%** | **74%** |
+
+`btc.refine_boundary`: Akkordton-Schnitt im HPSS-Chroma (23-ms-Raster,
+Suchweite ±0.3s um die Modellgrenze), Onset-Staerke gewichtet mit - Wechsel
+fallen auf Anschlaege. Verworfen wurden: reiner Onset-Snap (schnappt auf
+Schlagzeug/Melodie, verschlechtert), Logit-Kreuzung des Modells (kein Gewinn),
+Beat-Raster-Snap (librosas Beat-Phase liegt selbst ~160 ms neben den
+GT-Wechseln). Die BTC-Rohgrenzen laufen systematisch ~140 ms NACH; die
+Verfeinerung halbiert den Nachlauf und verdoppelt die 1-Frame-Trefferquote.
+
+## Historische erste Messung (unter den alten Frame-Agreement-Offsets)
 
 Abstand der erkannten Segmentgrenzen zum annotierten Wechsel (406 Wechsel,
 Treffer = nächste Grenze innerhalb ±0.5 s):

@@ -199,7 +199,8 @@ def cmd_analyze(args):
     # (Tiefband aus der BTC-CQT), Safe-Voicings/Key-Prior bleiben stillgelegt.
     from . import bass as bassmodul
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_bass_chroma, fold_chroma, segments_from_labels)
+                      fold_bass_chroma, fold_chroma, refine_boundary,
+                      segments_from_labels)
     from .tonality import SHARP, KeyEstimator, spell
 
     samples, samplerate = _load_wav_mono(args.file)
@@ -227,6 +228,13 @@ def cmd_analyze(args):
     # dieselbe Zwei-Signale-Idee wie im Template-Pfad (bass.py).
     bass_chroma = fold_bass_chroma(features)
     segmente = segments_from_labels(labels)
+    # Grenzen aufs Audio-Ereignis verfeinern (93-ms-Raster -> 23-ms-Suche).
+    fein = segmente[:1]
+    for i in range(1, len(segmente)):
+        pos, name = segmente[i]
+        pos = refine_boundary(samples, samplerate, pos, segmente[i - 1][1], name)
+        fein.append((max(pos, fein[-1][0] + 0.05), name))
+    segmente = fein
     for i, (zeit, name) in enumerate(segmente):
         ende = (segmente[i + 1][0] if i + 1 < len(segmente)
                 else len(labels) * BTC_FRAME_SECONDS)
@@ -442,7 +450,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     """
     from . import bass as bassmodul
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_bass_chroma, fold_chroma, segments_from_labels)
+                      fold_bass_chroma, fold_chroma, refine_boundary,
+                      segments_from_labels)
     from .tonality import KeyEstimator, spell
 
     sr = args.samplerate
@@ -459,6 +468,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     # Zeitleiste wie bisher: (Onset-Position im Stream, kanonischer Akkord).
     timeline: list[tuple[float, str]] = []
     previous_segments: list[tuple[float, str]] | None = None   # Debounce
+    # Bereits verfeinerte Grenzen: jede neue Grenze wird genau EINMAL aufs
+    # Audio-Ereignis gezogen (refine_boundary); danach haelt die Hysterese sie.
+    refined_bounds: list[tuple[float, str]] = []
     lead = max(args.delay - BTC_EDGE_GUARD, 0.0)
     key_fed_until = 0.0
 
@@ -517,6 +529,27 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             _merge_model_segments(timeline, segments, audible_pos, horizon,
                                   previous_segments)
             previous_segments = segments
+
+            # Frisch veroeffentlichte Grenzen einmalig aufs Audio-Ereignis
+            # verfeinern (typisch 0-1 je Hop, ~100ms - dauert ein Hop mal
+            # laenger, faellt nur ein Rasterpunkt aus, das Raster bleibt).
+            freeze_edge = audible_pos + BTC_FREEZE_AHEAD
+            for idx in range(1, len(timeline)):
+                pos, name = timeline[idx]
+                if pos <= freeze_edge:
+                    continue
+                if any(rn == name and abs(rp - pos) <= ONSET_HYSTERESIS
+                       for rp, rn in refined_bounds):
+                    continue
+                pos = window_start + refine_boundary(
+                    audio, sr, pos - window_start, timeline[idx - 1][1], name)
+                pos = max(pos, timeline[idx - 1][0] + 0.05)
+                if idx + 1 < len(timeline):
+                    pos = min(pos, timeline[idx + 1][0] - 0.05)
+                timeline[idx] = (pos, name)
+                refined_bounds.append((pos, name))
+            refined_bounds[:] = [(p, n) for p, n in refined_bounds
+                                 if p > audible_pos - 2.0]
             lead = max(horizon - audible_pos, 0.0)
             if engine is not None:
                 engine.lead = lead

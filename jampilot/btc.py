@@ -245,6 +245,79 @@ def features_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
 # Band, das chroma.analyze_window fuer bass.py zog (2 Bins je Halbton).
 BTC_BASS_BINS = 72
 
+# Grenz-Verfeinerung: Die Modellgrenze liegt auf dem 93-ms-Raster und im
+# Schnitt ~140 ms HINTER dem annotierten Wechsel. Im kleinen Fenster darum
+# such ein Akkordton-Schnitt im HPSS-Chroma (23-ms-Raster) den echten
+# Umschlagpunkt, Onset-Staerke gewichtet mit - Wechsel fallen auf Anschlaege.
+# Gegen die Isophonics-Referenz gemessen (tests/reference/README.md):
+# median |dt| 187 -> 121 ms, Anteil <=1 Frame verdoppelt (25% -> 42%).
+REFINE_RADIUS = 0.3        # Suchweite um die Modellgrenze
+REFINE_CONTEXT = 0.75      # Audio-Slice je Seite (HPSS braucht Kontext)
+REFINE_ONSET_WEIGHT = 1.0
+_FINE_HOP = 512            # 23-ms-Raster der Feinsuche (bei 22050 Hz)
+
+
+def _tone_template(name: str) -> np.ndarray | None:
+    """Normierter 12-Ton-Vektor der kanonischen Akkord-ID - None fuer N/?/-."""
+    if not name or name[0] not in "ABCDEFG":
+        return None
+    root_name = name[:2] if len(name) > 1 and name[1] == "#" else name[:1]
+    quality = name[len(root_name):]
+    if quality not in BTC_CHORD_TONES:
+        return None
+    template = np.zeros(12, dtype=np.float32)
+    for interval in BTC_CHORD_TONES[quality]:
+        template[(NOTE_NAMES.index(root_name) + interval) % 12] = 1.0
+    return template / np.linalg.norm(template)
+
+
+def refine_boundary(samples: np.ndarray, samplerate: int, boundary: float,
+                    prev_name: str, new_name: str) -> float:
+    """Verfeinerte Position einer Segmentgrenze (Sekunden relativ zu samples).
+
+    Prinzip: Im +-REFINE_RADIUS-Fenster wird der Schnittpunkt k gesucht, hinter
+    dem das HPSS-Chroma den NEUEN Akkordtoenen aehnelt und davor den ALTEN -
+    Onset-Staerke des Rohsignals zieht den Schnitt auf den Anschlag. Kann die
+    Grenze nicht verfeinert werden (Stille/Unbekannt/Randlage), kommt sie
+    unveraendert zurueck.
+    """
+    import librosa
+
+    prev_template = _tone_template(prev_name)
+    new_template = _tone_template(new_name)
+    if prev_template is None or new_template is None:
+        return boundary
+
+    start = boundary - REFINE_CONTEXT
+    stop = boundary + REFINE_CONTEXT
+    i0, i1 = int(start * samplerate), int(stop * samplerate)
+    if i0 < 0 or i1 > len(samples):
+        return boundary
+    y = np.asarray(samples[i0:i1], dtype=np.float32)
+    if samplerate != BTC_SR:
+        y = librosa.resample(y, orig_sr=samplerate, target_sr=BTC_SR)
+    fine = _FINE_HOP / BTC_SR
+
+    harmonic = librosa.effects.harmonic(y, margin=4.0)
+    chroma = librosa.feature.chroma_cqt(y=harmonic, sr=BTC_SR,
+                                        hop_length=_FINE_HOP, bins_per_octave=36)
+    onset = librosa.onset.onset_strength(y=y, sr=BTC_SR, hop_length=_FINE_HOP)
+
+    mitte = REFINE_CONTEXT / fine
+    lo = max(0, int(mitte - REFINE_RADIUS / fine))
+    hi = min(chroma.shape[1], int(mitte + REFINE_RADIUS / fine) + 1)
+    if hi - lo < 4:
+        return boundary
+    seg = chroma[:, lo:hi]
+    norm = np.linalg.norm(seg, axis=0) + 1e-9
+    diff = (new_template @ seg) / norm - (prev_template @ seg) / norm
+    scores = np.array([diff[k:].sum() - diff[:k].sum()
+                       for k in range(1, len(diff))])
+    env = onset[lo + 1 : lo + len(scores) + 1]
+    if len(env) == len(scores) and env.max() > 0:
+        scores = scores + REFINE_ONSET_WEIGHT * scores.std() * (env / env.max())
+    return start + (lo + 1 + int(np.argmax(scores))) * fine
+
 
 def fold_bass_chroma(features: np.ndarray) -> np.ndarray:
     """Log-CQT-Frames (T, 144) -> Tiefband-Chroma (12, T) fuer bass.dominant.

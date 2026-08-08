@@ -155,3 +155,30 @@ class TestMergeModelSegments:
                               audible_pos=3.0, horizon=8.0,
                               previous=[(0.0, "C"), (5.0, "Am")])
         assert timeline == [(0.0, "C"), (5.0, "Am")]
+
+
+class TestRefineBoundary:
+    def _zwei_akkorde(self, sr=22050, wechsel=3.0, dauer=6.0):
+        # C-Dur -> F-Dur, additiv, mit deutlichem Anschlag am Wechsel.
+        t = np.arange(int(dauer * sr)) / sr
+        y = np.zeros(len(t), dtype=np.float32)
+        for f in (261.6, 329.6, 392.0):                    # C E G
+            y += (np.sin(2 * np.pi * f * t) * (t < wechsel)).astype(np.float32)
+        for f in (349.2, 440.0, 523.3):                    # F A C
+            y += (np.sin(2 * np.pi * f * t) * (t >= wechsel)).astype(np.float32)
+        return 0.2 * y, sr
+
+    def test_zieht_versetzte_grenze_auf_den_wechsel(self):
+        y, sr = self._zwei_akkorde(wechsel=3.0)
+        for falsch in (2.8, 3.2):
+            fein = btc.refine_boundary(y, sr, falsch, "C", "F")
+            assert abs(fein - 3.0) < 0.07, f"aus {falsch} wurde {fein}"
+
+    def test_unbekannte_namen_bleiben_unveraendert(self):
+        y, sr = self._zwei_akkorde()
+        assert btc.refine_boundary(y, sr, 3.2, "-", "F") == 3.2
+        assert btc.refine_boundary(y, sr, 3.2, "C", "?") == 3.2
+
+    def test_randlage_bleibt_unveraendert(self):
+        y, sr = self._zwei_akkorde()
+        assert btc.refine_boundary(y, sr, 0.2, "C", "F") == 0.2
