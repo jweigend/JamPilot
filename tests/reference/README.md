@@ -50,5 +50,23 @@ Zwei Lesarten:
   Grenz-Verfeinerung im Onset-Stil INNERHALB des BTC-Segments — der
   stillgelegte `find_onset_frame`-Pfad wäre dafür der Kandidat).
 
-Messskripte: Session-Scratchpad `verify_reference.py` (Versions-Check) und
-Timing-Auswertung; beide nutzen nur `jampilot.btc` + librosa.
+## Slash-Bass-Messung gegen die Isophonics-Bass-Annotationen
+
+Die `.lab`-Labels annotieren auch den Bass (`A:min/b7` = Umkehrung). Damit
+wurde die reaktivierte Bassmessung (Tiefband aus der BTC-CQT, `bass.slash_note`)
+kalibriert - Segmente >= 1 s, 414 Faelle:
+
+| Regelwerk | falsche Slashes (387 Grundton-Seg.) | echte Umkehrungen gefunden (27) |
+|---|---|---|
+| nur Mehrheit (wie Template-Pfad) | 10% | 15 (56%) |
+| + Akkordton-Gating | 8% | 15 (56%) |
+| + Grundton-Ratio 2.0 (**aktiv**) | **2%** | **13 (48%)** |
+
+Die Grundton-Ratio-Huerde (`SLASH_ROOT_RATIO`): ein Slash wird nur behauptet,
+wenn der gemessene Ton den Grundton im Tiefband klar schlaegt - bei echten
+Umkehrungen fehlt der Grundton unten gerade, bei Grundton-Bass gewinnt sonst
+gern die laute Quinte. Praxis-Check Peg: `G/B` bleibt (9 Stellen), der
+fruehere Fehlgriff `Cmaj7/B` verschwindet.
+
+Messskripte: Session-Scratchpad `verify_reference.py` (Versions-Check),
+Timing- und Bass-Auswertung; alle nutzen nur `jampilot.btc` + librosa.

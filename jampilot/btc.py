@@ -241,6 +241,24 @@ def features_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
     return np.log(np.abs(feature) + 1e-6).T.astype(np.float32)
 
 
+# Tiefband fuer die Bassmessung: C1 + 3 Oktaven (32.7..260 Hz) - dasselbe
+# Band, das chroma.analyze_window fuer bass.py zog (2 Bins je Halbton).
+BTC_BASS_BINS = 72
+
+
+def fold_bass_chroma(features: np.ndarray) -> np.ndarray:
+    """Log-CQT-Frames (T, 144) -> Tiefband-Chroma (12, T) fuer bass.dominant.
+
+    Orientierung wie chroma.analyze_window.bass_frames: Tonklassen x Frames.
+    """
+    mag = np.exp(features[:, :BTC_BASS_BINS])
+    pcs = (np.arange(BTC_BASS_BINS) // 2) % 12
+    out = np.zeros((12, features.shape[0]), dtype=np.float32)
+    for pc in range(12):
+        out[pc] = mag[:, pcs == pc].sum(axis=1)
+    return out
+
+
 def fold_chroma(features: np.ndarray) -> np.ndarray:
     """Log-CQT-Frames (T, 144) -> 12-Ton-Chroma je Frame.
 

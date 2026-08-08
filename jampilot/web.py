@@ -817,9 +817,19 @@ const OPEN_PC = [4, 9, 2, 7, 11, 4];   // Saiten 6..1: E A D G B E
 // Bewegliche Schablonen, Buende relativ zum Grundtonbund R, Saiten 6..1.
 // null = abgedaempft (X). Bund 0 = offener Griff (E-Form von E-Dur = offenes E).
 const SHAPES_E = { "": [0,2,2,1,0,0], "m": [0,2,2,0,0,0], "7": [0,2,0,1,0,0],
-                   "maj7": [0,2,1,1,0,0], "m7": [0,2,0,0,0,0] };
+                   "maj7": [0,2,1,1,0,0], "m7": [0,2,0,0,0,0],
+                   // BTC-Vokabular: Standardgriffe, geprueft am offenen E-Griff
+                   "sus4": [0,2,2,2,0,0], "6": [0,2,2,1,2,0], "m6": [0,2,2,0,2,0],
+                   "aug": [0,3,2,1,1,0], "mMaj7": [0,2,1,0,0,0],
+                   "dim7": [0,1,2,0,2,0] };
 const SHAPES_A = { "": [null,0,2,2,2,0], "m": [null,0,2,2,1,0], "7": [null,0,2,0,2,0],
-                   "maj7": [null,0,2,1,2,0], "m7": [null,0,2,0,1,0] };
+                   "maj7": [null,0,2,1,2,0], "m7": [null,0,2,0,1,0],
+                   // BTC-Vokabular: Standardgriffe, geprueft am offenen A-Griff
+                   "sus2": [null,0,2,2,0,0], "sus4": [null,0,2,2,3,0],
+                   "6": [null,0,2,2,2,2], "m6": [null,0,2,2,1,2],
+                   "aug": [null,0,3,2,2,1], "mMaj7": [null,0,2,1,1,0],
+                   "dim": [null,0,1,2,1,null], "dim7": [null,0,1,2,1,2],
+                   "m7b5": [null,0,1,0,1,null] };
 // Offene Sonderformen, die sich NICHT aus den beweglichen E-/A-Schablonen ergeben
 // (Grundtoene C, G, D). Sie geben dem Planer eine Tieflagen-Option, die er waehlt,
 // wenn die Hand ohnehin am Sattel steht - so bekommen Anfaenger offene Griffe.
@@ -841,7 +851,8 @@ function anchorOf(frets) {
 // auseinander, decken also zwei Hals-Regionen ab.
 function candidates(root, quality, safe) {
   const pc = NOTE_PC[root];
-  if (pc === undefined || !(quality in SHAPES_E)) return [];
+  // Nicht jede Qualitaet hat beide Schablonen (sus2/dim/m7b5 nur als A-Form).
+  if (pc === undefined || !(quality in SHAPES_E || quality in SHAPES_A)) return [];
   const out = [];
   // Nur Tonklassen greifen, die alle nahen Erkennungshypothesen gemeinsam
   // tragen. So wird aus unsicherem A/Am ein A5 statt einer geratenen Terz.
@@ -859,8 +870,10 @@ function candidates(root, quality, safe) {
     if (!frets.some(f => f !== null)) return;
     out.push({ shape, base, anchor: base, frets });
   };
-  push("E", (((pc - 4) % 12) + 12) % 12, SHAPES_E[quality]);   // Grundton Saite 6
-  push("A", (((pc - 9) % 12) + 12) % 12, SHAPES_A[quality]);   // Grundton Saite 5
+  if (SHAPES_E[quality])
+    push("E", (((pc - 4) % 12) + 12) % 12, SHAPES_E[quality]); // Grundton Saite 6
+  if (SHAPES_A[quality])
+    push("A", (((pc - 9) % 12) + 12) % 12, SHAPES_A[quality]); // Grundton Saite 5
   const open = OPEN[root + quality];
   if (open) {
     const frets = keepSafe(open);

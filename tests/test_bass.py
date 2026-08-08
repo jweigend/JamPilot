@@ -190,3 +190,42 @@ class TestName:
 
     def test_deckt_sich_mit_den_notennamen(self):
         assert [name(i) for i in range(12)] == NOTE_NAMES
+
+
+class TestSlashNote:
+    """Die konservative Slash-Entscheidung (BTC-Pfad): drei Huerden, bevor
+    etwas anderes als der Grundton behauptet wird."""
+
+    def _pooled(self, **energie):
+        pooled = np.zeros(12)
+        for pc, wert in energie.items():
+            pooled[int(pc)] = wert
+        return pooled
+
+    def test_grundton_kommt_ohne_ratio_huerde_zurueck(self):
+        from jampilot.bass import slash_note
+        pooled = self._pooled(**{"7": 10.0, "2": 1.0})    # G dominiert
+        assert slash_note(pooled, "G") == 7
+
+    def test_echte_umkehrung_terz_im_bass(self):
+        from jampilot.bass import slash_note
+        # G/B: B (11) klar staerkster Ton, Grundton G (7) schwach.
+        pooled = self._pooled(**{"11": 10.0, "7": 2.0})
+        assert slash_note(pooled, "G") == 11
+
+    def test_laute_quinte_erfindet_keinen_slash(self):
+        from jampilot.bass import slash_note
+        # D (2) gewinnt die Mehrheit, aber nicht 2x gegen den Grundton G (7).
+        pooled = self._pooled(**{"2": 10.0, "7": 6.0})
+        assert slash_note(pooled, "G") is None
+
+    def test_rauschgewinner_ist_kein_akkordton(self):
+        from jampilot.bass import slash_note
+        # G# (8) ist kein Ton von G-Dur - wird nicht behauptet.
+        pooled = self._pooled(**{"8": 10.0, "7": 1.0})
+        assert slash_note(pooled, "G") is None
+
+    def test_ohne_mehrheit_keine_aussage(self):
+        from jampilot.bass import slash_note
+        pooled = self._pooled(**{"11": 5.0, "7": 4.5})
+        assert slash_note(pooled, "G") is None

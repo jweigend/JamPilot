@@ -9,8 +9,13 @@ from functools import lru_cache
 
 import numpy as np
 
-from .chords import CHORD_TYPES
+from .btc import BTC_CHORD_TONES
 from .chroma import NOTE_NAMES
+
+# Volles BTC-Vokabular (14 Qualitaeten): Obermenge der fuenf alten
+# chords.CHORD_TYPES mit identischen Intervallen - beide Erkenner-Pfade
+# koennen damit angeschlagen werden, inklusive dim7/sus/6/m7b5.
+CHORD_TYPES = BTC_CHORD_TONES
 
 # Diagnose-Mix: Die Terz muss auch gegen ein dichtes Original sofort auffallen.
 # Der Originalton wird parallel in delay_stream abgesenkt.

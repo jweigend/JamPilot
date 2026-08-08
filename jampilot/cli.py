@@ -195,10 +195,11 @@ def _load_wav_mono(path: str) -> tuple[np.ndarray, int]:
 
 def cmd_analyze(args):
     # [POC-BTC] BTC-Transformer fuehrend. Der bisherige Template-Matching-Pfad
-    # liegt unveraendert in _cmd_analyze_template und wird bei Bedarf Stueck
-    # fuer Stueck reaktiviert (Bass/Slash, Safe-Voicings, Key-Prior).
+    # liegt unveraendert in _cmd_analyze_template; Slash-Bass ist wieder aktiv
+    # (Tiefband aus der BTC-CQT), Safe-Voicings/Key-Prior bleiben stillgelegt.
+    from . import bass as bassmodul
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_chroma, segments_from_labels)
+                      fold_bass_chroma, fold_chroma, segments_from_labels)
     from .tonality import SHARP, KeyEstimator, spell
 
     samples, samplerate = _load_wav_mono(args.file)
@@ -222,9 +223,19 @@ def cmd_analyze(args):
     print(f"  Key: {key.label} ({'b' if accidental != SHARP else '#'})\n" if key
           else "  Key: undetermined (too little music) - chords spelled with sharps\n")
 
-    for zeit, name in segments_from_labels(labels):
+    # Bassnote je Segment aus dem Tiefband der ohnehin berechneten CQT -
+    # dieselbe Zwei-Signale-Idee wie im Template-Pfad (bass.py).
+    bass_chroma = fold_bass_chroma(features)
+    segmente = segments_from_labels(labels)
+    for i, (zeit, name) in enumerate(segmente):
+        ende = (segmente[i + 1][0] if i + 1 < len(segmente)
+                else len(labels) * BTC_FRAME_SECONDS)
+        von, bis = int(zeit / BTC_FRAME_SECONDS), int(ende / BTC_FRAME_SECONDS)
+        pooled = bass_chroma[:, von:bis].sum(axis=1) if bis > von else None
+        note = bassmodul.name(bassmodul.slash_note(pooled, name))
         # N = nichts erklingt -> "-" wie bisher; "?" (X) geht durch.
-        print(f"  {zeit:6.1f}s  {spell('-' if name == 'N' else name, accidental)}")
+        shown = bassmodul.slash("-" if name == "N" else name, note)
+        print(f"  {zeit:6.1f}s  {spell(shown, accidental)}")
 
 
 def _cmd_analyze_template(args):
@@ -417,10 +428,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     dort fehlt der bidirektionalen Attention der Zukunftskontext) wartet bis
     zum naechsten Hop. Der Template-Pfad liegt in _display_loop_template.
 
-    Dabei bewusst stillgelegt (Reaktivierung Stueck fuer Stueck nach dem
-    Musiktest):
-      - Gemessener Slash-Bass (bass.py): BTC kennt keine Umkehrungen.
-        Anzeige-Feld "b" und Bass-Zeile senden None.
+    Wieder aktiv seit dem bestaetigten Musiktest: der gemessene Slash-Bass
+    (bass.py, Tiefband jetzt aus der BTC-CQT gefaltet) und die Kontrollgitarre
+    mit dem vollen BTC-Vokabular. Weiter bewusst stillgelegt:
       - Safe-Voicings / Powerchord-Rueckzug (harmony.safe_pitch_classes):
         es gibt keine Kandidatenliste mehr. Feld "v" sendet None.
       - Key-Prior (harmony.interpret_chord): Labels kommen fertig vom Modell.
@@ -430,8 +440,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
 
     `stop` (threading.Event) und `engine` wie im Template-Pfad.
     """
+    from . import bass as bassmodul
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_chroma, segments_from_labels)
+                      fold_bass_chroma, fold_chroma, segments_from_labels)
     from .tonality import KeyEstimator, spell
 
     sr = args.samplerate
@@ -439,6 +450,11 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     hop_frames = int(round(ANALYSIS_HOP * sr))
     model = BTCModel()
     keys = KeyEstimator(ANALYSIS_HOP)
+    # Die Bassspur muss die ganze Zeitleiste abdecken - vom Anzeige-Rueckblick
+    # bis zur Analysefront (wie im Template-Pfad, nur im 93-ms-Raster; der
+    # Randbeschnitt schrumpft mit, EDGE zaehlt Frames).
+    bass_track = bassmodul.BassTrack(args.delay + BTC_LIVE_WINDOW + 4.0,
+                                     frame_seconds=BTC_FRAME_SECONDS, edge=2)
 
     # Zeitleiste wie bisher: (Onset-Position im Stream, kanonischer Akkord).
     timeline: list[tuple[float, str]] = []
@@ -492,6 +508,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
 
             features = features_from_audio(audio, sr)
             labels = model.predict(features)
+            bass_track.add(fold_bass_chroma(features), window_start)
             segments = [(pos, "-" if name == "N" else name)
                         for pos, name in segments_from_labels(labels, offset=window_start)]
 
@@ -516,8 +533,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # hinter der JETZT-Linie noch aus.
             while len(timeline) > 1 and timeline[1][0] <= audible_pos - 2.0:
                 timeline.pop(0)
-            # [POC-BTC] Kontrollgitarre ohne Safe-Voicings (drittes Feld None);
-            # unbekannte neue Qualitaeten (dim7, sus4, ...) schlagen nicht an.
+            # Kontrollgitarre ohne Safe-Voicing-Filter (drittes Feld None):
+            # sie schlaegt den VOLLEN Akkord an, auch dim7/sus/6 - die
+            # Tonstrukturen kommen aus btc.BTC_CHORD_TONES.
             loop.set_control_timeline([
                 (pos, name, None) for pos, name in timeline
             ])
@@ -528,6 +546,15 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 audible = name
             current = timeline[-1][1] if timeline else "-"
 
+            # Bassnote je Segment aus dem Tiefband - der Vorlauf gilt fuer den
+            # Bass genauso wie fuer den Akkord (wie im Template-Pfad).
+            basslinie = _bass_per_segment(timeline, bass_track, window_end / sr)
+            bass_jetzt = None
+            for (pos, _), gemessen in zip(timeline, basslinie):
+                if pos > audible_pos:
+                    break
+                bass_jetzt = gemessen
+
             if debug:
                 debug.write(f"{time.time():.3f}\t{window_end / sr:.3f}\t"
                             f"{current}\t{audible_pos:.3f}\n")
@@ -535,13 +562,13 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
 
             key = keys.key
             if broadcaster:
-                # Protokoll unveraendert; [POC-BTC]: "b" (gemessener Bass) und
-                # "v" (Safe-Voicings) senden None, siehe Docstring.
+                # Protokoll unveraendert; [POC-BTC]: nur "v" (Safe-Voicings)
+                # sendet noch None, siehe Docstring. "b" ist wieder gemessen.
                 broadcaster.publish({
                     "t": round(audible_pos, 3),
-                    "chords": [{"c": name, "at": round(pos, 3), "b": None,
+                    "chords": [{"c": name, "at": round(pos, 3), "b": bassnote,
                                 "v": None}
-                               for pos, name in timeline],
+                               for (pos, name), bassnote in zip(timeline, basslinie)],
                     "lead": round(lead, 2),
                     "key": key.as_dict(keys.accidental) if key else None,
                     "muted": loop.muted,
@@ -549,11 +576,12 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 })
 
             accidental = keys.accidental
+            jetzt = bassmodul.slash(audible, bass_jetzt)
             sys.stdout.write(
                 f"\r  In {max(lead, 0.0):3.1f}s: "
                 f"{spell(current, accidental):<6s} "
-                f"| Now playing: {spell(audible, accidental):<8s} "
-                f"| Bass: {'-':<3s} "
+                f"| Now playing: {spell(jetzt, accidental):<8s} "
+                f"| Bass: {spell(bass_jetzt or '-', accidental):<3s} "
                 f"| Key: {key.label_in(accidental) if key else '...':<9s}"
             )
             sys.stdout.flush()
@@ -918,9 +946,7 @@ def _locate_onset(chord, previous, history, window_end, last_onset):
 
 
 def _bass_per_segment(timeline, track, front: float) -> list[str | None]:
-    """[POC-BTC] stillgelegt - nur noch vom Template-Pfad benutzt.
-
-    Zu jedem Zeitleisten-Segment die vorherrschende Bassnote (kanonisch).
+    """Zu jedem Zeitleisten-Segment die vorherrschende Bassnote (kanonisch).
 
     Ein Segment reicht von seinem Onset bis zum naechsten; das letzte bis zur
     Analysefront. Waehrend einer Stille gibt es keinen Bass - und wo die Messung
@@ -934,7 +960,8 @@ def _bass_per_segment(timeline, track, front: float) -> list[str | None]:
         if chord == "-" or ende <= onset:
             noten.append(None)
             continue
-        noten.append(bassmodul.name(track.note_between(onset, ende)))
+        pooled = track.pooled_between(onset, ende)
+        noten.append(bassmodul.name(bassmodul.slash_note(pooled, chord)))
     return noten
 
 

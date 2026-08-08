@@ -57,6 +57,14 @@ MIN_DOMINANCE = 1.25
 # Darunter klingt im Tiefband nichts.
 BASS_SILENCE = 1e-6
 
+# Ein SLASH wird nur angezeigt, wenn der gemessene Ton den Grundton im Tiefband
+# um diesen Faktor schlaegt. Bei einer echten Umkehrung fehlt der Grundton
+# unten gerade - bei Grundton-Bass gewinnt sonst gern die (laute) Quinte die
+# Mehrheit und die Anzeige erfaende ein "C/G". Gegen die Isophonics-Slash-
+# Annotationen kalibriert: falsche Slashes 8%->2%, echte Umkehrungen bleiben
+# (13/27 gefunden; tests/reference/README.md).
+SLASH_ROOT_RATIO = 2.0
+
 
 def dominant(bass_frames: np.ndarray | None) -> int | None:
     """Die vorherrschende Tonklasse im Tiefband - oder None.
@@ -90,11 +98,18 @@ class BassTrack:
 
     EDGE = 6   # wie FrameHistory: die Randframes verfaelscht das CQT-Padding
 
-    def __init__(self, seconds: float):
-        from .chroma import FRAME_SECONDS
-
-        self._frame_seconds = FRAME_SECONDS
-        self.size = max(int(seconds / FRAME_SECONDS), 1)
+    def __init__(self, seconds: float, frame_seconds: float | None = None,
+                 edge: int | None = None):
+        # Default ist das 23-ms-Raster der Chroma-Pipeline. Der BTC-Pfad liefert
+        # 93-ms-Frames und uebergibt sein Raster explizit - dort schrumpft auch
+        # der Randbeschnitt (EDGE zaehlt Frames, nicht Sekunden).
+        if frame_seconds is None:
+            from .chroma import FRAME_SECONDS
+            frame_seconds = FRAME_SECONDS
+        if edge is not None:
+            self.EDGE = edge
+        self._frame_seconds = frame_seconds
+        self.size = max(int(seconds / frame_seconds), 1)
         self._data = np.zeros((12, self.size), dtype=np.float32)
         self.end = 0
 
@@ -107,14 +122,18 @@ class BassTrack:
         self._data[:, ziel] = innen
         self.end = max(self.end, erster + innen.shape[1])
 
-    def note_between(self, start: float, end: float) -> int | None:
-        """Die vorherrschende Bass-Tonklasse im Intervall - oder None."""
+    def pooled_between(self, start: float, end: float) -> np.ndarray | None:
+        """Aufsummiertes Tiefband-Chroma (12,) im Intervall - oder None."""
         von = max(int(round(start / self._frame_seconds)), self.end - self.size)
         bis = min(int(round(end / self._frame_seconds)), self.end)
         if bis - von < 2:
             return None
         index = np.arange(von, bis) % self.size
-        return dominant(self._data[:, index])
+        return self._data[:, index].sum(axis=1)
+
+    def note_between(self, start: float, end: float) -> int | None:
+        """Die vorherrschende Bass-Tonklasse im Intervall - oder None."""
+        return dominant(self.pooled_between(start, end))
 
 
 def name(pitch_class: int | None) -> str | None:
@@ -129,6 +148,52 @@ def chord_root(chord: str) -> int | None:
         return None                      # "N", "-", "?"
     root = chord[:2] if len(chord) > 1 and chord[1] == "#" else chord[:1]
     return NOTE_NAMES.index(root)
+
+
+def chord_tone_classes(chord: str) -> set[int] | None:
+    """Tonklassen der kanonischen Akkord-ID - None bei unbekannter Qualitaet."""
+    from .btc import BTC_CHORD_TONES
+
+    root = chord_root(chord)
+    if root is None:
+        return None
+    root_name = chord[:2] if len(chord) > 1 and chord[1] == "#" else chord[:1]
+    quality = chord[len(root_name):].split("/")[0]
+    if quality not in BTC_CHORD_TONES:
+        return None
+    return {(root + iv) % 12 for iv in BTC_CHORD_TONES[quality]}
+
+
+def slash_note(pooled: np.ndarray | None, chord: str) -> int | None:
+    """Bass-Tonklasse fuer die Anzeige zu `chord` - bewusst konservativ.
+
+    Drei Huerden, bevor etwas anderes als der Grundton behauptet wird:
+    Mehrheit im Tiefband (MIN_DOMINANCE), Akkordton des Labels (eine Umkehrung
+    IST ein Akkordton, ein Rauschgewinner meist nicht), und deutlich staerker
+    als der Grundton selbst (SLASH_ROOT_RATIO - sonst erfindet die laute
+    Quinte Umkehrungen). Der Grundton selbst darf ohne die letzten beiden
+    Huerden zurueckkommen; slash() macht daraus dann keinen Slash.
+    """
+    if pooled is None:
+        return None
+    pooled = np.asarray(pooled, dtype=float)
+    if pooled.sum() < BASS_SILENCE:
+        return None
+    rang = np.argsort(pooled)[::-1]
+    best, zweiter = int(rang[0]), int(rang[1])
+    if pooled[zweiter] > 0 and pooled[best] < MIN_DOMINANCE * pooled[zweiter]:
+        return None
+    root = chord_root(chord)
+    if root is None:
+        return None
+    if best == root:
+        return best
+    tones = chord_tone_classes(chord)
+    if tones is not None and best not in tones:
+        return None
+    if pooled[best] < SLASH_ROOT_RATIO * pooled[root]:
+        return None
+    return best
 
 
 def slash(chord: str, bass_name: str | None) -> str:

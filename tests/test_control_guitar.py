@@ -32,7 +32,13 @@ def test_diagnose_mix_hebt_gitarre_gegenueber_playback_hervor():
 def test_stille_und_unbekanntes_erzeugen_keinen_ton():
     assert render("-", 8000) is None
     assert render("?", 8000) is None
-    assert render("Csus4", 8000) is None
+    assert render("Cblub", 8000) is None       # wirklich unbekannte Qualitaet
+
+
+def test_btc_vokabular_wird_angeschlagen():
+    # Seit dem BTC-Vokabular sind auch sus/dim/6 spielbar - volle Akkorde.
+    for chord in ("Csus4", "Adim7", "G6", "Em7b5", "Faug", "DmMaj7"):
+        assert render(chord, 8000) is not None, chord
 
 
 def test_safe_voicing_spielt_bei_dur_moll_unsicherheit_nur_powerchord():
