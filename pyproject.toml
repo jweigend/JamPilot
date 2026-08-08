@@ -19,9 +19,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["jampilot"]
 
-# [POC-BTC] Gewichte des BTC-Erkenners gehoeren mit ins Paket.
+# [POC-BTC] Gewichte des BTC-Erkenners gehoeren mit ins Paket -
+# ebenso die Web-Anzeige (data/index.html), die web.py beim Import laedt.
 [tool.setuptools.package-data]
-jampilot = ["data/*.npz"]
+jampilot = ["data/*.npz", "data/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

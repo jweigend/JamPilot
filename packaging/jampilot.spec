@@ -61,7 +61,10 @@ datas = [(quelle, ziel) for quelle, ziel in datas
 
 # [POC-BTC] Die Modellgewichte des BTC-Erkenners (11 MB) liegen als Paketdaten
 # neben dem Code; der statische Scanner sieht nur Importe, keine Datendateien.
+# Genauso die Web-Anzeige (index.html), die web.py beim Import laedt.
 datas += [(os.path.join(projekt, "jampilot", "data", "btc_large_voca.npz"),
+           os.path.join("jampilot", "data")),
+          (os.path.join(projekt, "jampilot", "data", "index.html"),
            os.path.join("jampilot", "data"))]
 
 excludes = [
