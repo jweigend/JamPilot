@@ -124,13 +124,20 @@ class Engine:
                     # Programm.
                     self._route = routing.create(args)
                     self._route.__enter__()
+                    # Die Umleitung darf die Abtastrate VORGEBEN: Beim
+                    # Windows-Mute-Weg kommt der Mitschnitt im Mixformat des
+                    # Endpunkts, und das ist nicht verhandelbar - eine andere
+                    # Rate ergaebe schlicht eine andere Tonhoehe.
+                    rate = getattr(self._route, "samplerate", None) or args.samplerate
                     # [POC-BTC] Der Analysepuffer muss das 10-s-Modellfenster
                     # halten (Default waeren 3s).
-                    self._loop = DelayedLoopback(self._route.capture_device,
-                                                 self._route.playback_device,
-                                                 args.delay,
-                                                 samplerate=args.samplerate,
-                                                 analysis_seconds=11.0)
+                    self._loop = DelayedLoopback(
+                        self._route.capture_device,
+                        self._route.playback_device,
+                        args.delay,
+                        samplerate=rate,
+                        analysis_seconds=11.0,
+                        capture=getattr(self._route, "capture_source", None))
                     self._loop.start()
                     self._route.after_start()
                 else:

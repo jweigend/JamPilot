@@ -85,8 +85,24 @@ _CLSID_MMDeviceEnumerator = "{BCDE0395-E52F-467C-8E3D-C4579291692E}"
 _IID_IMMDeviceEnumerator = "{A95664D2-9614-4F35-A746-DE8DB63617E6}"
 _CLSID_PolicyConfigClient = "{870AF99C-171D-4F9E-AF0D-E63DF40C2BC9}"
 _IID_IPolicyConfig = "{F8679F50-850A-41CF-9C72-430F290290C8}"
+_IID_IAudioEndpointVolume = "{5CDF2C82-841E-4546-9722-0CF74078229A}"
 _FMTID_Device = "{A45C254E-DF1C-4EFD-8020-67D146A850E0}"
 _PID_FriendlyName = 14
+_FMTID_AudioEndpoint = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E}"
+_PID_FormFactor = 0
+
+# EndpointFormFactor - wie der Endpunkt physisch angebunden ist. Wir brauchen
+# nur die Unterscheidung "da hoert jemand" gegen "da haengt hoechstens ein
+# Bildschirm dran", und die kann man dem NAMEN nicht ansehen: Der HDMI-Ausgang
+# einer NVIDIA-Karte heisst "LEN LT2452pwC (NVIDIA High Definition Audio)" -
+# kein "HDMI" weit und breit. Windows weiss es trotzdem.
+FF_UNBEKANNT = 10
+FF_LAUTSPRECHER = 1
+FF_KOPFHOERER = 3
+FF_HEADSET = 5
+FF_DIGITAL_DURCHREICHUNG = 7
+FF_SPDIF = 8
+FF_HDMI = 9                             # DigitalAudioDisplayDevice
 
 _DEVICE_STATE_ACTIVE = 0x1
 
@@ -96,11 +112,15 @@ _DEVICE_STATE_ACTIVE = 0x1
 _RELEASE = 2
 _ENUM_AUDIO_ENDPOINTS = 3               # IMMDeviceEnumerator
 _GET_DEFAULT_AUDIO_ENDPOINT = 4
+_GET_DEVICE = 5
 _GET_COUNT = 3                          # IMMDeviceCollection
 _ITEM = 4
-_OPEN_PROPERTY_STORE = 4                # IMMDevice
+_ACTIVATE = 3                           # IMMDevice
+_OPEN_PROPERTY_STORE = 4
 _GET_ID = 5
 _GET_VALUE = 5                          # IPropertyStore
+_SET_MUTE = 14                          # IAudioEndpointVolume
+_GET_MUTE = 15
 # IPolicyConfig: GetMixFormat, GetDeviceFormat, ResetDeviceFormat,
 # SetDeviceFormat, GetProcessingPeriod, SetProcessingPeriod, GetShareMode,
 # SetShareMode, GetPropertyValue, SetPropertyValue, SetDefaultEndpoint.
@@ -162,13 +182,16 @@ class Endpunkt:
     wird gesetzt. `name` ist der Anzeigename ("Lautsprecher (Realtek High
     Definition Audio)") - unter genau diesem Namen fuehrt PortAudio das Geraet
     ueber WASAPI ebenfalls, und darueber finden die beiden zusammen.
+    `formfaktor` sagt, was fuer ein Anschluss es ist (FF_*) - die einzige
+    verlaessliche Auskunft darueber, ob dort jemand zuhoert.
     """
 
-    __slots__ = ("kennung", "name")
+    __slots__ = ("kennung", "name", "formfaktor")
 
-    def __init__(self, kennung: str, name: str):
+    def __init__(self, kennung: str, name: str, formfaktor: int = FF_UNBEKANNT):
         self.kennung = kennung
         self.name = name
+        self.formfaktor = formfaktor
 
     def __repr__(self):
         return f"Endpunkt({self.name!r})"
@@ -189,10 +212,15 @@ def _kennung(geraet) -> str:
         _ole32.CoTaskMemFree(text)
 
 
-def _name(geraet) -> str:
+def _eigenschaft(geraet, fmtid: str, pid: int, lesen):
+    """Eine Eigenschaft aus dem Property Store des Endpunkts holen.
+
+    `lesen` bekommt die PROPVARIANT und macht daraus, was drinsteht - der Typ
+    haengt an der Eigenschaft, nicht am Abrufweg.
+    """
     schluessel = _PROPERTYKEY()
-    schluessel.fmtid = _GUID(_FMTID_Device)
-    schluessel.pid = _PID_FriendlyName
+    schluessel.fmtid = _GUID(fmtid)
+    schluessel.pid = pid
 
     speicher = c_void_p()
     _aufrufen(geraet, _OPEN_PROPERTY_STORE, (DWORD, POINTER(c_void_p)),
@@ -203,11 +231,36 @@ def _name(geraet) -> str:
                   (POINTER(_PROPERTYKEY), POINTER(_PROPVARIANT)),
                   byref(schluessel), byref(wert))
         try:
-            return ctypes.cast(wert.data, c_wchar_p).value or ""
+            return lesen(wert)
         finally:
             _ole32.PropVariantClear(byref(wert))
     finally:
         _freigeben(speicher)
+
+
+def _name(geraet) -> str:
+    return _eigenschaft(geraet, _FMTID_Device, _PID_FriendlyName,
+                        lambda wert: ctypes.cast(wert.data, c_wchar_p).value or "")
+
+
+def _formfaktor(geraet) -> int:
+    """Der Anschlusstyp - VT_UI4, also die ersten vier Bytes der Union.
+
+    NICHT ueber `wert.data` gelesen: Das ist ein c_void_p und holte auf 64 Bit
+    acht Bytes, von denen die oberen vier hier nicht gesetzt sind.
+    """
+    def lesen(wert):
+        roh = ctypes.cast(ctypes.byref(wert, _PROPVARIANT.data.offset),
+                          POINTER(ctypes.c_uint32))
+        return int(roh.contents.value)
+
+    try:
+        return _eigenschaft(geraet, _FMTID_AudioEndpoint, _PID_FormFactor, lesen)
+    except CoreAudioError:
+        # Nicht jeder Treiber setzt die Eigenschaft. Unbekannt ist eine
+        # brauchbare Antwort - sie fuehrt nur dazu, dass der Endpunkt beim
+        # Sortieren nicht bevorzugt wird.
+        return FF_UNBEKANNT
 
 
 def endpunkte(flow: int = RENDER) -> list[Endpunkt]:
@@ -232,7 +285,8 @@ def endpunkte(flow: int = RENDER) -> list[Endpunkt]:
                 _aufrufen(sammlung, _ITEM, (c_uint32, POINTER(c_void_p)),
                           i, byref(geraet))
                 try:
-                    gefunden.append(Endpunkt(_kennung(geraet), _name(geraet)))
+                    gefunden.append(Endpunkt(_kennung(geraet), _name(geraet),
+                                             _formfaktor(geraet)))
                 finally:
                     _freigeben(geraet)
             return gefunden
@@ -254,7 +308,7 @@ def standard(flow: int = RENDER, rolle: int = CONSOLE) -> Endpunkt | None:
         except CoreAudioError:
             return None          # E_NOTFOUND: kein Geraet dieser Richtung
         try:
-            return Endpunkt(_kennung(geraet), _name(geraet))
+            return Endpunkt(_kennung(geraet), _name(geraet), _formfaktor(geraet))
         finally:
             _freigeben(geraet)
     finally:
@@ -270,3 +324,80 @@ def setze_standard(kennung: str, rollen=UMZUSTELLENDE_ROLLEN):
                       kennung, rolle)
     finally:
         _freigeben(politik)
+
+
+# --- Ein einzelner Endpunkt -------------------------------------------------
+
+def geraet(kennung: str) -> c_void_p:
+    """Der IMMDevice-Zeiger zu einer Endpunkt-ID. DER AUFRUFER GIBT IHN FREI.
+
+    Alles darueber (endpunkte, standard) liefert Namen und Kennungen und raeumt
+    hinter sich auf. Wer den Endpunkt selbst braucht - um eine Schnittstelle
+    darauf zu aktivieren -, bekommt ihn hier, und dann gilt die COM-Regel: wer
+    ihn holt, gibt ihn frei.
+    """
+    aufzaehler = _erzeugen(_CLSID_MMDeviceEnumerator, _IID_IMMDeviceEnumerator)
+    try:
+        ptr = c_void_p()
+        _aufrufen(aufzaehler, _GET_DEVICE, (c_wchar_p, POINTER(c_void_p)),
+                  kennung, byref(ptr))
+        return ptr
+    finally:
+        _freigeben(aufzaehler)
+
+
+def aktivieren(geraet_ptr: c_void_p, iid: str) -> c_void_p:
+    """IMMDevice::Activate - eine Schnittstelle AUF diesem Endpunkt erzeugen.
+
+    Das ist der Einstieg in alles, was mit dem Endpunkt selbst zu tun hat:
+    IAudioEndpointVolume hier, IAudioClient in wincapture. Auch hier gibt der
+    Aufrufer frei.
+    """
+    ptr = c_void_p()
+    _aufrufen(geraet_ptr, _ACTIVATE,
+              (POINTER(_GUID), DWORD, c_void_p, POINTER(c_void_p)),
+              byref(_GUID(iid)), _CLSCTX_ALL, None, byref(ptr))
+    return ptr
+
+
+# --- Stummschaltung ---------------------------------------------------------
+#
+# WOFUER: Der Mute eines Endpunkts sitzt HINTER dem Loopback-Abgriff - der
+# Lautsprecher schweigt, der Mitschnitt bleibt vollstaendig. Damit taugt jeder
+# gewoehnliche Ausgang als stummer Umweg, und das virtuelle Kabel ist nur noch
+# eine Moeglichkeit von mehreren (siehe wincapture, routing.WINMUTE).
+#
+# Die App-Lautstaerke im Lautstaerkemixer taugt dafuer ausdruecklich NICHT: Die
+# wirkt VOR dem Abgriff, man schnitte Stille mit. Nachgemessen; wer es erneut
+# probieren will, spart sich die Stunde.
+#
+# IAudioEndpointVolume ist im Gegensatz zu IPolicyConfig dokumentiert - dieser
+# Teil kann uns also nicht unter der Hand weggenommen werden.
+
+def _lautstaerke(kennung: str) -> c_void_p:
+    ptr = geraet(kennung)
+    try:
+        return aktivieren(ptr, _IID_IAudioEndpointVolume)
+    finally:
+        _freigeben(ptr)
+
+
+def stumm(kennung: str) -> bool:
+    """Ist dieser Endpunkt stummgeschaltet?"""
+    volume = _lautstaerke(kennung)
+    try:
+        zustand = ctypes.c_int()
+        _aufrufen(volume, _GET_MUTE, (POINTER(ctypes.c_int),), byref(zustand))
+        return bool(zustand.value)
+    finally:
+        _freigeben(volume)
+
+
+def setze_stumm(kennung: str, an: bool):
+    """Endpunkt stummschalten oder wieder freigeben."""
+    volume = _lautstaerke(kennung)
+    try:
+        _aufrufen(volume, _SET_MUTE, (ctypes.c_int, c_void_p),
+                  1 if an else 0, None)
+    finally:
+        _freigeben(volume)

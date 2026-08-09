@@ -176,22 +176,22 @@ the automatic path is not implemented.
 |---|---|---|
 | **Linux** | ✅ Fully tested | The reference platform. Automatic null-sink routing via PipeWire/PulseAudio (`pactl`). |
 | **macOS** | 🟡 Developed, incompletely tested | Runs via [BlackHole](https://existential.audio/blackhole/) as the loopback driver, devices picked by hand (`--no-route --input`). Built, but not exhaustively verified on hardware. |
-| **Windows** | 🟡 Running, incompletely tested | Automatic routing like Linux, with [VB-CABLE](https://vb-audio.com/Cable/) in the role of the null sink: install it once, then `run.cmd` — no options. Verified on Windows 10; what has *not* been done is a long musical session. See [Windows](#windows). |
+| **Windows** | 🟡 Running, incompletely tested | Automatic routing like Linux, and **nothing to install**: a second output endpoint (an unused HDMI or S/PDIF port will do) is muted and used as the silent detour, captured via WASAPI loopback; you keep hearing the delayed music on your normal speakers. [VB-CABLE](https://vb-audio.com/Cable/) is still supported and takes precedence if installed. Verified on Windows 10; what has *not* been done is a long musical session. See [Windows](#windows). |
 
 The one thing the script cannot install for you is **PortAudio**, because it is a
 system library and not a Python package (`sudo apt install libportaudio2`,
 `brew install portaudio`). It checks for it and says so, rather than letting
 `sounddevice` fail with "PortAudio library not found". On Windows PortAudio comes
-inside the `sounddevice` wheel and there is nothing to install; what you do need
-there — as on macOS — is the loopback driver:
-[VB-CABLE](https://vb-audio.com/Cable/) and
-[BlackHole](https://existential.audio/blackhole/) respectively. See below.
+inside the `sounddevice` wheel and there is nothing to install at all — not even
+a loopback driver, as long as you have a second playback device to listen on.
+macOS still needs one: [BlackHole](https://existential.audio/blackhole/). See
+below.
 
 ## How it works
 
 1. **Capture**: System audio is tapped — on Linux through the monitor of a
-   PipeWire/PulseAudio null sink, on Windows through the recording side of the
-   VB-CABLE loop, on macOS through a loopback driver (BlackHole).
+   PipeWire/PulseAudio null sink, on Windows through a WASAPI loopback tap on
+   the muted detour endpoint, on macOS through a loopback driver (BlackHole).
 2. **Delay**: A ring buffer exactly one delay long; at the write position the
    old value is played out and the new one written. The signal is not altered,
    only shifted. When a source starts playing after a longer silence — press
@@ -250,13 +250,33 @@ everything is restored.
 
 The detour differs per platform, the choreography does not:
 
-| | Linux | Windows |
-|---|---|---|
-| the detour | a **null sink**, created by JamPilot via `pactl` | the **VB-CABLE** loop, installed once by you |
-| made default | `pactl set-default-sink` | `IPolicyConfig::SetDefaultEndpoint` (Core Audio) |
-| captured from | the null sink's monitor | CABLE Output, the recording side |
-| played back to | the previous default sink | the previous default endpoint |
-| left alone | — | the *Communications* device (voice chat) |
+| | Linux | Windows, VB-CABLE | Windows, no driver |
+|---|---|---|---|
+| the detour | a **null sink**, created via `pactl` | the **VB-CABLE** loop | a **second output endpoint**, muted |
+| made silent | silent by construction | nothing comes out of a cable | `IAudioEndpointVolume::SetMute` |
+| made default | `pactl set-default-sink` | `IPolicyConfig::SetDefaultEndpoint` | the same |
+| captured from | the null sink's monitor | CABLE Output, the recording side | the same endpoint, WASAPI loopback |
+| played back to | the previous default sink | the previous default endpoint | the same |
+| left alone | — | the *Communications* device | the same, and it is never the detour |
+
+The last two rows are the point: **you keep hearing on the device you were
+already using.** The endpoint that gets muted is the *detour* — the thing your
+players spill into — never the one you listen on.
+
+The driver-free variant works because of one measurable fact: **the mute of an
+endpoint sits behind the loopback tap.** The endpoint goes quiet, the capture
+keeps the full signal. That is what turns *any* second output into a null sink,
+even an HDMI port with a TV on the other end. It is driver behaviour, not
+something the documentation promises, so JamPilot does not believe it — at
+startup it mutes a candidate, sends an inaudible probe tone into it, measures at
+the tap and unmutes again (~350 ms per candidate). Only an endpoint that passes
+becomes the detour.
+
+If VB-CABLE is installed it wins: it is the proven path, and someone who
+installed it chose it. `--route mute|cable` forces either. Endpoints are ranked
+by their Core Audio **form factor**, not by name — HDMI and S/PDIF first (nobody
+listens there), headphones last. The name is useless for this: the HDMI output
+on the test machine is called "LEN LT2452pwC (NVIDIA High Definition Audio)".
 
 macOS is the one platform where this is still manual: BlackHole can take the
 role of the cable, but switching the default device there is a different API
@@ -272,10 +292,18 @@ output — otherwise it would save the muted state left by a crashed predecessor
 as the "previous state" and restore that on exit.
 
 All of that holds on Windows too, with one addition. There the change outlives
-the process — a killed run would leave the cable as the default output across a
-reboot — so the device to restore is written to a file *before* the switch is
-made, and `cleanup` only puts it back if the default output is in fact still the
-cable. If you have already fixed it yourself, JamPilot keeps its hands off.
+the process — a killed run would leave the endpoint muted, or the cable as the
+default output, across a reboot — so what has to be undone is written to a file
+*before* the change is made. `cleanup` reads that file rather than asking what
+the machine can do today: between the crash and the cleanup the headphones may
+be gone or the cable uninstalled, and a decision made now would undo the wrong
+thing. It also only acts if the state is in fact still there — if you have
+already unmuted your speakers yourself, JamPilot keeps its hands off, and an
+endpoint you had muted *before* starting stays muted.
+
+Of the two Windows failure modes, the muted endpoint is the friendlier one: it
+shows up as a crossed-out speaker icon that every user can find and click. A
+default output silently pointing at a virtual cable is invisible.
 
 A sink counts as orphaned only if its **owner process is dead**. Who created it
 is recorded in `/tmp/jampilot-<uid>.pid`; without that check a second instance
@@ -294,34 +322,48 @@ Install [BlackHole (2ch)](https://existential.audio/blackhole/), then:
 
 ### Windows
 
-Same idea as Linux, and just as automatic. The one thing you install yourself is
-[VB-CABLE](https://vb-audio.com/Cable/) (unpack it, run `VBCABLE_Setup_x64.exe`
-**as administrator**, reboot). It adds two devices: **CABLE Input**, an output
-that nothing audible comes out of, and **CABLE Output**, the recording side of
-the same pipe — together they are exactly the null sink Linux builds with
-`pactl`. Then:
+Same idea as Linux, just as automatic — and in the common case there is
+**nothing to install**:
 
 ```
 run.cmd
 ```
 
-That is the whole setup. On start JamPilot makes CABLE Input the default output
-(so every player lands in the cable, inaudibly), captures the other end of the
-cable, and plays the delayed signal on the device that *was* your default —
-your speakers. On exit it puts your output device back.
+That is the whole setup. You keep listening on your normal speakers; JamPilot
+needs a **second output endpoint** to use as the silent detour. An HDMI or
+DisplayPort output counts even with nothing but a monitor on it, and so does an
+S/PDIF jack with no cable in it — it does not have to be a device you own
+headphones for, it only has to exist.
 
-You do not set anything in *Settings → System → Sound*, and you do not pass
-`--input`. `run.cmd devices` prints what the automatic mode will pick:
+You set nothing in *Settings → System → Sound*, and you pass no `--input`.
+`run.cmd devices` prints what the automatic mode will pick:
 
 ```
 Automatic routing (no options needed):
-  capture   CABLE Output (VB-Audio Virtual Cable)
-  routes    system output -> CABLE Input (VB-Audio Virtual Cable)
+  routes    system output -> LEN LT2452pwC (NVIDIA High Definition Audio)  [muted]
+  captures  the same endpoint (WASAPI loopback)
   playback  Lautsprecher (Realtek High Definition Audio)
+  no driver needed
 ```
 
-`--output "Kopfhörer"` overrides where the delayed sound goes; `--no-route`
-turns the whole mechanism off and captures the default input device instead.
+Read it as: your players are sent to the monitor's audio output, which is muted
+so nothing comes out of it anywhere; JamPilot taps that endpoint and plays the
+delayed music on your speakers. On exit both are put back.
+
+`--output` overrides where the delayed sound goes; `--no-route` turns the whole
+mechanism off and captures the default input device instead.
+
+#### If there is no second endpoint
+
+Some laptops really do expose only their built-in speakers. Then this route has
+nothing to use as a detour, and the fallback is the old one: install
+[VB-CABLE](https://vb-audio.com/Cable/) (unpack it, run `VBCABLE_Setup_x64.exe`
+**as administrator**, reboot). It adds **CABLE Input**, an output nothing
+audible comes out of, and **CABLE Output**, the recording side of the same pipe
+— together exactly the null sink Linux builds with `pactl`.
+
+If VB-CABLE is installed it is used by default, on any machine. `--route mute`
+and `--route cable` force the choice either way.
 
 Details worth knowing:
 
@@ -329,24 +371,43 @@ Details worth knowing:
   telephony (*Communications*), and JamPilot does not touch it — Teams, Discord
   and Zoom keep their own device and stay undelayed. Linux cannot make that
   distinction; here it comes for free.
-- **Your output device comes back**, on a normal exit, on Ctrl+C, and when you
-  close the console window (Windows announces that as `CTRL_CLOSE_EVENT`, which
-  JamPilot handles the way it handles `SIGHUP` elsewhere). If the process is
-  killed outright, the *next* start puts it back by itself — or `run.cmd
-  cleanup` does it now.
+- **Your audio comes back**, on a normal exit, on Ctrl+C, and when you close the
+  console window (Windows announces that as `CTRL_CLOSE_EVENT`, which JamPilot
+  handles the way it handles `SIGHUP` elsewhere). If the process is killed
+  outright, the *next* start restores it by itself — or `run.cmd cleanup` does
+  it now.
+- **Unmute the detour mid-session and you will hear both** the original and the
+  delayed signal. That is not a bug you need to report; JamPilot deliberately
+  does not fight you over a setting you just changed by hand. Stop it, or mute
+  again.
+- **The detour is never your headset.** Windows' *Communications* device is
+  excluded from the candidates — a headset going silent in the middle of a video
+  call is not a bug anyone would look for in a chord display.
+- **Apps in WASAPI exclusive mode bypass the tap.** A player configured that way
+  (some DAWs, foobar2000 with exclusive output) does not go through the engine
+  mix and will not be captured. Browsers, Spotify and YouTube all use shared
+  mode; if you hit this, `--route cable` does capture it.
 - **A second instance refuses to start** rather than fighting the first one over
   the routing, exactly as on Linux.
 - **The firewall dialog appears on the first start**, because the web display
   listens on all interfaces. Click it away and the QR code becomes worthless —
   your phone will not get through. Allow it for private networks.
 
+All of it runs on `ctypes` in the process itself — no extra dependency, no
+administrator rights, nothing installed:
+[`jampilot/winaudio.py`](jampilot/winaudio.py) enumerates endpoints (with their
+form factor) and reads and sets the default device and the mute state,
+[`jampilot/wincapture.py`](jampilot/wincapture.py) carries the loopback tap and
+the startup probe. The bundled PortAudio (19.7.0) does not offer loopback at
+all, so it is not a matter of a flag — the code is not in the DLL.
+
 Switching the default output device is the one thing Windows has no documented
 API for; JamPilot uses `IPolicyConfig`, the undocumented COM interface behind
 the Sound control panel that nircmd and SoundVolumeView also use. It needs no
-administrator rights and no extra dependency (about 200 lines of `ctypes` in
-[`jampilot/winaudio.py`](jampilot/winaudio.py)). Should a future Windows version
-drop it, JamPilot falls back to the manual path with a message rather than
-failing.
+administrator rights. Should a future Windows version drop it, both Windows
+routes lose the switch and JamPilot falls back to the manual path with a message
+rather than failing. Muting and the endpoint enumeration go through documented
+interfaces (`IAudioEndpointVolume`, `IMMDeviceEnumerator`).
 
 **Prefer routing just one app?** Since Windows 10 the volume mixer (*Settings →
 System → Sound → Volume mixer*) can give a single application its own output
@@ -358,11 +419,20 @@ the speakers. More fiddly, but nothing but that one app gets delayed.
 What has been verified on Windows 10: setup and start via `run.cmd`, the
 automatic routing including restore on exit, recovery after a hard kill, the
 second-instance guard, closing the console window, device enumeration,
-`selftest`, the test suite (378 tests), a live run with the delay buffer and the
+`selftest`, the test suite (399 tests), a live run with the delay buffer and the
 measured lead, the web display, and the control window. A single full-duplex
 stream across two *different* WASAPI devices — the one thing that could have
-broken the design — carries. What has *not* been done is a long musical session,
-hence 🟡 in the table above. Building the standalone binary is not wired up on
+broken the design — carries.
+
+For the driver-free route specifically: the mute sits behind the loopback tap on
+all four driver families available on the test machine (Realtek HD Audio, NVIDIA
+HDMI, VB-Audio, Oculus), the captured peak is bit-identical to what was sent,
+audio from a *different* process is captured just the same, and output on the
+listening device does not bleed back into the tap. A full run with the HDMI
+output as the muted detour and the speakers as playback carries the signal
+end-to-end with no dropouts, and puts both back afterwards. Whether the mute
+behaves this way on every driver is exactly what the startup probe exists for.
+What has *not* been done is a long musical session, hence 🟡 in the table above. Building the standalone binary is not wired up on
 Windows; `run.cmd --bundle` says so and points at
 [`docs/exploration/windows-portierung.md`](docs/exploration/windows-portierung.md),
 where the reason (unsigned 200 MB onefile, SmartScreen) is a product decision

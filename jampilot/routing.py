@@ -13,10 +13,22 @@ DIESELBE IDEE, ZWEI SYSTEME:
     Linux    PulseAudio/PipeWire, `LinuxRouting`. Der Umweg ist ein Null-Sink,
              den wir selbst anlegen und per `pactl` zum Standard machen.
 
-    Windows  Core Audio, `WindowsRouting`. Einen Null-Sink kann man dort nicht
-             erzeugen - deshalb IST der Umweg das virtuelle Kabel VB-CABLE, das
-             der Nutzer einmal installiert. Zum Standard gemacht wird es ueber
-             winaudio.setze_standard (das Gegenstueck zu `set-default-sink`).
+    Windows  Core Audio, zwei Wege - und der bessere braucht keine Installation.
+
+             `WindowsMuteRouting` (WINMUTE, der Normalfall): Der Endpunkt, auf
+             dem die Player ohnehin spielen, wird STUMMGESCHALTET und per
+             WASAPI-Loopback mitgeschnitten. Der Mute sitzt hinter dem Abgriff -
+             der Nutzer hoert das Original nicht mehr, wir bekommen es
+             vollstaendig. Der Standard-Ausgang bleibt, wo er ist; die
+             verzoegerte Ausgabe geht auf ein zweites Geraet (Kopfhoerer,
+             Interface). Ob der Treiber das mitmacht, wird beim Start GEMESSEN,
+             nicht geglaubt (wincapture.pruefen).
+
+             `WindowsRouting` (WINCABLE, der Rueckfallweg): Wo kein zweites
+             Ausgabegeraet da ist oder der Mute vor dem Abgriff sitzt, uebernimmt
+             das virtuelle Kabel VB-CABLE die Rolle des Null-Sinks, und der
+             Standard-Ausgang wird ueber winaudio.setze_standard darauf
+             umgebogen (das Gegenstueck zu `set-default-sink`).
 
     macOS    noch nicht. Dort uebernimmt BlackHole die Rolle des Kabels, aber
              die Umstellung des Standardgeraets ist eine andere Baustelle
@@ -45,7 +57,15 @@ APP_NAME = "jampilot"
 
 # Welches Verfahren auf diesem Rechner traegt.
 PULSE = "pulse"          # Linux, Null-Sink ueber pactl
+WINMUTE = "winmute"      # Windows, stummer Endpunkt + WASAPI-Loopback
 WINCABLE = "wincable"    # Windows, VB-CABLE ueber Core Audio
+
+# Welcher Windows-Weg gewuenscht ist: "auto", "mute" oder "cable". Modulweit,
+# weil backend() von einem Dutzend Stellen ohne Argumente gefragt wird und die
+# Antwort ueberall dieselbe sein MUSS - eine Stelle, die anders entscheidet als
+# der Aufbau, prueft das falsche Geraet. cmd_run setzt es einmal, bevor
+# irgendetwas fragt.
+_wunsch = "auto"
 
 
 def _nutzerkennung() -> str:
@@ -93,17 +113,37 @@ class InstanceRunning(RuntimeError):
         self.pid = pid
 
 
+def bevorzugen(wahl: str | None):
+    """Den Windows-Weg festlegen ("auto", "mute", "cable"). Einmal, ganz frueh."""
+    global _wunsch, _stummweg_cache
+    neu = wahl or "auto"
+    if neu != _wunsch:
+        _stummweg_cache = _UNSET       # die alte Antwort galt fuer eine andere Frage
+    _wunsch = neu
+
+
 def backend() -> str | None:
     """Welches Umleitungsverfahren dieser Rechner hergibt - oder keines.
 
     EINE Stelle, an der die Plattformfrage beantwortet wird. Alles andere fragt
     hier nach, statt selbst `sys.platform` zu lesen - sonst steht die Antwort
     fuenfmal im Programm und viermal davon leicht anders.
+
+    Unter Windows gilt: Das Kabel zuerst, WENN es installiert ist. Es ist der
+    erprobte Weg, es braucht keinen zweiten Endpunkt, und wer es installiert
+    hat, hat sich dafuer entschieden - dem faehrt man nicht ueber Nacht in die
+    Konfiguration. Erst wenn keines da ist, kommt der Mute-Weg, und der ist
+    dafuer gebaut: fuer den ersten Start auf einem Rechner, auf dem nichts
+    vorbereitet ist. Ob er traegt, wird GEMESSEN (siehe _stummweg) - und die
+    Messung laeuft nur, wenn sie gebraucht wird.
     """
     if shutil.which("pactl"):
         return PULSE
-    if sys.platform == "win32" and _kabel_vorhanden():
-        return WINCABLE
+    if sys.platform == "win32":
+        if _wunsch != "mute" and _kabel_vorhanden():
+            return WINCABLE
+        if _wunsch != "cable" and _stummweg() is not None:
+            return WINMUTE
     return None
 
 
@@ -124,12 +164,17 @@ def uses_routing(args) -> bool:
 
 def create(args):
     """Die Umleitung dieses Rechners - als Kontextmanager."""
-    return WindowsRouting(args) if backend() == WINCABLE else LinuxRouting(args)
+    gewaehlt = backend()
+    if gewaehlt == WINMUTE:
+        return WindowsMuteRouting(args)
+    if gewaehlt == WINCABLE:
+        return WindowsRouting(args)
+    return LinuxRouting(args)
 
 
 def current_output() -> str:
     """Wie der Standard-Ausgang gerade heisst - fuer `jampilot cleanup`."""
-    if backend() == WINCABLE:
+    if backend() in (WINMUTE, WINCABLE):
         from . import winaudio
 
         ziel = winaudio.standard(winaudio.RENDER)
@@ -362,7 +407,321 @@ def windows_playback_target():
     return ziel
 
 
+# --- Windows: ein stummgeschalteter Endpunkt als Umweg (ohne Kabel) ---------
+#
+# DIE ROLLEN, weil man sie genau einmal verwechseln muss, um alles kaputt zu
+# machen (und das ist passiert):
+#
+#     Umweg    das Geraet, in das die Player unhoerbar spielen. Beim Kabelweg
+#              ist das CABLE Input. Hier ist es ein ECHTER zweiter Endpunkt,
+#              den wir stummschalten - der Mute ersetzt den Treiber, nicht das
+#              Umschalten des Standardgeraets.
+#     Ausgabe  das Geraet, auf dem der Nutzer HOERT - also das, was vor dem
+#              Start Standard war. Dorthin geht das verzoegerte Signal, und
+#              genau dieses Geraet darf niemals stumm werden.
+#
+# Was der Weg spart, ist damit genau eine Sache: die Installation. Umgebogen
+# und zurueckgebogen wird wie beim Kabel.
+
+_stummweg_cache = _UNSET
+
+def _umwegkandidaten(ausgabe):
+    """Endpunkte, die als stummer Umweg taugen - beste zuerst.
+
+    Ausgeschlossen sind zwei, und beide aus demselben Grund: Dort hoert jemand
+    zu. Das ist der Standard-Ausgang selbst (dorthin geben WIR aus) und das
+    Telefoniegeraet (dort laeuft Teams; ein stummes Headset mitten im Gespraech
+    waere ein Fehler, den niemand bei einem Akkordanzeiger suchte).
+
+    Sortiert wird nach dem FORMFAKTOR und nicht nach dem Namen. Der Mute macht
+    zwar jeden Endpunkt still, aber einen Kopfhoerer zum Umweg zu machen hiesse,
+    dass jemand, der ihn waehrend des Laufs aufsetzt, Stille hoert - ein
+    Bildschirmausgang stoert dagegen niemanden. Am Namen ist das nicht
+    abzulesen: Der HDMI-Ausgang heisst hier "LEN LT2452pwC (NVIDIA High
+    Definition Audio)", und ein virtuelles Kabel heisst, wie sein Hersteller
+    will. Windows fuehrt die Antwort als Eigenschaft, also wird sie gefragt.
+    """
+    from . import winaudio
+
+    # Je kleiner, desto lieber. Virtuelle Kabel zuerst: Aus denen kommt per
+    # Bauart nichts heraus, da braucht es nicht einmal den Mute.
+    rang = {winaudio.FF_SPDIF: 1, winaudio.FF_HDMI: 1,
+            winaudio.FF_DIGITAL_DURCHREICHUNG: 1}
+
+    def gewicht(endpunkt):
+        if _KABEL_EIN.match(endpunkt.name) or "VB-Audio" in endpunkt.name:
+            return 0
+        return rang.get(endpunkt.formfaktor, 2)
+
+    telefonie = winaudio.standard(winaudio.RENDER, winaudio.COMMUNICATIONS)
+    frei = [e for e in winaudio.endpunkte(winaudio.RENDER)
+            if e != ausgabe and e != telefonie]
+    return sorted(frei, key=gewicht)
+
+
+def _stummweg(neu_pruefen: bool = False):
+    """(Umweg-Endpunkt, Ausgabe-Endpunkt) - oder None.
+
+    None heisst: Dieser Rechner kann den Weg nicht. Es gibt keinen
+    Standard-Ausgang, es gibt keinen zweiten Endpunkt fuer den Umweg, oder auf
+    keinem davon ueberlebt der Mitschnitt die Stummschaltung. Der letzte Punkt
+    ist der einzige, den man nicht nachschlagen kann: Ob der Mute vor oder
+    hinter dem Loopback-Abgriff sitzt, entscheidet der Treiber - deshalb wird
+    jeder Kandidat gemessen, bis einer traegt.
+
+    Das Ergebnis wird gemerkt. Nicht aus Geschwindigkeit: Jede Messung schaltet
+    kurz stumm, und uses_routing() wird mehrfach pro Start gefragt.
+    """
+    global _stummweg_cache
+    if _stummweg_cache is not _UNSET and not neu_pruefen:
+        return _stummweg_cache
+
+    weg = None
+    try:
+        from . import winaudio, wincapture
+
+        ausgabe = winaudio.standard(winaudio.RENDER, winaudio.CONSOLE)
+        if ausgabe is not None:
+            for kandidat in _umwegkandidaten(ausgabe):
+                if wincapture.pruefen(kandidat.kennung):
+                    weg = (kandidat, ausgabe)
+                    break
+    except Exception:
+        # Kein Grund zu sterben: Ohne diesen Weg bleibt der Kabelweg, und ohne
+        # den bleibt der Direktmodus. Ein Traceback aus einer COM-vtable saehe
+        # dagegen nach einem kaputten Programm aus.
+        weg = None
+
+    _stummweg_cache = weg
+    return weg
+
+
+class WindowsMuteRouting:
+    """Kontextmanager: zweiten Endpunkt stumm schalten und zum Umweg machen.
+
+    Schritt fuer Schritt dasselbe Stueck wie WindowsRouting - nur dass der
+    Umweg kein installierter Treiber ist, sondern ein Geraet, das ohnehin da
+    ist und dem wir den Ton abdrehen:
+
+        Kabelweg                        Mute-Weg
+        (VB-CABLE ist schon stumm)      setze_stumm(Umweg, True)
+        setze_standard(CABLE Input)     setze_standard(Umweg)
+        Capture liest CABLE Output      wincapture.Loopback auf dem Umweg
+        Ausgabe -> vorheriger Standard  Ausgabe -> vorheriger Standard
+
+    Die letzte Zeile ist die wichtigste: Der Nutzer hoert weiter da, wo er
+    vorher gehoert hat. Der stumme Endpunkt ist der UMWEG, nicht das
+    Hoergeraet - wer das vertauscht, dreht dem Nutzer den Ton ab und spielt
+    die Musik auf ein Geraet, an dem niemand sitzt.
+
+    WAS DER MUTE BRINGT: Ohne ihn taugte als Umweg nur ein Endpunkt, aus dem
+    ohnehin nichts herauskommt (HDMI ohne Lautsprecher, ungenutztes S/PDIF).
+    Mit ihm taugt jeder zweite Endpunkt, auch einer, an dem ein Fernseher
+    haengt. Das ist der ganze Unterschied zum Treiber - und der Grund, warum
+    hier nichts zu installieren ist.
+
+    ALLES WIRD AUFGELOEST, BEVOR ETWAS UMGESTELLT WIRD. Ein fehlendes Geraet
+    soll an einem Rechner scheitern, der noch Ton hat.
+    """
+
+    capture_device = None       # der Mitschnitt kommt nicht von PortAudio
+
+    def __init__(self, args=None):
+        self.args = args
+        self.umweg = None            # Endpunkt, der stumm und Standard wird
+        self.ausgabe = None          # wo gehoert wird - der vorherige Standard
+        self.capture_source = None   # wincapture.Loopback auf dem Umweg
+        self.playback_device = None  # PortAudio-Index der Ausgabe
+        self.samplerate = None       # das Mixformat des Umwegs gibt sie vor
+        self._war_stumm = False
+        self._undo = []
+
+    def __enter__(self):
+        from . import winaudio, wincapture
+
+        try:
+            # Waisen zuerst - sonst merkt sich `ausgabe` womoeglich den Umweg
+            # eines abgestuerzten Laufs, und wir gaeben die Musik auf ein
+            # stummgeschaltetes Geraet aus.
+            cleanup()
+
+            weg = _stummweg(neu_pruefen=True)
+            if weg is None:
+                raise RuntimeError(
+                    "No endpoint can serve as the silent detour (needs a "
+                    "second playback device whose capture survives muting).")
+            self.umweg, self.ausgabe = weg
+
+            gewuenscht = getattr(self.args, "output", None)
+            if gewuenscht is not None:
+                self.playback_device = gewuenscht
+            else:
+                self.playback_device = _portaudio_index(self.ausgabe.name, "output")
+                if self.playback_device is None:
+                    raise RuntimeError(
+                        f"{self.ausgabe.name!r} is a Windows playback device "
+                        f"but PortAudio does not offer it in stereo. Pass "
+                        f"--output to pick another one; 'jampilot devices' "
+                        f"lists them.")
+
+            self._war_stumm = winaudio.stumm(self.umweg.kennung)
+
+            # ERST merken, DANN umstellen. Andersherum gaebe es ein Fenster, in
+            # dem der Umweg Standard und stumm ist und niemand mehr weiss, was
+            # vorher galt - ein Absturz genau dort liesse einen stummen Rechner
+            # zurueck, den auch der naechste Start nicht mehr reparieren
+            # koennte.
+            STATE_FILE.write_text(json.dumps({
+                "previous": self.ausgabe.kennung,
+                "previous_name": self.ausgabe.name,
+                "umweg": self.umweg.kennung,
+                "muted": self.umweg.kennung,
+                "muted_name": self.umweg.name,
+                "war_stumm": self._war_stumm,
+            }))
+            LOCK_FILE.write_text(str(os.getpid()))
+            self._undo.append(self._vermerke_loeschen)
+
+            # Stumm VOR dem Umschalten: Andersherum liefe der Systemton fuer
+            # einen Wimpernschlag hoerbar auf den Umweg - bei einem Fernseher
+            # am HDMI-Ausgang ein Schreck, kein Schoenheitsfehler.
+            winaudio.setze_stumm(self.umweg.kennung, True)
+            self._undo.append(self._stumm_zurueck)
+
+            winaudio.setze_standard(self.umweg.kennung)
+            self._undo.append(self._standard_zurueck)
+
+            self.capture_source = wincapture.Loopback(self.umweg.kennung,
+                                                      self.umweg.name)
+            self._undo.append(self.capture_source.close)
+            self.samplerate = self.capture_source.samplerate
+        except BaseException:
+            self._rollback()
+            raise
+        return self
+
+    def after_start(self):
+        """Nichts zu tun - die Ausgabe haengt schon am richtigen Geraet."""
+
+    def _vermerke_loeschen(self):
+        from . import winaudio
+
+        LOCK_FILE.unlink(missing_ok=True)
+        # Der Vermerk bleibt liegen, WENN etwas nicht zurueckgenommen werden
+        # konnte: Dann ist er das Einzige, woraus `jampilot cleanup` noch
+        # erfahren kann, was zu tun ist.
+        try:
+            jetzt = winaudio.standard(winaudio.RENDER, winaudio.CONSOLE)
+            offen = ((jetzt is not None and jetzt.kennung == self.umweg.kennung)
+                     or (not self._war_stumm
+                         and winaudio.stumm(self.umweg.kennung)))
+        except Exception:
+            offen = False
+        if not offen:
+            STATE_FILE.unlink(missing_ok=True)
+
+    def _standard_zurueck(self):
+        from . import winaudio
+
+        # Nur zurueckstellen, wenn WIR noch stehen. Hat der Nutzer waehrend des
+        # Laufs selbst umgestellt, ist seine Wahl die juengere.
+        jetzt = winaudio.standard(winaudio.RENDER, winaudio.CONSOLE)
+        if jetzt is not None and jetzt.kennung != self.umweg.kennung:
+            return
+        winaudio.setze_standard(self.ausgabe.kennung)
+
+    def _stumm_zurueck(self):
+        from . import winaudio
+
+        if self._war_stumm:
+            return          # der Nutzer hatte selbst stummgeschaltet
+        winaudio.setze_stumm(self.umweg.kennung, False)
+
+    def _rollback(self):
+        # Rueckwaerts: Mitschnitt zu, Standard zurueck, entstummen, Vermerke
+        # weg. Ein scheiternder Schritt darf die uebrigen nicht verhindern -
+        # sonst bleibt ausgerechnet der Standard auf einem stummen Geraet.
+        while self._undo:
+            step = self._undo.pop()
+            try:
+                step()
+            except Exception as exc:
+                print(f"Warning: cleanup incomplete ({exc}). "
+                      f"'jampilot cleanup' resets the rest.",
+                      file=sys.stderr)
+
+    def __exit__(self, *exc):
+        self._rollback()
+        return False
+
+
 def _cleanup_windows() -> int:
+    """Zuruecknehmen, was ein abgestuerzter Lauf hinterlassen hat - beide Wege.
+
+    WELCHER Weg lief, sagt der Vermerk und nicht das heutige backend(): Zwischen
+    dem Absturz und dem Aufraeumen kann sich der Rechner geaendert haben (der
+    Kopfhoerer ist ab, das Kabel deinstalliert), und eine Fallunterscheidung
+    nach backend() raeumte dann ausgerechnet das Falsche weg - oder gar nichts.
+    """
+    try:
+        gemerkt = json.loads(STATE_FILE.read_text())
+    except (OSError, ValueError):
+        gemerkt = {}
+    STATE_FILE.unlink(missing_ok=True)
+    LOCK_FILE.unlink(missing_ok=True)
+
+    if gemerkt.get("muted"):
+        return _stummschaltung_zurueck(gemerkt)
+    return _kabel_zurueck(gemerkt)
+
+
+def _stummschaltung_zurueck(gemerkt: dict) -> int:
+    """Den Mute-Umweg zuruecknehmen, den ein abgestuerzter Lauf stehen liess.
+
+    ZWEI Dinge, und sie sind unabhaengig voneinander: Der Standard-Ausgang
+    haengt womoeglich noch auf dem Umweg (dann hoert der Nutzer gar nichts),
+    und der Umweg ist womoeglich noch stumm (dann hoert er auch nichts, wenn er
+    von Hand zurueckstellt). Beides wird einzeln geprueft, denn ein abgebrochener
+    Rueckbau kann genau eines von beiden hinterlassen haben.
+
+    Zwei Faelle bleiben ausdruecklich liegen: Der Nutzer hatte den Umweg schon
+    vorher selbst stumm (`war_stumm`), oder er hat laengst selbst
+    zurueckgestellt. Fremde Entscheidungen ueberschreibt man nicht, auch nicht
+    mit guten Absichten.
+    """
+    from . import winaudio
+
+    umweg = gemerkt.get("umweg") or gemerkt.get("muted")
+    getan = 0
+
+    try:
+        jetzt = winaudio.standard(winaudio.RENDER, winaudio.CONSOLE)
+        if jetzt is not None and jetzt.kennung == umweg:
+            aktive = {e.kennung: e for e in winaudio.endpunkte(winaudio.RENDER)}
+            ziel = gemerkt.get("previous")
+            if ziel not in aktive:
+                # Das gemerkte Hoergeraet ist weg (Kopfhoerer abgezogen).
+                # Irgendein Ausgang, der nicht der stumme Umweg ist, ist immer
+                # noch besser als gar keiner.
+                ersatz = next((k for k in aktive if k != umweg), None)
+                ziel = ersatz
+            if ziel:
+                winaudio.setze_standard(ziel)
+                getan = 1
+    except Exception:
+        pass            # Core Audio streikt - der Mute-Teil unten zaehlt trotzdem
+
+    if umweg and not gemerkt.get("war_stumm"):
+        try:
+            if winaudio.stumm(umweg):
+                winaudio.setze_stumm(umweg, False)
+                getan = 1
+        except Exception:
+            pass        # Geraet abgezogen - dann ist auch nichts stumm
+    return getan
+
+
+def _kabel_zurueck(gemerkt: dict) -> int:
     """Den Standard-Ausgang zurueckholen, wenn er noch am Kabel haengt.
 
     Die Bedingung ist wichtiger als das Zurueckstellen: Steht der Standard
@@ -371,13 +730,6 @@ def _cleanup_windows() -> int:
     uebergriffig, ihm jetzt ein Geraet von vorgestern unterzuschieben.
     """
     from . import winaudio
-
-    try:
-        gemerkt = json.loads(STATE_FILE.read_text())
-    except (OSError, ValueError):
-        gemerkt = {}
-    STATE_FILE.unlink(missing_ok=True)
-    LOCK_FILE.unlink(missing_ok=True)
 
     jetzt = winaudio.standard(winaudio.RENDER)
     if jetzt is None or not _KABEL_EIN.match(jetzt.name):
@@ -410,7 +762,13 @@ def cleanup(force: bool = False) -> int:
     pid = owner_pid()
     if pid is not None and pid != os.getpid() and not force:
         raise InstanceRunning(pid)
-    return _cleanup_windows() if backend() == WINCABLE else _cleanup_pulse()
+    # Der Pulse-Weg braucht pactl, also entscheidet ihn backend(). Alles andere
+    # unter Windows raeumt _cleanup_windows - und zwar auch dann, wenn backend()
+    # gerade None sagt: Der Weg, der den Rest hinterlassen hat, muss heute nicht
+    # mehr zur Verfuegung stehen (Kopfhoerer ab, Kabel deinstalliert).
+    if backend() == PULSE:
+        return _cleanup_pulse()
+    return _cleanup_windows() if sys.platform == "win32" else 0
 
 
 def _cleanup_pulse() -> int:

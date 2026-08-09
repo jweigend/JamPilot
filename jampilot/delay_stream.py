@@ -35,9 +35,17 @@ class DelayedLoopback:
         blocksize: int = 2048,
         channels: int = 2,
         analysis_seconds: float = 3.0,
+        capture=None,
     ):
         self.samplerate = samplerate
         self.channels = channels
+        # Woher der Eingang kommt: normalerweise aus demselben Vollduplex-Stream,
+        # der auch ausgibt. `capture` setzt an dessen Stelle eine fremde Quelle
+        # (unter Windows der WASAPI-Loopback eines stummgeschalteten Ausgangs) -
+        # dann laeuft nur noch die AUSGABE ueber PortAudio, und der Callback
+        # holt sich seinen Block vorher ab. Alles danach ist Zeile fuer Zeile
+        # dasselbe: Ringpuffer, Einzaehler, Analyse, Stummschaltung.
+        self._capture = capture
 
         self.delay_frames = max(blocksize, int(round(delay_seconds * samplerate)))
         self.delay_seconds = self.delay_frames / samplerate
@@ -99,15 +107,29 @@ class DelayedLoopback:
 
         # latency="high": die Akkordanalyse (~280ms CPU) haelt den GIL
         # zeitweise - grosszuegige Puffer verhindern Audio-Dropouts.
-        self._stream = sd.Stream(
-            device=(input_device, output_device),
-            samplerate=samplerate,
-            blocksize=blocksize,
-            channels=channels,
-            dtype="float32",
-            latency="high",
-            callback=self._callback,
-        )
+        if capture is None:
+            self._stream = sd.Stream(
+                device=(input_device, output_device),
+                samplerate=samplerate,
+                blocksize=blocksize,
+                channels=channels,
+                dtype="float32",
+                latency="high",
+                callback=self._callback,
+            )
+        else:
+            # Einmal vorbereitet, im Callback nur noch gefuellt: In einem
+            # Audio-Callback wird nicht allokiert.
+            self._indata = np.zeros((blocksize, channels), dtype=np.float32)
+            self._stream = sd.OutputStream(
+                device=output_device,
+                samplerate=samplerate,
+                blocksize=blocksize,
+                channels=channels,
+                dtype="float32",
+                latency="high",
+                callback=self._callback_ziehend,
+            )
         # Zaehler statt Liste: eine wachsende Liste im Audio-Callback wuerde
         # ausgerechnet dann Speicher belegen und allokieren, wenn der Stream
         # ohnehin schon klemmt. `status` baut sounddevice pro Callback neu -
@@ -125,6 +147,19 @@ class DelayedLoopback:
         beep[:fade] *= np.linspace(0.0, 1.0, fade, dtype=np.float32)
         beep[-fade:] *= np.linspace(1.0, 0.0, fade, dtype=np.float32)
         return beep
+
+    def _callback_ziehend(self, outdata, frames, time_info, status):
+        """Nur-Ausgabe-Fassung: den Eingangsblock erst holen, dann wie immer.
+
+        Die fremde Quelle liefert IMMER `frames` Frames - fehlendes Material
+        ergaenzt sie mit Stille, statt zu warten. Ein Audio-Callback, der auf
+        einen anderen Thread wartet, reisst den ganzen Ausgabestream mit.
+        """
+        block = self._indata[:frames]
+        if frames > len(self._indata):        # sollte nie passieren
+            block = np.zeros((frames, self.channels), dtype=np.float32)
+        self._capture.read_into(block)
+        self._callback(block, outdata, frames, time_info, status)
 
     def _callback(self, indata, outdata, frames, time_info, status):
         if status:
@@ -290,6 +325,18 @@ class DelayedLoopback:
         self._control_events = tuple(events)
 
     @property
+    def capture_dropouts(self) -> tuple[int, int] | None:
+        """(Unterlaeufe, Ueberlaeufe) der fremden Quelle - None, wenn keine.
+
+        Zwei unabhaengige Uhren (Mitschnitt und Ausgabe) laufen langsam
+        auseinander; wer spaeter einem Knacken nachgeht, soll nicht raten
+        muessen, ob es von hier kam.
+        """
+        if self._capture is None:
+            return None
+        return (self._capture.unterlaeufe, self._capture.ueberlaeufe)
+
+    @property
     def captured_frames(self) -> int:
         """Wie viele Frames seit dem Start eingegangen sind."""
         return self._frames_seen
@@ -300,8 +347,13 @@ class DelayedLoopback:
 
     @property
     def output_latency(self) -> float:
-        """Geschaetzte Pufferzeit der Soundkarte hinter dem Ringpuffer."""
-        return float(self._stream.latency[1])
+        """Geschaetzte Pufferzeit der Soundkarte hinter dem Ringpuffer.
+
+        `latency` ist beim Vollduplex-Stream ein Paar (rein, raus), beim reinen
+        Ausgabestream ein einzelner Wert - gemeint ist beide Male derselbe.
+        """
+        latenz = self._stream.latency
+        return float(latenz[1] if isinstance(latenz, (tuple, list)) else latenz)
 
     def audible_position(self) -> float:
         """Stream-Position (Sekunden), die JETZT aus dem Lautsprecher kommt.

@@ -197,15 +197,26 @@ def cmd_devices(_args):
     # - davon stehen oben dreissig -, sondern ob JamPilot sich selbst versorgen
     # kann. Diese zwei Zeilen beantworten sie.
     if sys.platform == "win32":
-        kabel = routing._kabel(neu_pruefen=True)
         print("\nAutomatic routing (no options needed):")
+        stumm = routing._stummweg(neu_pruefen=True)
+        kabel = routing._kabel(neu_pruefen=True)
         if kabel:
             ziel = routing.windows_playback_target()
-            print(f"  capture   {kabel[1].name}")
             print(f"  routes    system output -> {kabel[0].name}")
+            print(f"  captures  {kabel[1].name}")
             print(f"  playback  {ziel.name if ziel else '(no real output!)'}")
+            if stumm:
+                print(f"  (--route mute would use {stumm[0].name} as a muted "
+                      f"detour instead - no driver)")
+        elif stumm:
+            umweg, ausgabe = stumm
+            print(f"  routes    system output -> {umweg.name}  [muted]")
+            print(f"  captures  the same endpoint (WASAPI loopback)")
+            print(f"  playback  {ausgabe.name}")
+            print("  no driver needed")
         else:
-            print("  unavailable - VB-CABLE is not installed "
+            print("  unavailable - JamPilot needs either a second output "
+                  "endpoint to use as a silent detour, or VB-CABLE "
                   "(https://vb-audio.com/Cable/)")
 
     if shutil.which("pactl"):
@@ -282,6 +293,18 @@ def _bericht_zur_quelle(args):
     from . import routing
 
     if routing.uses_routing(args):
+        if routing.backend() == routing.WINMUTE:
+            weg = routing._stummweg()
+            if weg:
+                umweg, ausgabe = weg
+                # Dieselbe Zeile wie beim Kabel, mit demselben Aufbau: wohin
+                # der Systemton geht, und wo der Nutzer hoert. Das zweite ist
+                # das, was er pruefen wird, wenn er nichts hoert.
+                print(f"System audio -> {umweg.name!r} (a second output, "
+                      f"muted so nothing comes out of it) -> JamPilot -> "
+                      f"{ausgabe.name!r} (restored on exit). No driver needed. "
+                      f"Voice chat is left alone.")
+            return
         if routing.backend() == routing.WINCABLE:
             kabel = routing._kabel()
             ziel = routing.windows_playback_target()
@@ -303,11 +326,15 @@ def _bericht_zur_quelle(args):
         # Danach ist Schluss: Der generische Hinweis unten wuerde denselben
         # Treiber ein zweites Mal empfehlen, und gleich darauf sagt
         # _check_devices ohnehin, welches Geraet nicht taugt.
-        print("VB-CABLE is not installed - without it JamPilot cannot take "
-              "over the system sound and falls back to the default input "
-              "device. Install it from https://vb-audio.com/Cable/ (run "
-              "VBCABLE_Setup_x64.exe as administrator, then reboot); after "
-              "that 'jampilot' needs no options at all.")
+        print("JamPilot cannot take over the system sound here and falls back "
+              "to the default input device. It needs a silent detour for your "
+              "players, and there are two ways to get one: a SECOND OUTPUT "
+              "ENDPOINT it can mute and capture (an HDMI or S/PDIF output "
+              "counts, nothing has to be plugged into it - no install at "
+              "all), or VB-CABLE (https://vb-audio.com/Cable/, run "
+              "VBCABLE_Setup_x64.exe as administrator, then reboot). "
+              "'jampilot devices' shows what it found. Your speakers keep "
+              "playing the delayed music either way.")
         return
 
     import sounddevice as sd
@@ -327,7 +354,8 @@ def cmd_cleanup(args):
 
     if not routing.available():
         print("No audio routing on this machine (Linux needs pactl, Windows "
-              "needs VB-CABLE) - nothing to clean up here.")
+              "needs a second playback device or VB-CABLE) - nothing to clean "
+              "up here.")
         return
     # Ein SIGKILL laesst sich nicht abfangen; danach bleibt der stumme Umweg
     # Standard-Ausgang und der Rechner hat keinen Ton. Das raeumt das weg -
@@ -336,9 +364,13 @@ def cmd_cleanup(args):
         aufgeraeumt = routing.cleanup(force=args.force)
     except routing.InstanceRunning as exc:
         raise SystemExit(f"{exc}\n'jampilot cleanup --force' cleans up anyway.")
-    if routing.backend() == routing.WINCABLE:
-        print("Took the system output back off the cable." if aufgeraeumt
-              else "Nothing left over - the system output is not on the cable.")
+    if sys.platform == "win32":
+        # WAS zurueckgenommen wurde, steht im Vermerk des abgestuerzten Laufs
+        # und nicht im heutigen backend() - deshalb hier eine Meldung fuer
+        # beide Wege statt zwei, von denen eine luegen kann.
+        print("Undid what a crashed run left behind (muted endpoint or "
+              "redirected system output)." if aufgeraeumt
+              else "Nothing left over - the audio setup is untouched.")
     else:
         print(f"Removed {aufgeraeumt} orphaned jampilot sink(s)." if aufgeraeumt
               else "No orphaned jampilot sinks found.")
@@ -805,6 +837,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             debug.close()
     if loop.xruns:
         print(f"Stream warnings: {loop.xruns} (last: {loop.last_status})")
+    aussetzer = loop.capture_dropouts
+    if aussetzer and any(aussetzer):
+        print(f"Capture dropouts: {aussetzer[0]} under, {aussetzer[1]} over "
+              f"(the two device clocks drifting apart)")
 
 
 def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=None):
@@ -1120,6 +1156,10 @@ def _display_loop_template(loop, args, broadcaster=None, stop=None, engine=None)
             debug.close()
     if loop.xruns:
         print(f"Stream warnings: {loop.xruns} (last: {loop.last_status})")
+    aussetzer = loop.capture_dropouts
+    if aussetzer and any(aussetzer):
+        print(f"Capture dropouts: {aussetzer[0]} under, {aussetzer[1]} over "
+              f"(the two device clocks drifting apart)")
 
 
 def _locate_onset(chord, previous, history, window_end, last_onset):
@@ -1263,6 +1303,16 @@ def main():
     p_run.add_argument("--no-route", action="store_true",
                        help="Do not touch the system output; capture the "
                             "default input device instead")
+    # Windows kann den stummen Umweg auf zwei Arten herstellen, und "auto"
+    # entscheidet das per Messung. Die feste Wahl gibt es fuer den Fall, dass
+    # die Messung auf einem Rechner das Falsche sagt - und fuer die Entwicklung,
+    # in der man beide Wege durchspielen will, ohne einen Treiber zu
+    # deinstallieren.
+    p_run.add_argument("--route", choices=("auto", "mute", "cable"),
+                       default="auto",
+                       help="Windows only: how to silence the source - 'mute' "
+                            "(no install needed), 'cable' (VB-CABLE), or "
+                            "'auto' (default: measure and pick)")
     p_run.add_argument("--no-web", action="store_true",
                        help="Start without the web display")
     p_run.add_argument("--no-window", action="store_true",
@@ -1294,6 +1344,12 @@ def main():
         value = getattr(args, attr, None)
         if isinstance(value, str) and value.isdigit():
             setattr(args, attr, int(value))
+    # BEVOR irgendjemand routing.backend() fragt: Die Antwort wird gemerkt, und
+    # eine Wahl, die erst danach ankaeme, kaeme zu spaet.
+    if getattr(args, "route", None):
+        from . import routing
+
+        routing.bevorzugen(args.route)
     args.func(args)
 
 

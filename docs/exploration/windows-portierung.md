@@ -105,6 +105,34 @@ schalten könnte, ohne dass der Mitschnitt mit verstummt. Das geht nicht: Sowohl
 die Gerätestummschaltung als auch die App-Lautstärke im Mixer wirken **vor** dem
 Punkt, an dem Loopback abgreift. Man schnitte Stille mit.
 
+> **Nachtrag (nachgemessen): Der letzte Absatz ist zur Hälfte falsch.** Für die
+> App-Lautstärke stimmt er — der Mitschnitt liefert dann Pakete, die als *silent*
+> markiert sind und keinen Inhalt haben. Für die **Gerätestummschaltung stimmt er
+> nicht**: Der Mute sitzt *hinter* dem Abgriff. Gemessen auf vier
+> Treiberfamilien (Realtek HD Audio, NVIDIA HDMI, VB-Audio, Oculus), Peak am
+> Abgriff jeweils exakt gleich der gesendeten Amplitude, stumm wie nicht stumm.
+>
+> Damit fällt die Begründung dieses ganzen Abschnitts: Der Null-Sink ist ein
+> **zweiter, stummgeschalteter Ausgang** — ein ungenutzter HDMI- oder
+> S/PDIF-Anschluss genügt. Der Mute ersetzt den **Treiber**, nicht das
+> Umschalten des Standardgeräts: Umgebogen wird wie beim Kabel, gehört wird
+> weiter auf den Lautsprechern. Gebaut in
+> [`wincapture.py`](../../jampilot/wincapture.py) und
+> `routing.WindowsMuteRouting`; VB-CABLE bleibt der Weg für Rechner, die
+> wirklich nur einen einzigen Ausgang haben — und hat Vorrang, wo es installiert
+> ist.
+>
+> *(Beim Bauen ist genau dieser Punkt einmal falsch herum gelandet: erst das
+> Hörgerät stummgeschaltet und die Musik auf ein zweites Gerät geschoben. Das
+> Programm lief dabei tadellos und tat das Gegenteil dessen, wofür es da ist —
+> die teuerste Fehlersorte, die es hier gibt.)*
+>
+> Was der Absatz richtig gesehen hat: Ein *stummer Umweg* wird gebraucht,
+> Loopback allein genügt nicht. Der Fehler lag nicht in der Frage, sondern in
+> einer Annahme über den Treiber, die man hätte messen können — in zehn Minuten,
+> genau wie den Vollduplex-Test weiter unten. Das ist die eigentliche Lehre
+> dieses Dokuments, und sie hat hier ein zweites Mal zugeschlagen.
+
 *(Nebenbei: sounddevice 0.5.5 gibt in `WasapiSettings` ohnehin nur `exclusive`,
 `auto_convert` und `explicit_sample_format` nach außen — keinen
 Loopback-Schalter. Neuere PortAudio-Bauten führen Loopback-Geräte stattdessen als

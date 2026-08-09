@@ -247,6 +247,7 @@ class TestWachhund:
 
         class ToterStream:
             delay_seconds, captured_frames, xruns, last_status = 4.0, 0, 0, None
+            capture_dropouts = None          # kein fremder Mitschnitt
 
         with pytest.raises(cli.StreamStalled, match="No audio"):
             cli._display_loop(ToterStream(), args)
@@ -260,6 +261,7 @@ class TestWachhund:
 
         class LaufenderStream:
             delay_seconds, xruns, last_status = 4.0, 0, None
+            capture_dropouts = None          # kein fremder Mitschnitt
 
             def __init__(self):
                 self._runden = 0
