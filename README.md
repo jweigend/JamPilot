@@ -31,8 +31,8 @@ Two things worth knowing before you start, because you would find them out anywa
   [HOW-IT-WORKS.md](HOW-IT-WORKS.md).
 
 Written entirely in Python and platform-independent — fully tested on Linux, also
-running on macOS, with Windows explored ([see the table](#platforms)). It all
-happens on your own machine — no account, no cloud, nothing uploaded anywhere.
+running on macOS and Windows ([see the table](#platforms)). It all happens on
+your own machine — no account, no cloud, nothing uploaded anywhere.
 
 ---
 
@@ -136,6 +136,26 @@ for a finished one.
 ./run.sh --neu               # throw the environment away and start over
 ```
 
+On **Windows** the same script exists as `run.cmd` (a thin shell around
+`run.ps1`) and does the same job — venv, stamp, dependencies, start:
+
+```bat
+git clone https://github.com/jweigend/JamPilot.git
+cd JamPilot
+run.cmd                      :: sets everything up on the first call, then starts
+run.cmd --delay 6            :: any option of `jampilot run`
+run.cmd devices              :: any other command
+run.cmd --neu                :: throw the environment away and start over
+```
+
+Use `run.cmd`, not `run.ps1` directly: a freshly installed Windows has its
+PowerShell execution policy on `Restricted`, and `.\run.ps1` fails there with a
+message that reads like a broken script rather than like a setting. `run.cmd`
+passes `-ExecutionPolicy Bypass` for that one call and changes nothing about
+your system. Windows needs one more thing before the first start — the VB-CABLE
+driver, see [Windows](#windows) below. After that `run.cmd` on its own is
+enough; there are no devices to pick.
+
 `run` options: `--delay` (seconds), `--output` (target sink/device), `--input` +
 `--no-route` (direct mode without automatic routing), `--samplerate` (default
 48000), `--port` (web display, default 8765), `--no-web`, `--no-window`.
@@ -149,25 +169,29 @@ JamPilot is written **entirely in Python and is platform-independent**: the
 capture, the delay buffer, the chord analysis, the control window and the web
 display are the *same* code everywhere. The only part that differs per operating
 system is how the system sound is tapped silently — and even that already has a
-portable path (`--no-route` with an explicit loopback device).
+portable fallback (`--no-route` with an explicit loopback device) for anywhere
+the automatic path is not implemented.
 
 | Platform | Status | Notes |
 |---|---|---|
 | **Linux** | ✅ Fully tested | The reference platform. Automatic null-sink routing via PipeWire/PulseAudio (`pactl`). |
-| **macOS** | 🟡 Developed, incompletely tested | Runs via [BlackHole](https://existential.audio/blackhole/) as the loopback driver (`--no-route`). Built, but not exhaustively verified on hardware. |
-| **Windows** | 🧭 Explored, not yet implemented | The core already runs unchanged; only silent capture is missing (VB-CABLE + `--no-route`). See [`docs/exploration/windows-portierung.md`](docs/exploration/windows-portierung.md). |
+| **macOS** | 🟡 Developed, incompletely tested | Runs via [BlackHole](https://existential.audio/blackhole/) as the loopback driver, devices picked by hand (`--no-route --input`). Built, but not exhaustively verified on hardware. |
+| **Windows** | 🟡 Running, incompletely tested | Automatic routing like Linux, with [VB-CABLE](https://vb-audio.com/Cable/) in the role of the null sink: install it once, then `run.cmd` — no options. Verified on Windows 10; what has *not* been done is a long musical session. See [Windows](#windows). |
 
 The one thing the script cannot install for you is **PortAudio**, because it is a
 system library and not a Python package (`sudo apt install libportaudio2`,
 `brew install portaudio`). It checks for it and says so, rather than letting
-`sounddevice` fail with "PortAudio library not found". On macOS you also need
-[BlackHole](https://existential.audio/blackhole/) — see below.
+`sounddevice` fail with "PortAudio library not found". On Windows PortAudio comes
+inside the `sounddevice` wheel and there is nothing to install; what you do need
+there — as on macOS — is the loopback driver:
+[VB-CABLE](https://vb-audio.com/Cable/) and
+[BlackHole](https://existential.audio/blackhole/) respectively. See below.
 
 ## How it works
 
 1. **Capture**: System audio is tapped — on Linux through the monitor of a
-   PipeWire/PulseAudio null sink, on macOS through a loopback driver
-   (BlackHole).
+   PipeWire/PulseAudio null sink, on Windows through the recording side of the
+   VB-CABLE loop, on macOS through a loopback driver (BlackHole).
 2. **Delay**: A ring buffer exactly one delay long; at the write position the
    old value is played out and the new one written. The signal is not altered,
    only shifted. When a source starts playing after a longer silence — press
@@ -215,14 +239,28 @@ system library and not a Python package (`sudo apt install libportaudio2`,
    same clock**. They cannot drift apart: the chord flips in exactly the frame
    in which its chip touches the NOW line.
 
-### Audio routing on Linux (automatic)
+### Audio routing (automatic on Linux and Windows)
 
 Tapping the monitor of the normal output and playing the delayed signal back to
 that same output would give you the original plus the delay plus an echo
-cascade. So `jampilot run` temporarily installs a **null sink** as the default
-output: players play into it inaudibly, JamPilot reads its monitor and sends
-only the delayed signal to the real hardware. On exit (including `kill`)
+cascade. So `jampilot run` temporarily puts a **silent detour** in front of the
+default output: players play into it inaudibly, JamPilot reads the other end and
+sends only the delayed signal to the real hardware. On exit (including `kill`)
 everything is restored.
+
+The detour differs per platform, the choreography does not:
+
+| | Linux | Windows |
+|---|---|---|
+| the detour | a **null sink**, created by JamPilot via `pactl` | the **VB-CABLE** loop, installed once by you |
+| made default | `pactl set-default-sink` | `IPolicyConfig::SetDefaultEndpoint` (Core Audio) |
+| captured from | the null sink's monitor | CABLE Output, the recording side |
+| played back to | the previous default sink | the previous default endpoint |
+| left alone | — | the *Communications* device (voice chat) |
+
+macOS is the one platform where this is still manual: BlackHole can take the
+role of the cable, but switching the default device there is a different API
+again (`AudioObjectSetPropertyData`) and is not implemented.
 
 Setup is **transactional**: every step is registered before the next one runs;
 if one fails, everything unwinds backwards. Otherwise the silent null sink would
@@ -232,6 +270,12 @@ be left behind as the default output — `with` does not call `__exit__` if
 default output. `run` cleans up at startup, *before* it remembers the current
 output — otherwise it would save the muted state left by a crashed predecessor
 as the "previous state" and restore that on exit.
+
+All of that holds on Windows too, with one addition. There the change outlives
+the process — a killed run would leave the cable as the default output across a
+reboot — so the device to restore is written to a file *before* the switch is
+made, and `cleanup` only puts it back if the default output is in fact still the
+cable. If you have already fixed it yourself, JamPilot keeps its hands off.
 
 A sink counts as orphaned only if its **owner process is dead**. Who created it
 is recorded in `/tmp/jampilot-<uid>.pid`; without that check a second instance
@@ -247,6 +291,82 @@ Install [BlackHole (2ch)](https://existential.audio/blackhole/), then:
 - `jampilot run --no-route --input "BlackHole 2ch" --output "MacBook Pro Speakers"`.
 
 `jampilot devices` lists the device names.
+
+### Windows
+
+Same idea as Linux, and just as automatic. The one thing you install yourself is
+[VB-CABLE](https://vb-audio.com/Cable/) (unpack it, run `VBCABLE_Setup_x64.exe`
+**as administrator**, reboot). It adds two devices: **CABLE Input**, an output
+that nothing audible comes out of, and **CABLE Output**, the recording side of
+the same pipe — together they are exactly the null sink Linux builds with
+`pactl`. Then:
+
+```
+run.cmd
+```
+
+That is the whole setup. On start JamPilot makes CABLE Input the default output
+(so every player lands in the cable, inaudibly), captures the other end of the
+cable, and plays the delayed signal on the device that *was* your default —
+your speakers. On exit it puts your output device back.
+
+You do not set anything in *Settings → System → Sound*, and you do not pass
+`--input`. `run.cmd devices` prints what the automatic mode will pick:
+
+```
+Automatic routing (no options needed):
+  capture   CABLE Output (VB-Audio Virtual Cable)
+  routes    system output -> CABLE Input (VB-Audio Virtual Cable)
+  playback  Lautsprecher (Realtek High Definition Audio)
+```
+
+`--output "Kopfhörer"` overrides where the delayed sound goes; `--no-route`
+turns the whole mechanism off and captures the default input device instead.
+
+Details worth knowing:
+
+- **Voice chat is left alone.** Windows has a separate default device for
+  telephony (*Communications*), and JamPilot does not touch it — Teams, Discord
+  and Zoom keep their own device and stay undelayed. Linux cannot make that
+  distinction; here it comes for free.
+- **Your output device comes back**, on a normal exit, on Ctrl+C, and when you
+  close the console window (Windows announces that as `CTRL_CLOSE_EVENT`, which
+  JamPilot handles the way it handles `SIGHUP` elsewhere). If the process is
+  killed outright, the *next* start puts it back by itself — or `run.cmd
+  cleanup` does it now.
+- **A second instance refuses to start** rather than fighting the first one over
+  the routing, exactly as on Linux.
+- **The firewall dialog appears on the first start**, because the web display
+  listens on all interfaces. Click it away and the QR code becomes worthless —
+  your phone will not get through. Allow it for private networks.
+
+Switching the default output device is the one thing Windows has no documented
+API for; JamPilot uses `IPolicyConfig`, the undocumented COM interface behind
+the Sound control panel that nircmd and SoundVolumeView also use. It needs no
+administrator rights and no extra dependency (about 200 lines of `ctypes` in
+[`jampilot/winaudio.py`](jampilot/winaudio.py)). Should a future Windows version
+drop it, JamPilot falls back to the manual path with a message rather than
+failing.
+
+**Prefer routing just one app?** Since Windows 10 the volume mixer (*Settings →
+System → Sound → Volume mixer*) can give a single application its own output
+device. Point *only* your browser or Spotify at **CABLE Input**, start JamPilot
+with `--no-route --input "CABLE Output (VB-Audio Virtual Cable), Windows
+WASAPI"`, and everything else — system sounds, messenger, video calls — stays on
+the speakers. More fiddly, but nothing but that one app gets delayed.
+
+What has been verified on Windows 10: setup and start via `run.cmd`, the
+automatic routing including restore on exit, recovery after a hard kill, the
+second-instance guard, closing the console window, device enumeration,
+`selftest`, the test suite (378 tests), a live run with the delay buffer and the
+measured lead, the web display, and the control window. A single full-duplex
+stream across two *different* WASAPI devices — the one thing that could have
+broken the design — carries. What has *not* been done is a long musical session,
+hence 🟡 in the table above. Building the standalone binary is not wired up on
+Windows; `run.cmd --bundle` says so and points at
+[`docs/exploration/windows-portierung.md`](docs/exploration/windows-portierung.md),
+where the reason (unsigned 200 MB onefile, SmartScreen) is a product decision
+rather than a build step.
 
 ## Standalone binary
 
@@ -424,6 +544,8 @@ constant-Q transform uses long windows at low frequencies by construction. See
 
 ```
 run.sh             the one entry point: sets up, starts, builds (--bundle)
+run.ps1            the same for Windows: sets up and starts (no --bundle)
+run.cmd            the shell around run.ps1 - gets past the execution policy
 jampilot/
   btc.py           the chord recogniser: BTC transformer (NumPy port) + boundary refinement
   data/            model weights (btc_large_voca.npz) and the web page (index.html)
@@ -432,7 +554,10 @@ jampilot/
   bass.py          the measured bass note → inversions / slash chords
   tonality.py      key detection → spelling (♯ or ♭)
   delay_stream.py  duplex stream with the delay ring buffer (sounddevice/PortAudio)
-  routing.py       null-sink routing for Linux (pactl), transactional
+  routing.py       automatic routing, transactional: null sink via pactl
+                   (Linux), VB-CABLE via Core Audio (Windows), none on macOS
+  winaudio.py      Windows Core Audio via ctypes - list endpoints, read and
+                   set the default output device (no extra dependency)
   engine.py        routing + stream + analysis as one switchable thing
   gui.py           the control window (Qt) - the way back when the page is closed
   desktop.py       the .desktop launcher - the way in, for a double-click
@@ -443,7 +568,7 @@ packaging/
   venv.sh          the environment, stamped: expensive once, free afterwards
   build.sh         the reproducible build (and it skips when nothing changed)
   jampilot.spec    PyInstaller: one file on Linux, a real .app on macOS
-tests/             pytest suite (353 tests)
+tests/             pytest suite (357 tests)
 docs/exploration/  design documents (in German)
 ```
 
@@ -454,8 +579,10 @@ everything a user sees is English.
 
 ```bash
 ./run.sh selftest                 # the pipeline, no sound card needed
-.venv/bin/python -m pytest        # the suite (353 tests)
+.venv/bin/python -m pytest        # the suite (357 tests)
 ```
+
+On Windows: `run.cmd selftest` and `.venv\Scripts\python -m pytest`.
 
 The suite covers the places where bugs creep in *quietly*:
 

@@ -21,7 +21,20 @@ AUS heisst dabei wirklich AUS - Umleitung UND Stream:
     dessen Akkorde anzeigen. Also: Stream anhalten, dann zurueckbauen.
 """
 
+import sys
 import threading
+
+
+def _standardgeraet():
+    """Was "nimm das Standardgeraet" fuer PortAudio heisst.
+
+    sounddevice loest Geraetenamen per Teilstring-Suche auf. Unter Linux ist
+    `default` ein echter ALSA-/PulseAudio-Name und trifft; unter Windows und
+    macOS existiert kein Geraet dieses Namens, und die Suche endet in einem
+    ValueError, bevor irgendetwas laeuft. Die richtige Angabe ist dort None -
+    dann nimmt PortAudio selbst sein Standardgeraet.
+    """
+    return "default" if sys.platform.startswith("linux") else None
 
 
 class Engine:
@@ -102,17 +115,28 @@ class Engine:
                 args = self.args
                 nutzt_routing = routing.uses_routing(args)
                 if nutzt_routing:
-                    self._route = routing.LinuxRouting()
+                    # WELCHE Geraete zu oeffnen sind, weiss die Umleitung - und
+                    # nur sie. Unter Linux ist es zweimal "default", weil das
+                    # Umbiegen ueber die Standardgeraete laeuft; unter Windows
+                    # sind es zwei feste PortAudio-Indizes, weil dort das Kabel
+                    # der Umweg ist. Diese Schicht darf das nicht wissen
+                    # muessen, sonst steht die Plattformfrage zweimal im
+                    # Programm.
+                    self._route = routing.create(args)
                     self._route.__enter__()
                     # [POC-BTC] Der Analysepuffer muss das 10-s-Modellfenster
                     # halten (Default waeren 3s).
-                    self._loop = DelayedLoopback("default", "default", args.delay,
+                    self._loop = DelayedLoopback(self._route.capture_device,
+                                                 self._route.playback_device,
+                                                 args.delay,
                                                  samplerate=args.samplerate,
                                                  analysis_seconds=11.0)
                     self._loop.start()
-                    self._route.move_own_playback_to(args.output)
+                    self._route.after_start()
                 else:
-                    self._loop = DelayedLoopback(args.input or "default", args.output,
+                    eingang = args.input if args.input is not None \
+                        else _standardgeraet()
+                    self._loop = DelayedLoopback(eingang, args.output,
                                                  args.delay, samplerate=args.samplerate,
                                                  analysis_seconds=11.0)  # [POC-BTC] s.o.
                     self._loop.start()

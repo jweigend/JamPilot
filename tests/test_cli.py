@@ -91,12 +91,17 @@ def _args(**felder):
                                  **felder})
 
 
+# Was query_devices ueber ein Geraet liefert - die Pruefung liest davon nur die
+# Kanalzahl und (fuer die Meldung) den Namen.
+_stereo = {"name": "Kabel", "max_input_channels": 2, "max_output_channels": 2}
+
+
 class TestGeraetepruefung:
     @pytest.fixture(autouse=True)
-    def kein_pactl(self, monkeypatch):
+    def keine_umleitung(self, monkeypatch):
         """Standardfall: kein Routing - `--output` ist dann ein PortAudio-Geraet."""
         from jampilot import routing
-        monkeypatch.setattr(routing, "available", lambda: False)
+        monkeypatch.setattr(routing, "backend", lambda: None)
 
     def test_unbekanntes_geraet_bricht_sofort_ab(self, monkeypatch):
         import sounddevice as sd
@@ -109,7 +114,73 @@ class TestGeraetepruefung:
         with pytest.raises(SystemExit, match="not usable"):
             cli._check_devices(_args(input="gibtsnicht"))
 
-    def test_kein_geraet_angegeben_ist_in_ordnung(self):
+    def test_kein_geraet_angegeben_ist_in_ordnung(self, monkeypatch):
+        import sounddevice as sd
+
+        monkeypatch.setattr(sd, "query_devices",
+                            lambda device=None, kind=None: _stereo)
+        cli._check_devices(_args())      # darf nicht werfen
+
+    def test_unter_linux_bleibt_das_standardgeraet_ungeprueft(self, monkeypatch):
+        """Dort gibt engine.py die ALSA-Quelle "default" an, nicht PortAudios
+        Standardgeraet. Es zu pruefen hiesse, etwas anderes zu pruefen als das,
+        was gleich geoeffnet wird - und waere eine Verhaltensaenderung auf der
+        Referenzplattform."""
+        import sounddevice as sd
+
+        def explodiere(device=None, kind=None):
+            raise AssertionError("unter Linux darf hier nichts gefragt werden")
+
+        monkeypatch.setattr(sys, "platform", "linux")
+        monkeypatch.setattr(sd, "query_devices", explodiere)
+        cli._check_devices(_args())      # darf nicht werfen
+
+    def test_stereo_geraet_geht_durch(self, monkeypatch):
+        import sounddevice as sd
+
+        monkeypatch.setattr(sd, "query_devices",
+                            lambda device=None, kind=None: _stereo)
+        cli._check_devices(_args(input=1, output=2))     # darf nicht werfen
+
+    def test_mono_eingang_wird_abgewiesen(self, monkeypatch):
+        """Der haeufigste Fehlgriff unter Windows und macOS: ein Mikrofon.
+
+        Der Stream ist stereo. Ohne diese Pruefung stirbt er in PortAudio mit
+        "Invalid number of channels [PaErrorCode -9998]" - eine Meldung, die
+        weder sagt, WELCHES der beiden Geraete gemeint ist, noch was statt
+        dessen zu nehmen waere.
+        """
+        import sounddevice as sd
+
+        monkeypatch.setattr(sd, "query_devices", lambda device=None, kind=None:
+                            {"name": "Mikro", "max_input_channels": 1,
+                             "max_output_channels": 0})
+        with pytest.raises(SystemExit, match="needs 2"):
+            cli._check_devices(_args(input="Mikrofon"))
+
+    def test_auch_das_STANDARDGERAET_wird_geprueft(self, monkeypatch):
+        """Ohne --input nimmt PortAudio sein Standardgeraet - unter Windows das
+        Mikrofon. Wer hier nichts prueft, prueft genau den Fall nicht, der beim
+        ersten Start eintritt."""
+        import sounddevice as sd
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(sd, "query_devices", lambda device=None, kind=None:
+                            {"name": "Headset Microphone",
+                             "max_input_channels": 1, "max_output_channels": 2})
+        with pytest.raises(SystemExit, match="default input device"):
+            cli._check_devices(_args())
+
+    def test_fehlendes_standardgeraet_bricht_hier_nicht_ab(self, monkeypatch):
+        """Kein Standardgeraet ist kein Grund, hier zu sterben - das faellt beim
+        Aufbau auf, mit der Meldung von PortAudio selbst."""
+        import sounddevice as sd
+
+        def explodiere(device=None, kind=None):
+            raise sd.PortAudioError("no default device")
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(sd, "query_devices", explodiere)
         cli._check_devices(_args())      # darf nicht werfen
 
 
@@ -123,7 +194,7 @@ class TestGeraetepruefungMitRouting:
     @pytest.fixture(autouse=True)
     def mit_pactl(self, monkeypatch):
         from jampilot import routing
-        monkeypatch.setattr(routing, "available", lambda: True)
+        monkeypatch.setattr(routing, "backend", lambda: routing.PULSE)
         monkeypatch.setattr(routing, "hardware_sinks",
                             lambda: [("0", "alsa_output.usb-Mackie_ProFX16v3-00")])
 
@@ -148,8 +219,12 @@ class TestGeraetepruefungMitRouting:
         import sounddevice as sd
 
         gefragt = []
-        monkeypatch.setattr(sd, "query_devices",
-                            lambda device, kind: gefragt.append((device, kind)))
+
+        def fragen(device, kind):
+            gefragt.append((device, kind))
+            return _stereo
+
+        monkeypatch.setattr(sd, "query_devices", fragen)
         cli._check_devices(_args(input=1, output=2))
         assert gefragt == [(1, "input"), (2, "output")]
 

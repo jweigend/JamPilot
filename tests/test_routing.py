@@ -61,6 +61,10 @@ def audio(monkeypatch, tmp_path):
     system = FakeAudioSystem()
     monkeypatch.setattr(routing, "_pactl", system)
     monkeypatch.setattr(routing, "LOCK_FILE", tmp_path / "jampilot.pid")
+    # Sonst entschiede die Plattform des Testlaeufers, welches Verfahren
+    # geprueft wird: Auf einem Windows-Rechner ohne pactl faende backend() das
+    # Kabel und cleanup() liefe in den falschen Zweig.
+    monkeypatch.setattr(routing, "backend", lambda: routing.PULSE)
     monkeypatch.delenv("PIPEWIRE_PROPS", raising=False)
     return system
 

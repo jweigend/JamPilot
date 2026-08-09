@@ -113,22 +113,67 @@ def _check_devices(args):
     from . import routing
 
     geroutet = routing.uses_routing(args)
+    # Ein SINK-Name ist `--output` nur unter Linux. Die Windows-Umleitung
+    # schickt die verzoegerte Ausgabe an ein PortAudio-GERAET wie im
+    # Direktmodus - dort muss also weiter gegen PortAudio geprueft werden,
+    # sonst laeuft `--output "Kopfhoerer..."` ungeprueft in den Aufbau.
+    sink_modus = geroutet and routing.backend() == routing.PULSE
     geraete = [(args.input, "input")]
-    if not geroutet:
+    if not sink_modus:
         geraete.append((args.output, "output"))
 
     for device, kind in geraete:
         if device is None:
-            continue
-        try:
-            sd.query_devices(device, kind)
-        except (ValueError, sd.PortAudioError) as exc:
+            # Ohne Angabe darf hier NUR geprueft werden, was engine.start()
+            # hinterher wirklich an PortAudio uebergibt - sonst prueft man ein
+            # anderes Geraet als das, das gleich geoeffnet wird.
+            #
+            # Im Routing-Modus ist das der Null-Sink, den es jetzt noch gar
+            # nicht gibt. Unter Linux ohne Routing ist es die ALSA-Quelle
+            # "default" (engine._standardgeraet) - die traegt seit jeher, und
+            # sie hier zusaetzlich zu pruefen waere eine Verhaltensaenderung auf
+            # der Referenzplattform ohne Gegenwert. Beides bleibt also aussen
+            # vor, genau wie bisher.
+            #
+            # Bleibt der Fall, in dem PortAudio sein Standardgeraet SELBST
+            # waehlt: Windows und macOS. Und genau darauf faellt dort der erste
+            # Versuch herein, denn das ist das Mikrofon, oft mono.
+            if geroutet or sys.platform.startswith("linux"):
+                continue
+            try:
+                info = sd.query_devices(kind=kind)
+            except (ValueError, sd.PortAudioError):
+                continue        # kein Standardgeraet - das faellt beim Aufbau auf
+        else:
+            try:
+                info = sd.query_devices(device, kind)
+            except (ValueError, sd.PortAudioError) as exc:
+                raise SystemExit(
+                    f"Device {device!r} not usable ({kind}): {exc}\n"
+                    f"'jampilot devices' lists the available devices."
+                )
+        # Der Stream ist stereo (delay_stream.DelayedLoopback, channels=2). Ein
+        # Geraet mit nur einem Kanal laesst ihn mit "Invalid number of channels
+        # [PaErrorCode -9998]" scheitern - eine Meldung, die nicht sagt, WELCHES
+        # der beiden Geraete gemeint ist und schon gar nicht, was zu tun waere.
+        # Unter Windows ist das der haeufigste Fehlgriff: Die meisten Mikrofone
+        # sind mono, das virtuelle Kabel dagegen ist stereo.
+        kanaele = info[f"max_{kind}_channels"]
+        if kanaele < 2:
+            bezeichnung = (f"The default {kind} device {info['name']!r}"
+                           if device is None else f"Device {device!r}")
+            hinweis = (f"Pass --{kind} to pick another one; "
+                       if device is None else "")
             raise SystemExit(
-                f"Device {device!r} not usable ({kind}): {exc}\n"
-                f"'jampilot devices' lists the available devices."
+                f"{bezeichnung} has {kanaele} {kind} channel(s) - JamPilot "
+                f"needs 2 (stereo).\n"
+                f"This is usually a microphone. What you want as the input is a "
+                f"loopback device that carries the system sound "
+                f"(VB-CABLE on Windows, BlackHole on macOS).\n"
+                f"{hinweis}'jampilot devices' lists the available devices."
             )
 
-    if geroutet and args.output is not None:
+    if sink_modus and args.output is not None:
         try:
             sinks = routing.hardware_sinks()
         except (RuntimeError, OSError):
@@ -143,8 +188,26 @@ def _check_devices(args):
 def cmd_devices(_args):
     import sounddevice as sd
 
+    from . import routing
+
     print("PortAudio devices (--input/--output in direct mode):\n")
     print(sd.query_devices())
+
+    # Unter Windows ist die interessanteste Frage nicht, WELCHE Geraete es gibt
+    # - davon stehen oben dreissig -, sondern ob JamPilot sich selbst versorgen
+    # kann. Diese zwei Zeilen beantworten sie.
+    if sys.platform == "win32":
+        kabel = routing._kabel(neu_pruefen=True)
+        print("\nAutomatic routing (no options needed):")
+        if kabel:
+            ziel = routing.windows_playback_target()
+            print(f"  capture   {kabel[1].name}")
+            print(f"  routes    system output -> {kabel[0].name}")
+            print(f"  playback  {ziel.name if ziel else '(no real output!)'}")
+        else:
+            print("  unavailable - VB-CABLE is not installed "
+                  "(https://vb-audio.com/Cable/)")
+
     if shutil.which("pactl"):
         out = subprocess.run(
             ["pactl", "list", "short", "sinks"], capture_output=True, text=True
@@ -166,22 +229,120 @@ def cmd_install(args):
     desktop.install(nach=args.to, entfernen=args.remove)
 
 
+_konsolenwaechter = None       # Die Rueckruffunktion MUSS am Leben bleiben.
+
+
+def _beim_schliessen_der_konsole(engine):
+    """Das Fenster wegklicken darf den Ton nicht mitnehmen - Windows-Fassung.
+
+    cmd_run faengt dafuer SIGTERM und SIGHUP ab. Unter Windows gibt es SIGHUP
+    nicht, und SIGTERM schickt dort niemand: Wer sein Konsolenfenster
+    zumacht, loest CTRL_CLOSE_EVENT aus, und das kennt nur
+    SetConsoleCtrlHandler. Ohne diesen Haken bliebe das Kabel Standard-Ausgang
+    und der Rechner stumm - bei einer Handlung, die JEDER macht und die vor
+    dieser Umleitung voellig harmlos war.
+
+    Windows raeumt danach selbst ab (etwa fuenf Sekunden Gnadenfrist, dann
+    stirbt der Prozess). engine.stop() braucht davon hoechstens drei.
+
+    NUR die Ereignisse, fuer die es keinen Python-Weg gibt. Strg+C laeuft
+    weiter ueber KeyboardInterrupt und `finally` - dort ist die Meldung
+    hoebscher, und zwei Wege fuer dasselbe waeren einer zu viel.
+    """
+    if sys.platform != "win32":
+        return
+
+    import ctypes
+
+    CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT = 2, 5, 6
+    HANDLER = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)
+
+    def behandeln(ereignis):
+        if ereignis in (CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT):
+            engine.stop()
+        return False        # weiterreichen: danach beendet Windows uns regulaer
+
+    # In einem Modulnamen festhalten. Wird die Rueckruffunktion eingesammelt,
+    # ruft Windows spaeter in freigegebenen Speicher - der Prozess stuerbe genau
+    # in dem Moment ab, in dem er aufraeumen sollte.
+    global _konsolenwaechter
+    _konsolenwaechter = HANDLER(behandeln)
+    ctypes.windll.kernel32.SetConsoleCtrlHandler(_konsolenwaechter, True)
+
+
+def _bericht_zur_quelle(args):
+    """Eine Zeile darueber, WOHER der Ton kommt - und was fehlt, wenn er fehlt.
+
+    Der teuerste Fehler dieses Programms ist der, bei dem es tadellos laeuft
+    und das Falsche tut: Ohne Umleitung und ohne `--input` nimmt PortAudio sein
+    Standard-Eingabegeraet, und das ist auf jedem Laptop das MIKROFON. JamPilot
+    verzoegert dann den Raum statt der Musik und zeigt die Akkorde dazu an.
+    Ein Absturz waere leichter zu durchschauen.
+    """
+    from . import routing
+
+    if routing.uses_routing(args):
+        if routing.backend() == routing.WINCABLE:
+            kabel = routing._kabel()
+            ziel = routing.windows_playback_target()
+            print(f"System audio -> {kabel[0].name!r} -> JamPilot -> "
+                  f"{ziel.name if ziel else '?'} (restored on exit). "
+                  f"Voice chat is left alone.")
+        return
+
+    if args.input is not None or sys.platform.startswith("linux"):
+        # Unter Linux gibt engine.py hier die ALSA-Quelle "default" an, nicht
+        # PortAudios Standardgeraet - ein Hinweis nennte also ein Geraet, das
+        # gar nicht geoeffnet wird, und riete zu Treibern, die es auf der
+        # Plattform nicht gibt. Wer dort `--no-route` tippt, weiss, was er tut.
+        return
+
+    if sys.platform == "win32" and not args.no_route:
+        # Der einzige Fall, in dem unter Windows noch von Hand gearbeitet
+        # werden muss - und der einzige, der sich mit einem Satz beheben laesst.
+        # Danach ist Schluss: Der generische Hinweis unten wuerde denselben
+        # Treiber ein zweites Mal empfehlen, und gleich darauf sagt
+        # _check_devices ohnehin, welches Geraet nicht taugt.
+        print("VB-CABLE is not installed - without it JamPilot cannot take "
+              "over the system sound and falls back to the default input "
+              "device. Install it from https://vb-audio.com/Cable/ (run "
+              "VBCABLE_Setup_x64.exe as administrator, then reboot); after "
+              "that 'jampilot' needs no options at all.")
+        return
+
+    import sounddevice as sd
+
+    try:
+        name = sd.query_devices(kind="input")["name"]
+    except Exception:                      # kein Eingang - faellt gleich auf
+        name = "the system default input"
+    print(f"No --input given: capturing from {name!r}. If that is a "
+          f"microphone, JamPilot delays the room instead of your music - "
+          f"point --input at a loopback device (VB-CABLE on Windows, "
+          f"BlackHole on macOS). 'jampilot devices' lists them.")
+
+
 def cmd_cleanup(args):
     from . import routing
 
     if not routing.available():
-        print("pactl not found - nothing to clean up here.")
+        print("No audio routing on this machine (Linux needs pactl, Windows "
+              "needs VB-CABLE) - nothing to clean up here.")
         return
-    # Ein SIGKILL laesst sich nicht abfangen; danach bleibt der Null-Sink als
-    # Standard-Ausgang stehen und der Rechner ist stumm. Das raeumt das weg -
+    # Ein SIGKILL laesst sich nicht abfangen; danach bleibt der stumme Umweg
+    # Standard-Ausgang und der Rechner hat keinen Ton. Das raeumt das weg -
     # aber nur, wenn der Besitzer wirklich tot ist.
     try:
-        removed = routing.cleanup(force=args.force)
+        aufgeraeumt = routing.cleanup(force=args.force)
     except routing.InstanceRunning as exc:
         raise SystemExit(f"{exc}\n'jampilot cleanup --force' cleans up anyway.")
-    print(f"Removed {removed} orphaned jampilot sink(s)." if removed
-          else "No orphaned jampilot sinks found.")
-    print(f"Default output: {routing._pactl('get-default-sink')}")
+    if routing.backend() == routing.WINCABLE:
+        print("Took the system output back off the cable." if aufgeraeumt
+              else "Nothing left over - the system output is not on the cable.")
+    else:
+        print(f"Removed {aufgeraeumt} orphaned jampilot sink(s)." if aufgeraeumt
+              else "No orphaned jampilot sinks found.")
+    print(f"Default output: {routing.current_output()}")
 
 
 def _load_wav_mono(path: str) -> tuple[np.ndarray, int]:
@@ -332,6 +493,10 @@ def cmd_run(args):
     # Terminalfenster zumacht, haette danach einen stummen Rechner und nichts,
     # was das erklaert.
     #
+    # Unter Windows gibt es dafuer KEIN Signal - dieselbe Handlung heisst dort
+    # CTRL_CLOSE_EVENT und geht ueber SetConsoleCtrlHandler, siehe
+    # _beim_schliessen_der_konsole().
+    #
     # Im Fenster reicht das NICHT: Dort entstuende die Ausnahme in einer
     # Qt-Verbindung, und PySide6 faengt sie ab und macht weiter. gui.py setzt die
     # Handler deshalb neu - siehe beenden_bei_signal().
@@ -341,6 +506,14 @@ def cmd_run(args):
     for zeichen in ("SIGTERM", "SIGHUP"):
         if hasattr(signal, zeichen):
             signal.signal(getattr(signal, zeichen), _raise_interrupt)
+
+    # Die URSACHE vor der Absage. Unter Windows OHNE virtuelles Kabel bricht
+    # _check_devices am Mikrofon ab ("hat 1 Kanal") - und das ist zwar wahr,
+    # aber nicht das Problem: Das Problem ist der fehlende Treiber, und wer
+    # zuerst die Absage liest, sucht den Fehler bei seinem Mikrofon. Beide
+    # Pruefungen sind billig, die Reihenfolge kostet also nichts und erklaert
+    # alles.
+    _bericht_zur_quelle(args)
 
     # Erst pruefen, dann teuer werden: Geraete- und Instanzfehler sollen sofort
     # kommen, nicht als Traceback nach drei Sekunden numba-Warmup.
@@ -366,6 +539,7 @@ def cmd_run(args):
     from .engine import Engine
 
     engine = Engine(args, broadcaster)
+    _beim_schliessen_der_konsole(engine)
 
     # Der Stummschalter der Webseite und der im Fenster muessen DIESELBE Sache
     # umlegen - sonst zeigen die beiden Oberflaechen Verschiedenes an.
@@ -1087,7 +1261,8 @@ def main():
     p_run.add_argument("--output", default=None,
                        help="Output: sink name (routing mode) or device (direct mode)")
     p_run.add_argument("--no-route", action="store_true",
-                       help="No automatic null-sink routing (Linux)")
+                       help="Do not touch the system output; capture the "
+                            "default input device instead")
     p_run.add_argument("--no-web", action="store_true",
                        help="Start without the web display")
     p_run.add_argument("--no-window", action="store_true",

@@ -8,6 +8,48 @@ dass ich rate — und wie man es in zehn Minuten nachprüft.*
 
 ---
 
+## Nachtrag: gemessen, auf Windows 10 (Python 3.14, 64 bit)
+
+*Der Text unten bleibt so stehen, wie er geschrieben wurde — er ist die
+Vorhersage. Hier steht, was davon eingetroffen ist. Er hat gestimmt, bis auf
+eine Ausnahme.*
+
+- **Der Vollduplex-Test trägt.** Ein `sd.Stream` über zwei *verschiedene*
+  WASAPI-Geräte öffnet ohne Murren; kein `paBadIODeviceCombination`. Der
+  Umbau auf getrennte In-/Out-Streams entfällt also. (MME und DirectSound
+  tragen ebenfalls. WDM-KS nicht — `Blocking API not supported yet`, was für
+  uns egal ist.) Das war der einzige Punkt, der die Architektur hätte
+  umwerfen können.
+- **Die drei Stellen** sind behoben: `_nutzerkennung()` statt `os.getuid()` in
+  [routing.py](../../jampilot/routing.py), die Lebendprüfung fasst `os.kill`
+  außerhalb von POSIX nicht mehr an, und `engine._standardgeraet()` gibt
+  außerhalb von Linux `None` statt `"default"`.
+- **Was ohne eine einzige Änderung lief**, lief tatsächlich ohne eine einzige
+  Änderung: numba/llvmlite haben cp314-Räder, das Kontrollfenster geht auf,
+  die Weboberfläche liefert aus, der Verzögerungspuffer läuft, der gemessene
+  Vorlauf steht. `selftest` ist voll grün, die Suite bis auf drei Tests, die
+  an `Path("/opt/...")` hingen — ein Artefakt des Prüfers, kein Fehler
+  (jetzt `PurePosixPath`).
+- **Neu dazugekommen, weil es unter Linux nie auffiel:** Der Stream ist
+  stereo, und das *Standard*-Eingabegerät ist unter Windows ein Mikrofon.
+  Beides endete in Meldungen, die den Grund nicht nennen
+  (`Invalid number of channels [PaErrorCode -9998]`) oder gar nicht erst
+  auffallen (JamPilot verzögert klaglos den Raum statt der Musik). Beides
+  fängt jetzt `_check_devices` bzw. ein Hinweis in `cmd_run` ab.
+- **Bauskripte:** [run.ps1](../../run.ps1) + [run.cmd](../../run.cmd) statt
+  eines Umschreibens nach Python — die Logik von `venv.sh` ist ein zweites Mal
+  da, aber sie ist klein und steht damit in der Sprache, die auf der Plattform
+  ohne Vorbedingung läuft. Zwei Windows-Eigenheiten, die im Text unten fehlen
+  und beide Zeit gekostet haben: PowerShell 5.1 verliert eingebettete `"` beim
+  Aufruf nativer Programme (`find_spec("numpy")` wird zu `find_spec(numpy)`),
+  und ein Skript mit `param()`-Block versucht `--delay` als Parameternamen zu
+  binden, statt es durchzureichen.
+- **Offen geblieben:** `--bundle`. Nicht weil es nicht ginge, sondern weil die
+  Frage am Ende dieses Dokuments (SmartScreen, Signatur) unbeantwortet ist.
+  `run.cmd --bundle` sagt genau das und bricht ab.
+
+---
+
 ## Ergebnis vorweg
 
 Eine Windows-Version ist kein Umbau, sondern eine **Handvoll Stellen**. Der Kern
@@ -259,3 +301,66 @@ und niemand hat sich beschwert.
 
 Die Windows-Version ist damit ehrlicherweise die **macOS-Version mit anderem
 Kabelnamen** — und das ist die gute Nachricht.
+
+---
+
+## Nachtrag: das Weggelassene ist doch gebaut worden
+
+*Der Abschnitt oben bleibt stehen, wie er geschrieben wurde. Er ist die
+Begründung, die zur ersten Windows-Fassung geführt hat, und die war richtig:
+Erst musste feststehen, dass die Architektur trägt. Die Empfehlung selbst hat
+sich danach aber nicht gehalten.*
+
+**Was sie umgeworfen hat.** Der erste Start auf einer echten Windows-Kiste
+scheiterte an der Meldung „Das Standard-Eingabegerät hat 1 Kanal". Danach lautete
+die Anleitung: Systemton in den Lautstärkemixer umhängen, `jampilot devices`
+lesen, `--input` und `--output` heraussuchen. Und das ging nicht einmal wie
+dokumentiert — `--input "CABLE Output"` stirbt mit „Multiple input devices
+found", weil derselbe Endpunkt unter MME, DirectSound, WASAPI und WDM-KS
+zugleich geführt wird. Vier Namen, von denen nur einer die Kanalzahl ehrlich
+meldet.
+
+Das ist die eigentliche Erkenntnis, und sie stand oben noch nicht drin: Der
+Handbetrieb ist unter Windows **nicht** so einfach wie unter macOS. Dort gibt es
+ein „BlackHole 2ch", hier gibt es dasselbe Kabel viermal. Die Rechnung „der
+Nutzer klickt das einmalig selbst" ging deshalb nicht auf — nicht, weil das
+Klicken zu viel wäre, sondern weil danach noch die Geräteauswahl kommt.
+
+**Was es tatsächlich gekostet hat.** Keinen Tag und kein Fremdwerkzeug: rund 200
+Zeilen `ctypes` in [winaudio.py](../../jampilot/winaudio.py) —
+`IMMDeviceEnumerator` zum Auflisten, `IPolicyConfig` zum Setzen. Keine neue
+Abhängigkeit (comtypes und pycaw bauen genau diese vtables, mehr nicht), keine
+Administratorrechte, nichts, was auf dem Rechner zurückbleibt. Der Einwand
+„Dinge, die man einem Musiker nicht auf den Rechner legt" traf `nircmd`; auf
+Code im eigenen Prozess trifft er nicht.
+
+**Was dazugehörte und nicht offensichtlich war.**
+
+- Die Umstellung **überlebt den Prozess**. Unter Linux verschwindet der
+  Null-Sink mit dem Programm; unter Windows bliebe das Kabel Standardausgang
+  über einen Neustart hinaus. Das Ziel muss also auf die Platte, *bevor*
+  umgestellt wird, und `cleanup` darf nur zurückstellen, wenn der Standard
+  wirklich noch am Kabel hängt.
+- `os.kill(pid, 0)` ist unter Windows **keine Frage, sondern ein Todesurteil**
+  (es ruft TerminateProcess). Die Lebendprüfung für die Sperrdatei braucht
+  `OpenProcess` + `GetExitCodeProcess`.
+- Das **Konsolenfenster zumachen** löst kein Signal aus, sondern
+  `CTRL_CLOSE_EVENT`. Ohne `SetConsoleCtrlHandler` bliebe der Rechner nach einer
+  Handlung stumm, die vor dieser Umleitung völlig harmlos war — siehe
+  [cli.py](../../jampilot/cli.py), `_beim_schliessen_der_konsole`.
+- Windows hat ein **eigenes Standardgerät für Telefonie**. Es unangetastet zu
+  lassen kostet nichts und hält Teams, Discord und Zoom aus dem Vier-Sekunden-
+  Puffer heraus. Das ist der eine Punkt, an dem die Windows-Fassung **besser**
+  ist als die Linux-Referenz.
+
+**Was von „Ein Geschenk, das Linux nicht hat" bleibt.** Das App-weise Routing im
+Lautstärkemixer ist weiterhin der feinere Weg, wenn man *nur* den Browser
+verzögern will — es steht als `--no-route`-Variante in der Anleitung. Als
+Standardweg taugt es nicht: Es verlangt genau die Geräteauswahl von Hand, an der
+der erste Versuch gescheitert ist.
+
+Die Windows-Version ist damit **nicht** die macOS-Version mit anderem Kabelnamen,
+sondern die Linux-Version mit anderem Null-Sink. macOS ist jetzt die einzige
+Plattform, auf der noch von Hand gewählt wird — dort fehlt das Gegenstück
+(`AudioObjectSetPropertyData` auf `kAudioHardwarePropertyDefaultOutputDevice`),
+und das ist die nächste Baustelle, nicht mehr diese.

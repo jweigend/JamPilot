@@ -9,7 +9,7 @@ ist der Weg, den Linux dafuer vorsieht - und ein Starter mit falschem Pfad oder
 """
 
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -20,8 +20,13 @@ linux_only = pytest.mark.skipif(not sys.platform.startswith("linux"),
 
 
 class TestEintrag:
+    # PurePosixPath, nicht Path: Der Inhalt der .desktop-Datei ist reine
+    # Textformung und laesst sich ueberall pruefen - `Path` aber uebersetzt
+    # "/opt/jampilot" auf einem Windows-Rechner in "\opt\jampilot", und dann
+    # scheiterten diese drei Tests an der Plattform des Pruefers statt an einem
+    # Fehler. Ein Linux-Pfad soll hier ein Linux-Pfad bleiben.
     def test_die_tragenden_zeilen(self):
-        text = desktop.eintrag(Path("/opt/jampilot/jampilot"))
+        text = desktop.eintrag(PurePosixPath("/opt/jampilot/jampilot"))
         assert text.startswith("[Desktop Entry]\n")
         assert "Exec=/opt/jampilot/jampilot" in text
         # Ohne das hier startet gar nichts oder es startet falsch:
@@ -34,11 +39,11 @@ class TestEintrag:
 
         Ungequotet liest der Starter daraus zwei Argumente - und startet nichts.
         """
-        text = desktop.eintrag(Path("/home/j/Jam Pilot/jampilot"))
+        text = desktop.eintrag(PurePosixPath("/home/j/Jam Pilot/jampilot"))
         assert 'Exec="/home/j/Jam Pilot/jampilot"' in text
 
     def test_anfuehrungszeichen_im_pfad_werden_geschuetzt(self):
-        text = desktop.eintrag(Path('/home/j/wei"rd/jampilot'))
+        text = desktop.eintrag(PurePosixPath('/home/j/wei"rd/jampilot'))
         assert r'Exec="/home/j/wei\"rd/jampilot"' in text
 
 

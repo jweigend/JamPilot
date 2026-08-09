@@ -1,6 +1,6 @@
 """Der Betrieb als schaltbares Ding: an, aus, stumm - und sauber zurueckgebaut.
 
-Ohne echtes Audio: `DelayedLoopback` und `LinuxRouting` sind Attrappen. Geprueft
+Ohne echtes Audio: `DelayedLoopback` und die Umleitung sind Attrappen. Geprueft
 wird die Verdrahtung, nicht PortAudio - und vor allem die REIHENFOLGE beim
 Abbauen, denn die ist der gefaehrliche Teil.
 """
@@ -86,7 +86,7 @@ class TestAbbauReihenfolge:
         reihenfolge = []
 
         with patch("jampilot.routing.available", return_value=True), \
-             patch("jampilot.routing.LinuxRouting") as Routing, \
+             patch("jampilot.routing.create") as Routing, \
              patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
              patch("jampilot.cli._display_loop"):
             Loop.return_value.stop.side_effect = lambda: reihenfolge.append("stream")
@@ -105,7 +105,7 @@ class TestAbbauReihenfolge:
         # keine Ahnung, warum.
         args.no_route = False
         with patch("jampilot.routing.available", return_value=True), \
-             patch("jampilot.routing.LinuxRouting") as Routing, \
+             patch("jampilot.routing.create") as Routing, \
              patch("jampilot.delay_stream.DelayedLoopback",
                    side_effect=RuntimeError("keine Soundkarte")):
             e = Engine(args)
@@ -129,7 +129,7 @@ class TestAbbauReihenfolge:
         """
         args.no_route = False
         with patch("jampilot.routing.available", return_value=True), \
-             patch("jampilot.routing.LinuxRouting") as Routing, \
+             patch("jampilot.routing.create") as Routing, \
              patch("jampilot.delay_stream.DelayedLoopback",
                    side_effect=KeyboardInterrupt):
             e = Engine(args)
@@ -149,7 +149,7 @@ class TestAbbauReihenfolge:
         """
         args.no_route = False
         with patch("jampilot.routing.available", return_value=True), \
-             patch("jampilot.routing.LinuxRouting") as Routing:
+             patch("jampilot.routing.create") as Routing:
             e = Engine(args)
             e._route = Routing.return_value      # halb aufgebaut, wie nach Strg+C
             e.stop()
@@ -172,7 +172,7 @@ class TestSterbenderStream:
 
         args.no_route = False
         with patch("jampilot.routing.available", return_value=True), \
-             patch("jampilot.routing.LinuxRouting") as Routing, \
+             patch("jampilot.routing.create") as Routing, \
              patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
              patch("jampilot.cli._display_loop",
                    side_effect=StreamStalled("kein Ton mehr")):
