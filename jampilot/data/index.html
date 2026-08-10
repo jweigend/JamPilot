@@ -296,7 +296,7 @@
         </svg>
       </button>
       <div id="qrbox">
-        <div id="qrcard"><img src="/qr.svg" alt="QR"></div>
+        <div id="qrcard"><img alt="QR"></div>
         <div id="qrlabel">Connect your phone</div>
       </div>
     </div>
@@ -1171,7 +1171,7 @@ async function kontrollgitarreSetzen(enabled) {
   // keinen zweiten Wechsel ausloesen.
   if (!!enabled === kontrollgitarre) return;
   try {
-    const antwort = await fetch("/control-guitar", { method: "POST" });
+    const antwort = await fetch("/control-guitar" + location.search, { method: "POST" });
     if (!antwort.ok) return;
     zeigeKontrollgitarre((await antwort.json()).control_guitar);
   } catch (e) {}
@@ -1212,7 +1212,7 @@ function zeigeStumm(m) {
 
 async function umschalten() {
   try {
-    const antwort = await fetch("/mute", { method: "POST" });
+    const antwort = await fetch("/mute" + location.search, { method: "POST" });
     if (!antwort.ok) return;      // kein Stream (Demo-Modus) - dann eben nichts
     // Die Wahrheit kommt vom Server, nicht von unserer Vermutung: Sonst laufen
     // zwei Geraete auseinander, wenn beide gleichzeitig druecken.
@@ -1227,6 +1227,14 @@ $("mute").addEventListener("click", ev => {
   umschalten();
   ev.currentTarget.blur();  // sonst wuerde die Leertaste danach den Knopf treffen
 });
+
+// Der QR-Code traegt die URL samt Session-Token, der Server liefert ihn darum
+// nur an Clients aus, die das Token schon in der eigenen URL haben. Ohne Token
+// (von Hand getippte URL) fragen wir gar nicht erst an - die Anzeige laeuft
+// trotzdem, nur Eingriffe (Mute, Kontrollgitarre) brauchen die volle URL.
+if (location.search) {
+  document.querySelector("#qrcard img").src = "/qr.svg" + location.search;
+}
 
 function connect() {
   const es = new EventSource("/events");   // EventSource verbindet selbst neu

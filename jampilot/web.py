@@ -9,10 +9,12 @@ self-contained (kein CDN), damit alles ohne Internet funktioniert.
 
 import json
 import queue
+import secrets
 import socket
 import threading
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 DEFAULT_PORT = 8765
 
@@ -99,9 +101,19 @@ class _Handler(BaseHTTPRequestHandler):
     # vorher (sie zeigt den QR-Code). Bis dahin: 503 statt Absturz.
     mute_toggle = None
     control_guitar_toggle = None
+    # Session-Token: Die Seite ist bewusst im ganzen LAN erreichbar (Handy auf
+    # dem Notenstaender), und ANZEIGEN ist harmlos. EINGREIFEN darf aber nur,
+    # wer die URL wirklich hat - aus Terminal oder QR-Code, wo das Token schon
+    # drinsteht. Das sperrt zugleich CSRF aus: eine fremde Webseite kann zwar
+    # blind POSTen, kennt aber das Token nicht.
+    token: str = ""
 
     def log_message(self, *_):
         pass  # kein Request-Log im Terminal
+
+    def _authorized(self) -> bool:
+        supplied = parse_qs(urlparse(self.path).query).get("k", [""])[0]
+        return bool(self.token) and secrets.compare_digest(supplied, self.token)
 
     def _send(self, content: bytes, content_type: str):
         self.send_response(200)
@@ -116,6 +128,11 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/":
             self._send(PAGE.encode(), "text/html; charset=utf-8")
         elif path == "/qr.svg":
+            # Der QR-Code traegt die URL SAMT Token. Offen ausgeliefert waere
+            # er die Hintertuer, ueber die sich jeder im LAN das Token holt.
+            if not self._authorized():
+                self.send_error(403, "missing or wrong token")
+                return
             self._send(self.qr_bytes, "image/svg+xml")
         elif path == "/events":
             self._serve_events()
@@ -127,8 +144,12 @@ class _Handler(BaseHTTPRequestHandler):
 
         Warum POST und nicht GET? Das hier ist kein Abruf, sondern ein Eingriff -
         und ein GET wuerde jeder Link-Vorschau, jedem Prefetch des Browsers die
-        Musik abstellen.
+        Musik abstellen. Und weil es ein Eingriff ist, verlangt er das
+        Session-Token (?k=..., siehe oben).
         """
+        if not self._authorized():
+            self.send_error(403, "missing or wrong token")
+            return
         path = self.path.split("?")[0]
         if path == "/control-guitar":
             if self.control_guitar_toggle is None:
@@ -196,13 +217,15 @@ class WebDisplay:
 
 def start(port: int = DEFAULT_PORT) -> WebDisplay:
     broadcaster = ChordBroadcaster()
-    url = f"http://{lan_ip()}:{port}/"
-
     handler = type("Handler", (_Handler,), {
         "broadcaster": broadcaster,
-        "qr_bytes": _qr_svg(url),
+        "token": secrets.token_urlsafe(8),
     })
     server = ThreadingHTTPServer(("0.0.0.0", port), handler)
+    # URL und QR erst NACH dem Binden: bei port=0 (Tests) vergibt erst das
+    # Betriebssystem den echten Port.
+    url = f"http://{lan_ip()}:{server.server_address[1]}/?k={handler.token}"
+    handler.qr_bytes = _qr_svg(url)
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return WebDisplay(server, url, broadcaster, handler)

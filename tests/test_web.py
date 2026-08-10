@@ -6,7 +6,12 @@ die Schreibweise entscheidet der Browser aus Tonart + Einstellung.
 
 import json
 import queue
+import urllib.error
+import urllib.request
 
+import pytest
+
+from jampilot import web
 from jampilot.web import PAGE, ChordBroadcaster
 
 
@@ -119,7 +124,7 @@ class TestSeite:
     def test_kontrollgitarre_ist_abschaltbar(self):
         for wahl in ("on", "off"):
             assert f'data-control="{wahl}"' in PAGE
-        assert 'fetch("/control-guitar", { method: "POST" })' in PAGE
+        assert 'fetch("/control-guitar" + location.search, { method: "POST" })' in PAGE
         assert "control_guitar" in PAGE
         assert "kontrollgitarreSetzen" in PAGE
 
@@ -144,6 +149,62 @@ class TestSeite:
         assert "planVoicing" in PAGE and "futureWindow" in PAGE
         assert "lastVoicing" in PAGE          # die gegriffene Lage traegt weiter
         assert "OPEN" in PAGE                 # offene Sonderformen als Tieflage
+
+
+@pytest.fixture
+def server():
+    """Echter Server auf einem freien Port - die Token-Pruefung sitzt im
+    Request-Pfad, ein Test gegen die Klasse allein saehe sie nie."""
+    display = web.start(0)
+    display.set_mute_toggle(lambda: True)
+    port = display._server.server_address[1]
+    token = display.url.split("k=")[1]
+    yield f"http://127.0.0.1:{port}", token
+    display.stop()
+
+
+class TestToken:
+    """Die Steuer-POSTs sind bewusst im LAN erreichbar - eingreifen darf nur,
+    wer die URL samt Session-Token hat (Terminal oder QR-Code)."""
+
+    def _post(self, url):
+        req = urllib.request.Request(url, method="POST")
+        return urllib.request.urlopen(req, timeout=5)
+
+    def test_post_ohne_token_wird_abgelehnt(self, server):
+        base, _ = server
+        for pfad in ("/mute", "/control-guitar"):
+            with pytest.raises(urllib.error.HTTPError) as fehler:
+                self._post(base + pfad)
+            assert fehler.value.code == 403, pfad
+
+    def test_post_mit_falschem_token_wird_abgelehnt(self, server):
+        base, _ = server
+        with pytest.raises(urllib.error.HTTPError) as fehler:
+            self._post(base + "/mute?k=falsch")
+        assert fehler.value.code == 403
+
+    def test_post_mit_token_schaltet(self, server):
+        base, token = server
+        with self._post(f"{base}/mute?k={token}") as antwort:
+            assert json.loads(antwort.read())["muted"] is True
+
+    def test_qr_verlangt_das_token(self, server):
+        # Der QR traegt die URL SAMT Token - offen ausgeliefert waere er die
+        # Hintertuer, ueber die sich jeder im LAN das Token holt.
+        base, token = server
+        with pytest.raises(urllib.error.HTTPError) as fehler:
+            urllib.request.urlopen(base + "/qr.svg", timeout=5)
+        assert fehler.value.code == 403
+        with urllib.request.urlopen(f"{base}/qr.svg?k={token}", timeout=5) as ok:
+            assert b"svg" in ok.read()
+
+    def test_die_anzeige_selbst_bleibt_offen(self, server):
+        # Anschauen ist harmlos und soll reibungslos bleiben - nur Eingriffe
+        # brauchen das Token.
+        base, _ = server
+        with urllib.request.urlopen(base + "/", timeout=5) as antwort:
+            assert antwort.status == 200
 
 
 class TestStummImBroadcaster:
@@ -201,5 +262,5 @@ class TestStummAufDerSeite:
     def test_die_wahrheit_kommt_vom_server(self):
         # Nicht optimistisch umschalten: Sonst laufen zwei Geraete auseinander,
         # wenn beide gleichzeitig druecken.
-        assert 'fetch("/mute", { method: "POST" })' in PAGE
+        assert 'fetch("/mute" + location.search, { method: "POST" })' in PAGE
         assert "(await antwort.json()).muted" in PAGE
