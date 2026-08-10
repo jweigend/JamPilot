@@ -1,5 +1,7 @@
 # JamPilot — jam along with anything, in real time
 
+![JamPilot: any audio source in, live chords with a lookahead timeline out — built with Python, all local](docs/bilder/teaser.png)
+
 **Ever wanted to just grab your instrument and play along with whatever is coming
 out of your computer?** Spotify, YouTube, the MP3s on your disk — the live take
 nobody ever wrote a chord sheet for, the B-side that no tutorial will ever cover.
