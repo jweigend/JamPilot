@@ -53,6 +53,7 @@ import time
 from pathlib import Path
 
 SINK_NAME = "jampilot"
+MONITOR_SOURCE = f"{SINK_NAME}.monitor"
 APP_NAME = "jampilot"
 
 # Welches Verfahren auf diesem Rechner traegt.
@@ -277,6 +278,21 @@ def hardware_sinks() -> list[tuple[str, str]]:
 def _first_hardware_sink() -> str | None:
     sinks = hardware_sinks()
     return sinks[0][1] if sinks else None
+
+
+def _first_hardware_source() -> str | None:
+    """Erste echte Quelle - lieber ein Mikrofon als der Monitor eines fremden
+    Sinks, der jede Aufnahme mit dem Systemton fluten wuerde."""
+    monitors = []
+    for line in _pactl("list", "short", "sources").splitlines():
+        felder = line.split("\t")
+        if len(felder) < 2 or felder[1] == MONITOR_SOURCE:
+            continue
+        if felder[1].endswith(".monitor"):
+            monitors.append(felder[1])
+        else:
+            return felder[1]
+    return monitors[0] if monitors else None
 
 
 # --- Windows: das virtuelle Kabel -------------------------------------------
@@ -766,9 +782,12 @@ def cleanup(force: bool = False) -> int:
     # unter Windows raeumt _cleanup_windows - und zwar auch dann, wenn backend()
     # gerade None sagt: Der Weg, der den Rest hinterlassen hat, muss heute nicht
     # mehr zur Verfuegung stehen (Kopfhoerer ab, Kabel deinstalliert).
-    if backend() == PULSE:
+    gewaehlt = backend()
+    if gewaehlt == PULSE:
         return _cleanup_pulse()
-    return _cleanup_windows() if sys.platform == "win32" else 0
+    if gewaehlt in (WINMUTE, WINCABLE) or sys.platform == "win32":
+        return _cleanup_windows()
+    return 0
 
 
 def _cleanup_pulse() -> int:
@@ -784,6 +803,15 @@ def _cleanup_pulse() -> int:
         fallback = _first_hardware_sink()
         if fallback:
             _pactl("set-default-sink", fallback)
+
+    # Dasselbe fuer die Standard-Quelle: der Start biegt sie auf den Monitor
+    # des Null-Sinks um (__enter__), nach einem Absturz zeigt sie ins Leere.
+    # Bliebe sie stehen, laese der naechste Lauf sie sogar als previous_source
+    # ein und stellte den toten Monitor beim Beenden brav wieder her.
+    if _pactl("get-default-source") == MONITOR_SOURCE:
+        fallback = _first_hardware_source()
+        if fallback:
+            _pactl("set-default-source", fallback)
     return len(ids)
 
 
@@ -840,7 +868,7 @@ class LinuxRouting:
             _pactl("set-default-sink", SINK_NAME)
             self._undo.append(lambda: _pactl("set-default-sink", self.previous_sink))
 
-            _pactl("set-default-source", f"{SINK_NAME}.monitor")
+            _pactl("set-default-source", MONITOR_SOURCE)
             self._undo.append(
                 lambda: _pactl("set-default-source", self.previous_source)
             )

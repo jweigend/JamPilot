@@ -47,6 +47,11 @@ class FakeAudioSystem:
                 for k in self.modules)
         if args[:3] == ("list", "short", "sinks"):
             return f"0\talsa_output.hardware\n1\t{routing.SINK_NAME}"
+        if args[:3] == ("list", "short", "sources"):
+            # Monitore zuerst: der Fallback muss trotzdem das Mikro waehlen.
+            return (f"0\t{routing.MONITOR_SOURCE}\n"
+                    f"1\talsa_output.hardware.monitor\n"
+                    f"2\talsa_input.mic")
         return ""
 
     @property
@@ -115,6 +120,31 @@ class TestWaisen:
         audio.default_sink = routing.SINK_NAME
         assert routing.cleanup() == 1
         assert audio.default_sink == "alsa_output.hardware"
+
+    def test_cleanup_holt_auch_die_standard_quelle_zurueck(self, audio):
+        # Der Start biegt neben dem Sink auch die Default-Source auf den
+        # Monitor des Null-Sinks um - nach einem Absturz zeigen BEIDE ins
+        # Leere, nicht nur der Ausgang.
+        audio.modules["99"] = ("load-module", "module-null-sink",
+                               f"sink_name={routing.SINK_NAME}")
+        audio.default_sink = routing.SINK_NAME
+        audio.default_source = routing.MONITOR_SOURCE
+        assert routing.cleanup() == 1
+        assert audio.default_source == "alsa_input.mic", \
+            "die Quelle darf nicht auf dem toten Monitor stehen bleiben"
+
+    def test_absturz_verstellt_die_quelle_nicht_dauerhaft(self, audio):
+        # Perpetuierung: Ohne den Source-Teil in cleanup() laese der naechste
+        # Lauf den toten Monitor als previous_source ein - und stellte ihn
+        # beim sauberen Beenden wieder her. Der Fehler ueberlebte dann jeden
+        # weiteren Lauf.
+        audio.modules["99"] = ("load-module", "module-null-sink",
+                               f"sink_name={routing.SINK_NAME}")
+        audio.default_sink = routing.SINK_NAME
+        audio.default_source = routing.MONITOR_SOURCE
+        with routing.LinuxRouting() as route:
+            assert route.previous_source == "alsa_input.mic"
+        assert audio.sauber
 
     def test_cleanup_ohne_waisen(self, audio):
         assert routing.cleanup() == 0
