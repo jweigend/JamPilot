@@ -79,7 +79,7 @@ glance, while both your hands are busy:
   display on your music stand. The computer does the listening; every other
   device is just a screen.
 - Click or tap for fullscreen, `Space` to mute. The **gear** switches spelling
-  (♯/♭) and the instrument mode (chords, bass or guitar) — both are per-device,
+  (♯/♭) and the instrument mode (chords, bass, guitar or keyboard) — both are per-device,
   so your phone and your laptop may disagree.
 
 **The control window** opens next to it — a small native window, and it is not
@@ -562,7 +562,7 @@ the lane, survives a reload (`localStorage`) and applies **per device** — lapt
 and phone may be set differently. Terminal and `analyze` always follow the
 detected key.
 
-## Your instrument: chords or bass
+## Your instrument: chords, bass, guitar or keyboard
 
 The chord says what the **band** plays. It does not say what a **bass player**
 plays: in C/E the chord is C, and the bass sits on E. That difference is not in
@@ -576,6 +576,7 @@ gear menu switches the display:
 | **Chords** (default) | the audible chord | `C` |
 | **Bass** | the **measured bass note**, chord as context | `C/E` |
 | **Guitar** | the audible chord, with a **fretboard diagram** top-left | `C` |
+| **Keyboard** | the audible chord, with a **piano diagram** top-left | `C` |
 
 In **Guitar** mode the display adds the one thing a chord name leaves out: *where*
 to put your hand. A fingering diagram appears top-left, and — because the same
@@ -586,6 +587,14 @@ of jumping across the neck between chords (see
 [`docs/exploration/gitarrenmodus-lagen.md`](docs/exploration/gitarrenmodus-lagen.md)).
 The complete design and current behaviour of the safe guitar mode are documented in
 [`docs/gitarrenmodus.md`](docs/gitarrenmodus.md).
+
+**Keyboard** mode draws the same idea on two octaves of piano keys: the current
+chord appears top-left as pressed keys. The voicing is chosen with the same
+look-ahead — the Viterbi search over the coming chords picks the *inversion*
+with the least finger travel, so the right hand stays in place instead of
+jumping back to root position on every change. The **measured bass** is marked
+in orange as the left hand: in C/E you see the C-major keys with the E marked
+below them.
 
 The diagram is deliberately conservative when the audio cannot reliably decide
 between nearby readings. If A major and A minor are almost equally plausible,
