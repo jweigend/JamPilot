@@ -108,9 +108,9 @@ class TestSeite:
         # Die Umschreibung passiert im Browser - beide Tabellen muessen da sein.
         assert "FLAT_OF" in PAGE and "SHARP_OF" in PAGE
 
-    def test_alle_drei_instrumente_stehen_zur_wahl(self):
-        # Chords, Bass und - neu - Guitar. Ohne die Optionen gibt es keinen Modus.
-        for inst in ("chords", "bass", "guitar"):
+    def test_alle_vier_instrumente_stehen_zur_wahl(self):
+        # Chords, Bass, Guitar und Keyboard. Ohne die Optionen gibt es keinen Modus.
+        for inst in ("chords", "bass", "guitar", "keys"):
             assert f'data-inst="{inst}"' in PAGE, inst
 
     def test_griffbrett_ist_abschaltbar(self):
@@ -149,6 +149,27 @@ class TestSeite:
         assert "planVoicing" in PAGE and "futureWindow" in PAGE
         assert "lastVoicing" in PAGE          # die gegriffene Lage traegt weiter
         assert "OPEN" in PAGE                 # offene Sonderformen als Tieflage
+
+    def test_keyboardmodus_hat_klaviatur_und_griffe(self):
+        # Klaviatur-SVG, Intervalltabelle (BTC-Vokabular) und der Renderer
+        # muessen in der Seite stehen - das Feature lebt komplett im Browser,
+        # per Klasse geschaltet wie Gitarre und Bass.
+        assert "pianoSvg" in PAGE
+        assert "KEY_INTERVALS" in PAGE
+        assert "renderKeyboard" in PAGE
+        assert "body.keys" in PAGE
+
+    def test_keyboardmodus_ist_lagenbewusst(self):
+        # Auch die Klaviatur waehlt nicht isoliert: derselbe DP wie beim
+        # Gitarren-Griffbild sucht ueber die kommenden Akkorde die Umkehrung
+        # mit der geringsten Fingerbewegung; die Handlage traegt weiter.
+        assert "planKeyVoicing" in PAGE and "keyCandidates" in PAGE
+        assert "lastKeyVoicing" in PAGE
+
+    def test_keyboard_zeigt_die_gemessene_bassnote(self):
+        # Die linke Hand: bei C/E gehoert das E unter den C-Dur-Griff - das ist
+        # die Information, die der Akkordname allein nicht traegt.
+        assert "bassPc" in PAGE
 
 
 @pytest.fixture

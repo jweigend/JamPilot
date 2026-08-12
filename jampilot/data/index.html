@@ -167,22 +167,32 @@
      links, hochkant - aktueller Ton (blau) und Folgeton (orange). */
   body.bass #fretboard { display: flex; }
 
+  /* Keyboard-Modus: die Klaviatur sitzt am selben Platz wie die Griffbretter.
+     Sie ist QUER statt hochkant - darum bekommt sie mehr Breite als die 30vmin
+     der Griffbrett-SVGs, sonst waeren die Tasten Streichhoelzer. */
+  body.keys #fretboard { display: flex; }
+  body.keys #current { font-size: min(30vw, 40vh); }
+  body.keys #fretboard svg { width: 46vmin; min-width: 230px; max-width: 56vw; }
+
   /* In der schmalen Mobilansicht (z.B. Handy hochkant) ist neben dem grossen
      Akkord kein Platz fuers Griffbrett - dort abschalten und dem Akkord die volle
-     Groesse zurueckgeben. Steht NACH den guitar/bass-Regeln oben, damit es sie
-     bei gleicher Spezifitaet ueberschreibt. */
+     Groesse zurueckgeben. Steht NACH den guitar/bass/keys-Regeln oben, damit es
+     sie bei gleicher Spezifitaet ueberschreibt. */
   @media (max-width: 640px) {
-    body.guitar #fretboard, body.bass #fretboard { display: none; }
-    body.guitar #current, body.bass #current { font-size: min(42vw, 52vh); }
+    body.guitar #fretboard, body.bass #fretboard,
+    body.keys #fretboard { display: none; }
+    body.guitar #current, body.bass #current,
+    body.keys #current { font-size: min(42vw, 52vh); }
   }
 
-  /* Griffbrett per Einstellung abgeschaltet (gilt fuer Gitarre UND Bass): wie in
-     der Mobilansicht verschwindet das Brett und der grosse Akkord/Ton bekommt
-     die volle Groesse zurueck. Steht NACH allen guitar/bass-Regeln, damit es
-     bei gleicher Spezifitaet gewinnt. */
+  /* Griffbrett per Einstellung abgeschaltet (gilt fuer Gitarre, Bass UND
+     Keyboard): wie in der Mobilansicht verschwindet das Brett und der grosse
+     Akkord/Ton bekommt die volle Groesse zurueck. Steht NACH allen
+     guitar/bass/keys-Regeln, damit es bei gleicher Spezifitaet gewinnt. */
   body.nofretboard #fretboard { display: none; }
   body.nofretboard.guitar #current,
-  body.nofretboard.bass #current { font-size: min(42vw, 52vh); }
+  body.nofretboard.bass #current,
+  body.nofretboard.keys #current { font-size: min(42vw, 52vh); }
   #fbname { color: #c8cdd4; font-size: max(2.5vmin, 15px); font-weight: 650;
             letter-spacing: .03em; white-space: nowrap; }
   #fbname .suffix { color: #6ea8ff; font-size: 72%; }
@@ -335,17 +345,28 @@
                              its name.</span>
         </span>
       </button>
+      <button class="opt" data-inst="keys" role="radio">
+        <span class="glyph">&#127929;</span>
+        <span class="text">
+          <span class="label">Keyboard</span>
+          <span class="desc">A <b>piano diagram</b> top-left shows the chord as
+                             pressed keys. The voicing follows the coming chords,
+                             and the <b>measured</b> bass marks your left
+                             hand.</span>
+        </span>
+      </button>
 
       <h2 class="second">Fretboard</h2>
-      <p class="sub">Bass and guitar mode show a fretboard top-left. If you know
-         your way around the neck, turn it off &ndash; the big display gets the
-         full screen back.</p>
+      <p class="sub">Bass, guitar and keyboard mode show a diagram top-left. If
+         you know your way around your instrument, turn it off &ndash; the big
+         display gets the full screen back.</p>
       <button class="opt" data-fret="on" role="radio">
         <span class="glyph">&#9638;</span>
         <span class="text">
           <span class="label">Shown</span>
           <span class="desc">Guitar: the chord diagram. Bass: the neck window
-                             with the current and the next note.</span>
+                             with the current and the next note. Keyboard: the
+                             pressed keys.</span>
         </span>
       </button>
       <button class="opt" data-fret="off" role="radio">
@@ -771,13 +792,14 @@ function fretSvg(shape) {
 
 // Das Fenster fuer den Planer: der hoerbare Akkord plus die kommenden aus der
 // Timeline, dublettenfrei und ohne Stille/Unsicheres. Genau hier fliesst der
-// Vorlauf ein - ohne ihn waere die Wahl blind.
-function futureWindow(seg) {
+// Vorlauf ein - ohne ihn waere die Wahl blind. Welche Qualitaeten das Instrument
+// greifen kann, sagt `kennt` - Gitarre und Keyboard haben verschiedene Kataloge.
+function futureWindow(seg, kennt) {
   const out = [];
   for (const c of chords) {
     if (c.at < seg.at || c.c === "-" || c.c === "?") continue;
     const m = c.c.match(/^([A-G]#?)(.*)$/);
-    if (!m || !(m[2] in SHAPES_E)) continue;
+    if (!m || !kennt(m[2])) continue;
     if (out.length && out[out.length - 1].name === c.c) continue;
     out.push({ root: m[1], q: m[2], name: c.c, safe: c.v || null });
     if (out.length >= 6) break;              // so weit reicht der Lookahead
@@ -795,7 +817,7 @@ function decideVoicing(seg) {
   const key = seg.at.toFixed(2) + "|" + seg.c;
   let v = voicings.get(key);
   if (v) { lastVoicing = v; return v; }      // schon entschieden -> Start furs naechste
-  const win = futureWindow(seg);
+  const win = futureWindow(seg, q => q in SHAPES_E);
   if (!win.length) return null;
   v = planVoicing(win, lastVoicing);
   if (!v) return null;
@@ -990,6 +1012,169 @@ function renderBassBoard(seg) {
              + '<span style="color:#e8934a">' + nm(line[1]) + "</span>" : "");
 }
 
+// KEYBOARD-ANSICHT, LAGENBEWUSST. Ein Akkordname sagt dem Keyboarder nicht,
+// WELCHE Umkehrung er greift - und genau die entscheidet, ob die Hand liegen
+// bleibt oder bei jedem Wechsel zur Grundstellung zurueckspringt. Darum waehlt
+// derselbe DP wie beim Gitarren-Griffbild (planVoicing) aus den KOMMENDEN
+// Akkorden die Umkehrung mit der geringsten Fingerbewegung: C -> F wird nicht
+// C-E-G -> F-A-C, sondern C-E-G -> C-F-A. Gezeichnet wird eine Klaviatur ueber
+// zwei Oktaven; die gemessene Bassnote ist als linke Hand orange markiert -
+// bei C/E sieht man den C-Dur-Griff UND das E darunter.
+const KEY_INTERVALS = {   // Intervalle je Qualitaet, Spiegel von btc.BTC_CHORD_TONES
+  "": [0, 4, 7], "m": [0, 3, 7], "dim": [0, 3, 6], "aug": [0, 4, 8],
+  "m6": [0, 3, 7, 9], "6": [0, 4, 7, 9], "m7": [0, 3, 7, 10],
+  "mMaj7": [0, 3, 7, 11], "maj7": [0, 4, 7, 11], "7": [0, 4, 7, 10],
+  "dim7": [0, 3, 6, 9], "m7b5": [0, 3, 6, 10], "sus2": [0, 2, 7],
+  "sus4": [0, 5, 7],
+};
+const KEY_LOW = 48, KEY_HIGH = 71;        // C3..B4 - das gezeichnete Fenster
+const WHITE_PC = [0, 2, 4, 5, 7, 9, 11];  // weisse Tasten einer Oktave
+
+// Alle Lagen eines Akkords im Fenster: jede Umkehrung (jeder Akkordton als
+// tiefster), eng gestapelt, in jeder Oktave, in der sie noch hineinpasst. Wie
+// beim Gitarrengriff werden nur Tonklassen gegriffen, die alle nahen
+// Erkennungshypothesen gemeinsam tragen - aus unsicherem A/Am wird A5, keine
+// geratene Terz.
+function keyCandidates(root, quality, safe) {
+  const pc = NOTE_PC[root], iv = KEY_INTERVALS[quality];
+  if (pc === undefined || !iv) return [];
+  const secure = Array.isArray(safe) && safe.length ? new Set(safe) : null;
+  const tones = [...new Set(iv.map(o => (pc + o) % 12))]
+    .filter(t => !secure || secure.has(t));
+  if (!tones.length) return [];
+  const out = [];
+  for (const bottom of tones) {
+    const rest = tones.filter(t => t !== bottom)
+      .sort((a, b) => ((a - bottom + 12) % 12) - ((b - bottom + 12) % 12));
+    for (let m = KEY_LOW + bottom; m <= KEY_HIGH; m += 12) {
+      const notes = [m, ...rest.map(t => m + ((t - bottom + 12) % 12))];
+      if (notes[notes.length - 1] <= KEY_HIGH)
+        out.push({ notes, grund: bottom === pc });
+    }
+  }
+  return out;
+}
+
+// Knotenkosten: die Hand soll um die Fenstermitte spielen; die Grundstellung
+// bekommt einen milden Bonus, damit sie gewinnt, WENN es nichts kostet.
+function keyNodeCost(v) {
+  const mitte = v.notes.reduce((a, b) => a + b, 0) / v.notes.length;
+  return 0.06 * Math.abs(mitte - (KEY_LOW + KEY_HIGH) / 2) + (v.grund ? -0.3 : 0);
+}
+// Uebergangskosten: mittlere Halbtonbewegung der Stimmen (beide Voicings sind
+// aufsteigend sortiert, Index-Paarung entspricht der Stimmfuehrung enger Lagen).
+function keyTransCost(a, b) {
+  const n = Math.min(a.notes.length, b.notes.length);
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += Math.abs(a.notes[i] - b.notes[i]);
+  return sum / n + 0.5 * Math.abs(a.notes.length - b.notes.length);
+}
+
+// Viterbi ueber [aktuell, ...kommende] - dieselbe Struktur wie planVoicing bei
+// der Gitarre, nur mit Umkehrungen statt Griff-Schablonen als Knoten.
+function planKeyVoicing(window, last) {
+  const cand = window.map(c => keyCandidates(c.root, c.q, c.safe)).filter(a => a.length);
+  if (!cand.length) return null;
+  const dp = [cand[0].map(v => (last ? keyTransCost(last, v) : 0) + keyNodeCost(v))];
+  const bp = [cand[0].map(() => -1)];
+  for (let i = 1; i < cand.length; i++) {
+    dp[i] = []; bp[i] = [];
+    cand[i].forEach((v, j) => {
+      let best = Infinity, arg = -1;
+      cand[i - 1].forEach((u, k) => {
+        const c = dp[i - 1][k] + keyTransCost(u, v);
+        if (c < best) { best = c; arg = k; }
+      });
+      dp[i][j] = best + keyNodeCost(v); bp[i][j] = arg;
+    });
+  }
+  let li = cand.length - 1, bj = 0;
+  dp[li].forEach((c, j) => { if (c < dp[li][bj]) bj = j; });
+  for (let i = li; i > 0; i--) bj = bp[i][bj];
+  return cand[0][bj];
+}
+
+// Die Klaviatur als SVG: zwei Oktaven, gedrueckte Tasten blau gefuellt, die
+// gemessene Bassnote (linke Hand) als orangener Punkt auf ihrer tiefsten Taste.
+// Self-contained wie die Griffbrett-SVGs, Farben aus dem Bestand.
+function pianoSvg(v, bassPc) {
+  const pressed = new Set(v.notes);
+  const kw = 24, bw = 14, wh = 112, bh = 68, W = 14 * kw + 4, H = 138;
+  const acc = "#6ea8ff", bassC = "#e8934a", mk = "#5b636d";
+  let s = '<svg viewBox="0 0 ' + W + " " + H + '" fill="none" '
+        + 'xmlns="http://www.w3.org/2000/svg">';
+  const whiteX = new Map(), blackX = new Map();
+  let wi = 0;
+  for (let m = KEY_LOW; m <= KEY_HIGH; m++) {   // weisse Tasten zuerst (unten)
+    if (!WHITE_PC.includes(m % 12)) continue;
+    const x = 2 + kw * wi++;
+    whiteX.set(m, x);
+    s += '<rect x="' + x + '" y="2" width="' + kw + '" height="' + wh
+       + '" rx="2.5" fill="' + (pressed.has(m) ? acc : "#dde2e8")
+       + '" stroke="#14161a" stroke-width="1.6"/>';
+  }
+  for (let m = KEY_LOW; m <= KEY_HIGH; m++) {   // schwarze Tasten darueber
+    if (WHITE_PC.includes(m % 12)) continue;
+    const x = whiteX.get(m - 1) + kw - bw / 2;  // auf der Fuge zur Nachbartaste
+    blackX.set(m, x);
+    s += '<rect x="' + x + '" y="2" width="' + bw + '" height="' + bh
+       + '" rx="2" fill="' + (pressed.has(m) ? acc : "#22262c")
+       + '" stroke="#14161a" stroke-width="1.6"/>';
+  }
+  for (const [m, x] of whiteX)                  // die C-Tasten zur Orientierung
+    if (m % 12 === 0)
+      s += '<text x="' + (x + kw / 2) + '" y="' + (H - 8) + '" fill="' + mk
+         + '" font-size="11" text-anchor="middle" font-family="sans-serif">C</text>';
+  if (bassPc != null) {                         // linke Hand: tiefste passende Taste
+    const m = KEY_LOW + bassPc;
+    const schwarz = !WHITE_PC.includes(bassPc);
+    const cx = schwarz ? blackX.get(m) + bw / 2 : whiteX.get(m) + kw / 2;
+    s += svgDot(cx, (schwarz ? bh : wh) - 11, 5, bassC, 1);
+  }
+  return s + "</svg>";
+}
+
+// Wie decideVoicing bei der Gitarre: die Umkehrung eines Akkords wird EINMAL
+// entschieden, wenn er hoerbar wird, und ist danach gesperrt - ein gezeigtes
+// Tastenbild springt nie um. `lastKeyVoicing` traegt die Handlage weiter.
+let kbVoicings = new Map();
+let lastKeyVoicing = null;
+function decideKeyVoicing(seg) {
+  const key = seg.at.toFixed(2) + "|" + seg.c;
+  let v = kbVoicings.get(key);
+  if (v) { lastKeyVoicing = v; return v; }
+  const win = futureWindow(seg, q => q in KEY_INTERVALS);
+  if (!win.length) return null;
+  v = planKeyVoicing(win, lastKeyVoicing);
+  if (!v) return null;
+  kbVoicings.set(key, v);
+  lastKeyVoicing = v;
+  if (kbVoicings.size > 24)                     // Vergangenes wegraeumen
+    for (const k of kbVoicings.keys()) { kbVoicings.delete(k); if (kbVoicings.size <= 16) break; }
+  return v;
+}
+
+// Die Klaviatur neu zeichnen, wenn sich Akkord, Bassnote oder Schreibweise
+// geaendert haben. Der Name folgt derselben Vorsichtsregel wie bei der Gitarre
+// (safeGuitarName ist instrumentneutral); die Umkehrung steht als /E dabei -
+// in der Farbe des Bass-Punkts, damit Name und Taste zusammenfinden.
+let kbShown = "";
+function renderKeyboard(seg) {
+  const name = seg ? seg.c : null;
+  const key = (name || "-") + "|" + (name ? seg.at.toFixed(2) : "") + "|"
+            + schreibweise + "|" + (seg && seg.b ? seg.b : "");
+  if (key === kbShown) return;
+  kbShown = key;
+  const v = seg && name && name !== "?" && name !== "-" ? decideKeyVoicing(seg) : null;
+  if (!v) { $("fbdiagram").innerHTML = ""; $("fbname").innerHTML = ""; return; }
+  const bassPc = seg.b != null ? NOTE_PC[seg.b] : null;
+  $("fbdiagram").innerHTML = pianoSvg(v, bassPc);
+  const inv = umkehrung(seg);
+  $("fbname").innerHTML = chordHtml(safeGuitarName(seg))
+    + (inv ? '<span style="color:#e8934a">/'
+             + schreibeGrundton(inv, schreibweise) + "</span>" : "");
+}
+
 // Auf dem Laufband steht im Bass-Modus der Slash-Akkord: C/E. Genau das ist die
 // Information, die im Akkordnamen allein fehlt.
 function chipHtml(seg) {
@@ -1036,6 +1221,7 @@ function animate() {
     showIdle();
     if (griffbrettAn && instrument === "guitar") renderFretboard(null);
     else if (griffbrettAn && instrument === "bass") renderBassBoard(null);
+    else if (griffbrettAn && instrument === "keys") renderKeyboard(null);
     for (const chip of chips.values()) chip.el.remove();
     chips.clear();
     return;
@@ -1059,10 +1245,11 @@ function animate() {
   }
   setCurrent(audible);
   // Im Gitarrenmodus das Griffbild zum Akkord, im Bass-Modus das Griffbrett mit
-  // dem gemessenen Basston - beides nur, wenn das Griffbrett nicht abgeschaltet
-  // ist (dann waere es unsichtbares Zeichnen).
+  // dem gemessenen Basston, im Keyboard-Modus die Klaviatur - alles nur, wenn
+  // das Griffbrett nicht abgeschaltet ist (dann waere es unsichtbares Zeichnen).
   if (griffbrettAn && instrument === "guitar") renderFretboard(audible);
   else if (griffbrettAn && instrument === "bass") renderBassBoard(audible);
+  else if (griffbrettAn && instrument === "keys") renderKeyboard(audible);
 
   syncChips(now);
   for (const chip of chips.values()) {
@@ -1124,11 +1311,13 @@ function setzeInstrument(neu) {
     opt.setAttribute("aria-checked", String(opt.dataset.inst === neu));
   document.body.classList.toggle("bass", neu === "bass");
   document.body.classList.toggle("guitar", neu === "guitar");
+  document.body.classList.toggle("keys", neu === "keys");
   // Alles neu zeichnen: der grosse Ton und jeder Chip sagen jetzt etwas anderes.
   $("current").dataset.shown = "";
   $("context").dataset.shown = "";
-  fbShown = ""; bbShown = "";    // erzwingt Neuaufbau von Griffbild/Griffbrett
+  fbShown = ""; bbShown = ""; kbShown = "";  // erzwingt Neuaufbau der Diagramme
   voicings.clear(); lastVoicing = null; lastBassPos = null;  // frisch planen
+  kbVoicings.clear(); lastKeyVoicing = null;
   for (const chip of chips.values()) chip.el.remove();
   chips.clear();
 }
@@ -1139,8 +1328,9 @@ function setzeGriffbrett(an) {
   for (const opt of document.querySelectorAll(".opt[data-fret]"))
     opt.setAttribute("aria-checked", String((opt.dataset.fret === "on") === an));
   document.body.classList.toggle("nofretboard", !an);
-  fbShown = ""; bbShown = "";    // beim Wiedereinschalten frisch aufbauen
+  fbShown = ""; bbShown = ""; kbShown = "";  // beim Wiedereinschalten frisch aufbauen
   voicings.clear(); lastVoicing = null; lastBassPos = null;  // frisch planen
+  kbVoicings.clear(); lastKeyVoicing = null;
 }
 
 function dialog(offen) {
