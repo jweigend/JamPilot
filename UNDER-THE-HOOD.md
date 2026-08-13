@@ -411,8 +411,15 @@ PyInstaller failed to collect. Run it after every change to the spec.
 
 **Builds do not cross-compile.** PyInstaller bundles the native libraries of
 the machine it runs on, so a Linux binary needs Linux, and macOS needs a Mac —
-separately for Intel and Apple Silicon. `.github/workflows/build.yml` does all
-three on tag push.
+separately per architecture. `.github/workflows/build.yml` builds Linux x86_64
+and macOS Apple Silicon on tag push. **Intel macOS is not built any more**:
+`macos-13` was GitHub's last free Intel runner, it is being retired, and its
+queue no longer moves — Intel Macs install from source, which `run.sh` makes
+cheap. **Windows is not bundled either**, for a different reason: an unsigned
+200 MB onefile exe is exactly what SmartScreen exists to frighten users away
+from. Until the signing question is answered, `run.cmd --bundle` says so and
+stops ([`docs/exploration/windows-portierung.md`](docs/exploration/windows-portierung.md));
+Windows users install from source via `run.cmd`.
 
 What the binary still cannot bring with it, because these are system
 components:

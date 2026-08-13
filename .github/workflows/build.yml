@@ -5,8 +5,16 @@ name: Build
 # Warum eine Matrix und nicht ein Job? PyInstaller kann NICHT cross-kompilieren -
 # es buendelt die nativen Bibliotheken der Maschine, auf der es laeuft
 # (libportaudio, libsndfile, libllvmlite, die BLAS von numpy/scipy). Jede
-# Zielplattform braucht darum ihren eigenen Runner. macOS zerfaellt zusaetzlich
-# in zwei Architekturen: macos-13 ist Intel, macos-14 ist Apple Silicon.
+# Zielplattform braucht darum ihren eigenen Runner.
+#
+# Intel-macOS wird NICHT mehr gebaut: macos-13 war der letzte kostenlose
+# Intel-Runner, wird von GitHub ausgemustert, und der v0.1.0-Job stand ueber
+# zwei Stunden in der Warteschlange, ohne je zu starten. Intel-Macs
+# installieren aus dem Quelltext (./run.sh) - der letzte wurde 2020 verkauft.
+# Windows wird ebenfalls nicht gebuendelt, aus einem anderen Grund: Eine
+# unsignierte 200-MB-Onefile-Exe faellt SmartScreen zum Opfer; solange die
+# Signaturfrage offen ist, sagt `run.cmd --bundle` das ehrlich und bricht ab
+# (docs/exploration/windows-portierung.md).
 
 on:
   push:
@@ -24,8 +32,6 @@ jobs:
           # Ubuntu zu bauen macht die Binary auf aelteren unbrauchbar.
           - os: ubuntu-22.04
             name: jampilot-linux-x86_64
-          - os: macos-13
-            name: jampilot-macos-x86_64      # Intel
           - os: macos-14
             name: jampilot-macos-arm64       # Apple Silicon
 

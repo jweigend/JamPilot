@@ -270,6 +270,11 @@ On Linux, double-click `dist/JamPilot.desktop` (not the raw binary), or put it
 in the menu with `./dist/jampilot install`. The build is reproducible and only
 rebuilds when sources changed — details in [UNDER-THE-HOOD.md](UNDER-THE-HOOD.md).
 
+Prebuilt binaries on the [Releases page](https://github.com/jweigend/JamPilot/releases)
+cover **Linux x86_64** and **macOS Apple Silicon**. On an Intel Mac or on
+Windows, install from source — `./run.sh` / `run.cmd` is the whole setup
+([why there is no Windows exe](UNDER-THE-HOOD.md#size-startup-reproducibility)).
+
 ## Current limitations
 
 Honesty section — the things JamPilot does *not* do (yet):
