@@ -193,12 +193,20 @@ _qt_pruefen() {
     [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || return 0    # headless: kein Fenster gewollt
     command -v ldd >/dev/null 2>&1 || return 0
 
-    local plugin fehlend
-    plugin="$WURZEL/.venv/lib/python3*/site-packages/PySide6/Qt/plugins/platforms/libqxcb.so"
-    plugin="$(ls $plugin 2>/dev/null | head -1)"    # absichtlich ungequotet: das * soll wirken
-    [ -n "$plugin" ] || return 0
+    # Der Glob laeuft als Array, nicht durch ein ungequotetes `ls`: Bei einem
+    # Pfad mit Leerzeichen (~/Área de trabalho/...) zerlegte die Shell das
+    # ls-Argument in Woerter, ls scheiterte - und unter `set -e` beendete die
+    # fehlgeschlagene Zuweisung das ganze Skript. Wortlos, direkt nach dem
+    # venv-Aufbau. Im Array bleibt der feste Teil gequotet, nur das * wirkt;
+    # trifft es nichts, steht das Muster woertlich da und existiert nicht.
+    local plugin fehlend kandidaten
+    kandidaten=( "$WURZEL"/.venv/lib/python3*/site-packages/PySide6/Qt/plugins/platforms/libqxcb.so )
+    plugin="${kandidaten[0]}"
+    [ -e "$plugin" ] || return 0
 
-    fehlend="$(ldd "$plugin" 2>/dev/null | awk '/not found/ {print "  " $1}' | sort -u)"
+    # `|| true`, weil auch diese Pipeline unter `set -euo pipefail` steht: Ein
+    # ldd, das an der Datei scheitert, darf eine Warnung kosten - nicht den Start.
+    fehlend="$(ldd "$plugin" 2>/dev/null | awk '/not found/ {print "  " $1}' | sort -u || true)"
     [ -n "$fehlend" ] || return 0
 
     echo >&2
