@@ -98,7 +98,7 @@ glance, while both your hands are busy:
   (♯/♭) and the instrument mode (chords, bass, guitar or keyboard) — both are
   per-device, so your phone and your laptop may disagree.
 
-![Zoom on the QR code in the corner of the display](docs/bilder/qr-code.png)
+![Zoom on the QR code in the corner of the display: Connect your phone](docs/bilder/connect-your-phone.png)
 
 *Connect any tablet or phone — now. One scan, and the same synced display is on
 every music stand in the room. No app, no account: it is just a browser page.*
@@ -126,7 +126,7 @@ the chord. The gear menu switches the display:
 | Mode | Large on screen | Lane |
 |---|---|---|
 | **Chords** (default) | the audible chord | `C` |
-| **Bass** | the **measured bass note**, chord as context | `C/E` |
+| **Bass** | the **measured bass note**, with a four-string neck diagram top-left | `C/E` |
 | **Guitar** | the audible chord, with a **fretboard diagram** top-left | `C` |
 | **Keyboard** | the audible chord, with a **piano diagram** top-left | `C` |
 
@@ -135,15 +135,16 @@ the chord. The gear menu switches the display:
 *Guitar mode: `F` is sounding — its barre-chord shape at the 1st fret is drawn
 top-left — while `Gm` and `C7` approach in the lane.*
 
-![Keyboard mode: the current chord as pressed keys on two octaves, the measured bass marked as the left hand](docs/bilder/keyboardmodus.png)
+![Keyboard mode: Dm7 as pressed keys on two octaves, the measured bass marked in orange as the left hand](docs/bilder/keyboard-mode.png)
 
-*Keyboard mode: the chord as pressed keys, chosen so your right hand stays in
-place — the measured bass marked separately as the left hand.*
+*Keyboard mode: `Dm7` as pressed keys, in a voicing chosen so your right hand
+stays in place — the measured bass marked in orange as the left hand.*
 
-![Bass mode: the measured bass note large in the centre, the chord as context](docs/bilder/bassmodus.png)
+![Bass mode: the measured bass note large in the centre, a four-string neck showing the move from G to E](docs/bilder/bass-mode.png)
 
-*Bass mode: the **measured** bass note is the big one. In `C/E` the band plays
-C — and your finger sits on E.*
+*Bass mode: the **measured** bass note is the big one, and the four-string neck
+top-left shows where you are and where the next note sits (`G → E`). When `C/E`
+reaches the NOW line, the band plays C — and your finger sits on E.*
 
 In **Guitar** mode the display adds the one thing a chord name leaves out:
 *where* to put your hand. And because the same harmony lives in several
