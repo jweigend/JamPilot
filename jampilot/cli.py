@@ -661,7 +661,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     `stop` (threading.Event) und `engine` wie im Template-Pfad.
     """
     from . import bass as bassmodul
-    from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
+    from .btc import (BTC_FRAME_SECONDS, BTCModel, IncrementalCQT,
                       fold_bass_chroma, fold_chroma, refine_boundary,
                       segments_from_labels)
     from .tonality import KeyEstimator, spell
@@ -670,6 +670,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     window_frames = int(round(BTC_LIVE_WINDOW * sr))
     hop_frames = int(round(ANALYSIS_HOP * sr))
     model = BTCModel()
+    # Inkrementelle CQT: fertige Frames bleiben ueber die Hops im Cache, je
+    # Hop wird nur der noch instabile Schwanz (~2.5 s) neu transformiert.
+    feature_cache = IncrementalCQT()
     keys = KeyEstimator(ANALYSIS_HOP)
     # Die Bassspur muss die ganze Zeitleiste abdecken - vom Anzeige-Rueckblick
     # bis zur Analysefront (wie im Template-Pfad, nur im 93-ms-Raster; der
@@ -730,11 +733,15 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 continue
             window_start = (window_end - len(audio)) / sr
 
-            features = features_from_audio(audio, sr)
+            # feat_start liegt auf dem absoluten 93-ms-Raster des Caches und
+            # ersetzt window_start ueberall, wo Frame-Indizes in Streamzeit
+            # uebersetzt werden; window_start bleibt fuer das Roh-Audiofenster
+            # (refine_boundary schneidet daraus).
+            features, feat_start = feature_cache.features(audio, sr, window_end)
             labels = model.predict(features)
-            bass_track.add(fold_bass_chroma(features), window_start)
+            bass_track.add(fold_bass_chroma(features), feat_start)
             segments = [(pos, "-" if name == "N" else name)
-                        for pos, name in segments_from_labels(labels, offset=window_start)]
+                        for pos, name in segments_from_labels(labels, offset=feat_start)]
 
             audible_pos = loop.audible_position()
             horizon = window_end / sr - BTC_EDGE_GUARD
@@ -769,10 +776,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # Tonart (nur Schreibweise): gefaltetes Chroma der NEU gesehenen
             # Frames, damit kein Material doppelt in die Statistik faellt.
             folded = fold_chroma(features)
-            first_new = max(0, int((key_fed_until - window_start) / BTC_FRAME_SECONDS) + 1)
+            first_new = max(0, int((key_fed_until - feat_start) / BTC_FRAME_SECONDS) + 1)
             if first_new < len(folded):
                 keys.add(folded[first_new:].mean(axis=0))
-                key_fed_until = window_start + len(folded) * BTC_FRAME_SECONDS
+                key_fed_until = feat_start + len(folded) * BTC_FRAME_SECONDS
 
             # Vergangenes behalten wir kurz - die Anzeige blendet Akkorde
             # hinter der JETZT-Linie noch aus.

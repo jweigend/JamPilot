@@ -215,6 +215,53 @@ class BTCModel:
         return labels[:t]
 
 
+# librosa baut die CQT-Filterbank bei JEDEM cqt()-Aufruf komplett neu - im
+# Profil ~55 ms je Aufruf, unabhaengig von der Signallaenge, und damit DER
+# Fixkostenblock des Live-Pfads (die eigentliche Transformation eines kurzen
+# Slices kostet nur wenige ms). Der private Builder __vqt_filter_fft ist eine
+# pure Funktion seiner kleinen Parameter; wir memoisieren ihn prozessweit.
+# vqt skaliert die gelieferte Basis IN PLACE (fft_basis[:] *= ...), deshalb
+# gibt der Wrapper immer eine Kopie heraus. Fehlt die private API in einer
+# kuenftigen librosa-Version, unterbleibt das Cachen schlicht - die Ergebnisse
+# aendern sich in keinem Fall.
+_cqt_filter_cache: dict = {}
+
+
+def _speed_up_librosa_cqt() -> None:
+    import librosa.core.constantq as constantq
+
+    if getattr(constantq, "_jampilot_filter_cache", False):
+        return
+    original = getattr(constantq, "__vqt_filter_fft", None)
+    if original is None:                      # private API weg -> kein Cache
+        constantq._jampilot_filter_cache = True
+        return
+
+    def cached(sr, freqs, filter_scale, norm, sparsity, hop_length=None,
+               window="hann", gamma=0.0, dtype=np.complex64, alpha=None):
+        try:
+            key = (float(sr), np.asarray(freqs).tobytes(), filter_scale,
+                   norm, sparsity, hop_length,
+                   window.tobytes() if isinstance(window, np.ndarray) else str(window),
+                   gamma, np.dtype(dtype).str,
+                   None if alpha is None else np.asarray(alpha).tobytes())
+        except (TypeError, ValueError):
+            key = None
+        if key is None:
+            return original(sr, freqs, filter_scale, norm, sparsity,
+                            hop_length=hop_length, window=window,
+                            gamma=gamma, dtype=dtype, alpha=alpha)
+        if key not in _cqt_filter_cache:
+            _cqt_filter_cache[key] = original(
+                sr, freqs, filter_scale, norm, sparsity, hop_length=hop_length,
+                window=window, gamma=gamma, dtype=dtype, alpha=alpha)
+        fft_basis, n_fft, lengths = _cqt_filter_cache[key]
+        return fft_basis.copy(), n_fft, lengths.copy()
+
+    constantq.__vqt_filter_fft = cached
+    constantq._jampilot_filter_cache = True
+
+
 def features_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
     """Audio -> Log-CQT-Frames (T, 144), wie audio_dataset.py des Originals.
 
@@ -223,6 +270,7 @@ def features_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
     """
     import librosa
 
+    _speed_up_librosa_cqt()
     y = np.asarray(samples, dtype=np.float32)
     if samplerate != BTC_SR:
         y = librosa.resample(y, orig_sr=samplerate, target_sr=BTC_SR)
@@ -239,6 +287,104 @@ def features_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
             bins_per_octave=BTC_BINS_PER_OCTAVE, hop_length=BTC_HOP))
     feature = np.concatenate(parts, axis=1)
     return np.log(np.abs(feature) + 1e-6).T.astype(np.float32)
+
+
+# --- Inkrementelle Live-Features --------------------------------------------
+# Der Live-Pfad rechnete bei JEDEM Hop (250 ms) die CQT ueber das volle
+# 10-s-Fenster neu, obwohl je Hop nur ~2-3 Frames dazukommen. IncrementalCQT
+# haelt fertige Frames auf einem ABSOLUTEN Raster (Frame f beginnt bei
+# f*BTC_HOP Samples im 22050-Hz-Strom) und rechnet je Hop nur den noch
+# instabilen Schwanz nach.
+#
+# Ein Frame ist stabil, sobald STABLE_SECONDS Audio HINTER ihm liegen -
+# danach aendert weiteres Audio seinen Wert nicht mehr messbar (der laengste
+# CQT-Filter, C1 bei 24 Bins/Oktave, ist ~1.05 s lang, wirkt also ~0.53 s je
+# Seite). Beim Nachrechnen bekommt jeder Frame PAD_FRAMES echte Frames
+# Links-Kontext; die randkontaminierten Kontext-Frames werden verworfen.
+_PAD_FRAMES = 12           # Links-Kontext je Nachrechnung (~1.1 s)
+_STABLE_SECONDS = 1.0      # so viel Zukunft macht einen Frame endgueltig
+
+
+class IncrementalCQT:
+    """Log-CQT-Frames des Livestroms, gecacht auf absolutem Frame-Raster.
+
+    features(audio, samplerate, end_sample) nimmt das juengste Analysefenster
+    (audio endet bei Absolutsample end_sample des Streams) und liefert
+    (frames, start_seconds): bis zu BTC_TIMESTEP Frames (T, 144) im Format von
+    features_from_audio. Anders als dort liegt das Raster nicht relativ zum
+    Fenster, sondern absolut im Stream: Frame i gehoert zur Streamzeit
+    start_seconds + i * BTC_FRAME_SECONDS, ueber alle Hops hinweg stabil.
+    """
+
+    def __init__(self):
+        self._sr: int | None = None
+        self._f0 = 0                                   # Absolutindex Frame 0 des Caches
+        self._cache = np.zeros((0, BTC_N_BINS), dtype=np.float32)
+
+    def _reset(self) -> None:
+        self._f0 = 0
+        self._cache = self._cache[:0]
+
+    def features(self, audio: np.ndarray, samplerate: int,
+                 end_sample: int) -> tuple[np.ndarray, float]:
+        import librosa
+
+        _speed_up_librosa_cqt()
+        if samplerate != self._sr:
+            self._sr = samplerate
+            self._reset()
+        ratio = BTC_SR / samplerate
+        end22 = int(end_sample * ratio)
+        start22 = int((end_sample - len(audio)) * ratio)
+        f_last = end22 // BTC_HOP
+        first_possible = -(-start22 // BTC_HOP)        # erster Frame ganz im Fenster
+        if f_last < first_possible:
+            return np.zeros((0, BTC_N_BINS), dtype=np.float32), 0.0
+
+        # Cache nur brauchbar, wenn er nahtlos bis in das aktuelle Fenster
+        # reicht (nach einem Analyse-Stillstand fehlt Kontext -> neu aufbauen).
+        w0_ideal = max(f_last - (BTC_TIMESTEP - 1), first_possible)
+        cache_end = self._f0 + len(self._cache)
+        if len(self._cache) and (self._f0 > w0_ideal or cache_end < w0_ideal):
+            self._reset()
+            cache_end = 0
+        if len(self._cache):
+            w0 = max(f_last - (BTC_TIMESTEP - 1), self._f0)
+            c0 = cache_end                             # erster frisch zu rechnender Frame
+        else:
+            w0 = w0_ideal
+            c0 = w0
+
+        # Slice mit Links-Kontext resamplen und transformieren.
+        in0_f = max(c0 - _PAD_FRAMES, first_possible)
+        src_start = max(int(in0_f * BTC_HOP / ratio), end_sample - len(audio))
+        y = np.asarray(audio[src_start - (end_sample - len(audio)):], dtype=np.float32)
+        if samplerate != BTC_SR:
+            y = librosa.resample(y, orig_sr=samplerate, target_sr=BTC_SR)
+        want = end22 - in0_f * BTC_HOP                 # Resampler-Laenge kann um 1 abweichen
+        if len(y) < want:
+            y = np.pad(y, (0, want - len(y)))
+        c = librosa.cqt(y[:want], sr=BTC_SR, n_bins=BTC_N_BINS,
+                        bins_per_octave=BTC_BINS_PER_OCTAVE, hop_length=BTC_HOP)
+        feats = np.log(np.abs(c) + 1e-6).T.astype(np.float32)
+        fresh = feats[c0 - in0_f:]                     # Frame j <-> Absolutframe c0 + j
+
+        # Stabil gewordene Frames einfrieren, Fenster zusammensetzen.
+        f_stable = (end22 - int(_STABLE_SECONDS * BTC_SR)) // BTC_HOP
+        n_new = min(f_stable, f_last) - c0 + 1
+        if n_new > 0:
+            if not len(self._cache):
+                self._f0 = c0
+            self._cache = np.concatenate([self._cache, fresh[:n_new]])
+        out = np.concatenate([self._cache[w0 - self._f0 : c0 - self._f0], fresh]) \
+            if c0 > w0 else fresh[w0 - c0:]
+
+        # Aelter als ein Fenster plus Reserve braucht niemand mehr.
+        keep_from = f_last - BTC_TIMESTEP - 20
+        if len(self._cache) and self._f0 < keep_from:
+            self._cache = self._cache[keep_from - self._f0:]
+            self._f0 = keep_from
+        return out, w0 * BTC_FRAME_SECONDS
 
 
 # Tiefband fuer die Bassmessung: C1 + 3 Oktaven (32.7..260 Hz) - dasselbe
@@ -290,6 +436,7 @@ def refine_boundary(samples: np.ndarray, samplerate: int, boundary: float,
     """
     import librosa
 
+    _speed_up_librosa_cqt()               # chroma_cqt baut sonst je Aufruf neu
     prev_template = _tone_template(prev_name)
     new_template = _tone_template(new_name)
     if prev_template is None or new_template is None:
