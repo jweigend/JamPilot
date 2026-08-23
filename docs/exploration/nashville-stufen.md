@@ -2,18 +2,21 @@
 
 *Explorationsdokument. Status: Entwurf mit Entscheidungen und Umsetzungsplan —
 Grundlage für die Implementierung im selben Zweig
-(`feature/nashville-scale-system`). Die Idee steht seit dem ersten Entwurf auf
-der Liste ([first-draft.md](first-draft.md), „Nashville Number System").*
+(`feature/nashville-scale-system`). Zweite Fassung: Die Notation ist nach
+Diskussion von klassischer Stufentheorie auf ein echtes Nashville-System
+umgestellt; die verworfenen Varianten sind unten dokumentiert. Die Idee steht
+seit dem ersten Entwurf auf der Liste ([first-draft.md](first-draft.md),
+„Nashville Number System").*
 
 ---
 
 ## Die Idee
 
 In der Zeitleiste unten steht über jedem Akkordnamen seine **Stufe** in der
-erkannten Tonart: über `F` in B♭-Dur ein kleines `V`, über `Cm` ein `ii`. Wer
+erkannten Tonart: über `F` in B♭-Dur eine kleine `5`, über `Cm` eine `2`. Wer
 mitspielt, denkt damit in Funktionen statt in absoluten Tönen — die Folge
-`I–vi–IV–V` erkennt man nach zwei Durchgängen wieder, egal in welcher Tonart
-das nächste Stück steht. Zusammen mit der Tonart (die im Badge oben ohnehin
+`1–6–4–5` erkennt man nach zwei Durchgängen wieder, egal in welcher Tonart das
+nächste Stück steht. Zusammen mit der Tonart (die im Badge oben ohnehin
 angezeigt wird) ergibt sich der richtige Ton automatisch.
 
 Das zahlt direkt auf den Kern ein: Mitspielen ohne Leadsheet. Die Stufe ist
@@ -34,60 +37,89 @@ liegt bereits alles:
 - `chords[]` (`:468`) und `chipHtml(seg)` (`:1180`) — dort entsteht das
   Chip-HTML, dort kommt die Stufenzeile dazu.
 - `fmtChord` (`:528`) trennt kanonischen Grundton und Qualität, `NOTE_PC`
-  (`:626`) liefert die Tonklasse. Die Stufe ist dann
-  `(NOTE_PC[root] − NOTE_PC[tonart.tonic] + 12) % 12`, nachgeschlagen in der
-  Skala — dieselben Intervalltabellen wie `_MAJOR_SCALE`/`_MINOR_SCALE` in
-  [harmony.py](../../jampilot/harmony.py) (`(0,2,4,5,7,9,11)` bzw.
-  `(0,2,3,5,7,8,10)`).
+  (`:626`) liefert die Tonklasse. Die Stufe ist dann die Halbton-Differenz
+  `(NOTE_PC[root] − NOTE_PC[tonart.tonic] + 12) % 12`, nachgeschlagen in einer
+  festen Tabelle (s. Umsetzungsplan).
 
 ---
 
 ## Darstellung
 
-### Römische Ziffern, nicht Zahlen
+### Das System: eine Regel
 
-Beide Notationen sind verbreitet: das Nashville Number System schreibt `1 4 5`,
-die Funktionslehre `I IV V`. Entscheidung: **römische Ziffern.** Drei Gründe:
+**Arabische Ziffern, gezählt von der Dur-Skala der erkannten Tonika — auch in
+Moll.** Eine nackte Ziffer heißt: Der Grundton liegt auf dieser Stufe der
+Dur-Skala. Ein ♭ heißt: einen Halbton darunter. Mehr Regeln gibt es nicht.
+Die zwölf möglichen Halbton-Abstände zur Tonika bilden ab auf:
 
-1. **Verwechslungsgefahr.** JamPilot zeigt in Bass- und Gitarrenmodus
-   Bundzahlen. Eine nackte `4` über einem Akkord liest sich in diesem Umfeld
-   als Bund oder Fingersatz. `IV` ist unmissverständlich eine Stufe.
-2. **Groß-/Kleinschreibung trägt gratis Information.** `ii` und `V` zeigen
-   Moll/Dur auf einen Blick — bei Zahlen bräuchte es ein Suffix (`2m`), das
-   nur dupliziert, was im Akkordnamen darunter ohnehin steht.
-3. Die Stufe ist **Zweitinformation** über dem Akkordnamen, kein Ersatz. Wer
-   klassisches Nashville-Charting mit Zahlen gewohnt ist, liest `IV` genauso
-   flüssig; umgekehrt gilt das nicht.
+```
+0   1   2   3   4   5   6   7   8   9   10  11   Halbtöne über Tonika
+1   ♭2  2   ♭3  3   4   ♭5  5   ♭6  6   ♭7  7    Stufe
+```
 
-Eine Notations-Wahl im Dialog (römisch vs. Zahlen) gibt es bewusst **nicht** —
-siehe unten „Einstellungsdialog klein halten".
+- **Keine Qualitäts-Suffixe.** Kein Minus, kein `m`, kein `°`, keine `7` —
+  ob der Akkord Dur, Moll oder vermindert ist, steht im Akkordnamen direkt
+  darunter. `Am` in a-Moll zeigt schlicht `1`. Das echte Nashville-Charting
+  braucht seine Minusse, weil das Chart den Akkordnamen *ersetzt*; bei uns
+  ist die Stufe Zweitinformation *über* dem Namen.
+- **Einheitlich ♭, nie ♯.** Kontextabhängige ♯-Schreibweisen (`♯4` lydisch,
+  `♯1` als Durchgang) wären Deutungsentscheidungen; die feste ♭-Tabelle ist
+  eine Regel ohne Urteil und deckt die häufigen Fälle (`♭3 ♭6 ♭7 ♭2`) in
+  ihrer üblichen Schreibweise ab. Nachrüstbar, falls der Playtest widerspricht.
+- **Jeder Grundton bekommt eine Stufe.** Es gibt keinen Blindfleck für
+  tonartfremde Akkorde — das mixolydische `♭7` im Rock (G-Dur-Akkord in
+  A-Dur) steht ganz regulär da, und genau das ♭ ist die nützliche Warnung
+  „hier verlässt der Song die Tonart". Nur `N`, `-`, `?` bleiben ohne Stufe.
+  Slash-Akkorde (`C/E`) beziehen die Stufe auf den Akkord-Grundton, nicht auf
+  den Basston.
 
-### Keine Vorzeichen, keine Zusatzsymbole
+Ein Dur-Song zeigt damit im Normalfall gar keine Symbole — in B♭-Dur ist E♭
+die nackte `4`, die Tonart macht klar, welcher Ton gemeint ist. Ein Moll-Song
+sieht so aus (a-Moll):
 
-Die Stufe ist **relativ zur Tonart**, nicht zu C: In B♭-Dur ist `IV` = E♭ —
-ohne ♭ an der Stufe, denn die Tonart macht klar, welcher Ton gemeint ist.
-Konsequent weitergedacht:
+| Akkord | Am | Bdim | C | Dm | E7 | F | G |
+|---|---|---|---|---|---|---|---|
+| Stufe | `1` | `2` | `♭3` | `4` | `5` | `♭6` | `♭7` |
 
-- **Leitereigene Grundtöne** bekommen die nackte Stufe — im diatonischen
-  Normalfall also `I ii iii IV V vi vii` (Dur) bzw. `i ii III iv v VI VII`
-  (natürlich Moll). Diese Reihen sind aber das *typische Bild*, keine feste
-  Tabelle: Groß/klein folgt immer der erkannten Akkordqualität, nicht der
-  Skala — `E7` in a-Moll steht als `V` da, obwohl
-  sein Terzton leiterfremd ist: der *Grundton* E ist leitereigen, und mehr
-  fragt die Stufenrechnung nicht. Kein `°` am verminderten Akkord, keine `7`
-  an der Dominante — die Qualität steht im Akkordnamen direkt darunter.
-- **Leiterfremde Grundtöne bekommen keine Stufe.** Ein E♭-Akkord in C-Dur
-  stünde klassisch als `♭III` — das verlangt genau die ♭-Symbole, die wir
-  nicht wollen, und suggeriert eine Sicherheit der Deutung, die die Erkennung
-  nicht hat. Stattdessen bleibt die Zeile leer. Die Leere ist selbst
-  Information: „dieser Akkord fällt aus der Tonart" — für den Improvisierenden
-  ein nützliches Warnsignal, im Geist der bewussten Ambiguität-als-Feature.
+Die Tonika ist auch in Moll die `1` — konsistent mit dem Badge („A minor" →
+`Am` = `1`). Die verbreitete Session-Praxis, Moll-Songs in der Dur-Parallele
+zu denken („ist in C, fängt auf der 6 an"), ist bewusst **nicht** übernommen:
+Sie würde der eigenen Tonartanzeige widersprechen.
 
-*Verworfen:* `♭VII`/`♯IV` mit Vorzeichen-Präfix. Das ist in Rock/Pop häufig
-(mixolydisches `♭VII`), aber es widerspricht der Grundentscheidung und füllt
-die Zeile mit Symbolen, die beim Mitspielen nichts beschleunigen. Falls der
-Playtest zeigt, dass die leeren Stufen bei modalen Stücken stören, ist das
-Präfix ein kleiner, rückwärtskompatibler Nachrüstschritt.
+### Warum dieser Rahmen
+
+Die Entscheidung fiel am Bass-Anwendungsfall. `♭3` trägt echte
+Griffbrett-Information: ein fester Bund-Versatz zur Tonika, dieselbe
+Geometrie in jeder Tonart — Moll als erniedrigte Dur-Skala ist genau der
+Rahmen, in dem Griffbrett-Pädagogik und Jazz-Praxis denken („flat three",
+„flat seven"). Eine skalenbezogene nackte `3` verlangt dagegen, dass der
+Spieler die aktuelle Tonleiter (Dur *oder* Moll) präsent hat, um die Ziffer
+in ein Intervall zu übersetzen. Dazu kommt: eine einzige Zählregel statt
+zweier Rahmen, und kein Blindfleck bei entliehenen Akkorden.
+
+### Verworfene Varianten
+
+Beide Vorstufen dieses Entwurfs sind an derselben Frage gescheitert: *Was
+muss die Stufenzeile leisten, wenn der volle Akkordname direkt darunter
+steht?*
+
+1. **Römische Ziffern mit Groß/Klein-Qualität** (`ii`, `V`, erste Fassung
+   dieses Papiers). Hauptargument war, dass Groß/klein die Dur/Moll-Info
+   „gratis" trägt — aber diese Info ist redundant, sie steht im Akkordnamen
+   darunter. Übrig bleiben Kosten: bis zu drei Zeichen (`vii`), eine
+   Lesekonvention, die man lernen muss, und Sonderfall-Logik (E7 in a-Moll
+   als `V` statt `v` verlangt eine Qualitätsauswertung). Das zweite Argument
+   — Verwechslungsgefahr nackter Ziffern mit Bundzahlen — war überbewertet:
+   Bundzahlen erscheinen im Diagramm oben links, nicht im Laufband; eine
+   kleine gedeckte Ziffer direkt über einem Akkordnamen hat genug Kontext.
+2. **Nackte Ziffern relativ zur jeweiligen Skala** (in Moll von der
+   Moll-Tonleiter gezählt: C in a-Moll = `3`). Vermeidet jedes Vorzeichen und
+   lässt Schrittbewegung als Nachbar-Ziffern erscheinen (`1–7–6–5` statt
+   `1–♭7–♭6–5`) — aber sie braucht zwei Zählrahmen, lässt tonartfremde
+   Grundtöne zwangsläufig leer und entkoppelt die Ziffer vom
+   Griffbrett-Intervall. Der ursprüngliche Wunsch „keine ♭-Symbole" hat sich
+   in der Diskussion präzisiert: keine *redundanten* Symbole. Das ♭ der
+   Nashville-Zählung ist nicht redundant — es trägt den Bund-Versatz.
 
 ### Layout im Chip
 
@@ -99,7 +131,7 @@ in ~2.2 vh, gedeckt gefärbt wie die `.eta`-Zeile darunter (`#4a5158`-Familie),
 damit die Hierarchie stimmt: Akkordname laut, Stufe und Countdown leise.
 
 ```
-  IV                V
+  4                 5
   E♭maj7            F
   in 2.3s           in 6.1s
 ──────┼──────────────────────────  ← NOW-Linie
@@ -107,8 +139,11 @@ damit die Hierarchie stimmt: Akkordname laut, Stufe und Countdown leise.
 
 Solange `tonart == null` (erste ~12 s), erscheinen schlicht keine Stufen —
 dasselbe ehrliche Verhalten wie beim Tonart-Badge und der automatischen
-Schreibweise. Slash-Akkorde (`C/E`) beziehen die Stufe auf den Akkord-Grundton
-C, nicht auf den Basston. `N`, `-`, `?` bekommen nie eine Stufe.
+Schreibweise.
+
+Ein Fall ist vorab im `?demo`-Modus zu prüfen: eine Stufen-`7` über einem
+Akkord, der selbst eine `7` im Namen trägt (`G7`). Falls das irritiert, ist
+es eine Styling-Frage (Größe, Farbe, Abstand), keine Notationsfrage.
 
 *Offen (Folgeausbau, nicht Teil dieses Zweigs):* dieselbe Stufe klein am
 großen aktuellen Akkord (`#current`) und im Keyboard-/Gitarrenmodus. Erst der
@@ -122,19 +157,19 @@ Der Dialog ist eine einzige Spalte aus Sektionen; jede neue Sektion kostet
 Scrollweg. Entscheidung: **genau eine neue Sektion mit genau zwei Karten** —
 An/Aus. Alles andere ist Designentscheidung statt Einstellung:
 
-- keine Notations-Wahl (römisch ist gesetzt, s. o.),
+- keine Notations-Wahl (Nashville-Ziffern sind gesetzt, s. o.),
 - keine Tonart-Übersteuerung (die Tonart kommt aus der Erkennung; eine
   manuelle Tonartwahl wäre ein eigenes Feature mit eigenem Papier),
-- keine Vorzeichen-Optionen (es gibt keine Vorzeichen).
+- keine Vorzeichen-Optionen (die ♭-Regel ist fest).
 
 Vorschlag für die Sektion (nutzersichtbar Englisch, wie alles im Dialog):
 
 > **Scale degrees**
-> *Every key has the same seven chords — the degree (I, IV, V…) names their
-> role. Shown above each chord in the timeline once the key is settled, so a
-> progression looks the same in every key.*
+> *Nashville-style numbers above each chord in the timeline: 1 is the key's
+> root, 5 its fifth, a ♭ marks roots outside the key's major scale. A
+> progression looks the same in every key — shown once the key is settled.*
 >
-> **Shown** — Roman numerals above the timeline chords. `[an]`
+> **Shown** — Numbers above the timeline chords. `[an]`
 > **Hidden** — Just the chord names. `[aus]`
 
 **Default: an.** Das Feature ist unaufdringlich (kleine, gedeckte Zeile),
@@ -154,35 +189,30 @@ bestehenden zentralen `.opt`-Click-Dispatcher (`:1449`).
    hängt zusätzlich an der **Tonika** — wechselt der `KeyEstimator` die Tonart
    (oder kommt sie nach 12 s erstmals an), müssen die Chips neu geschrieben
    werden, sonst stehen veraltete Stufen im Laufband. Das ist der eine Ort, an
-   dem man den Fehler lautlos einbaut.
+   dem man den Fehler lautlos einbaut. (Ein reiner Dur/Moll-Wechsel bei
+   gleicher Tonika ist dagegen egal — die Zählung hängt nur an der Tonika.)
 2. **Tonart-Konfidenz.** Der `KeyEstimator` wechselt träge
    (`SWITCH_MARGIN`), das dämpft Stufen-Flackern von allein. Keine eigene
    Hysterese in der Anzeige einbauen, bevor ein Realaudio-Test zeigt, dass es
    nötig ist.
-3. **Moll-Numerierung.** Stufen relativ zur Moll-Tonika (`i iv v/V …`), nicht
-   relativ zur Dur-Parallele — das Badge zeigt „A minor", also muss `Am`
-   darunter `i` heißen, alles andere verwirrt.
+3. **Moll-Songs sind der Playtest-Fall.** Dort tragen drei der sieben
+   leitereigenen Akkorde dauerhaft ein ♭ (`♭3 ♭6 ♭7`) — ob das im Laufband
+   ruhig genug bleibt, entscheidet eine echte Bass-Session mit einem
+   Moll-Stück, nicht dieses Papier.
 
 ---
 
 ## Umsetzungsplan
 
-1. `index.html`: `stufeVon(name)` → `"IV"` / `null`, in **zwei getrennten
-   Schritten** — eine feste PC→Stufenname-Tabelle reicht semantisch nicht,
-   sie könnte `E7` in a-Moll nur als `v` ausgeben:
-   - **Skalengrad** aus Grundton + Tonart: PC-Differenz in der Dur-/Moll-
-     Skala nachschlagen → Ordnungszahl 1–7, oder `null` bei leiterfremdem
-     Grundton.
-   - **Schreibweise** aus der kanonischen Qualität des Akkords: Suffix
-     abtrennen wie in `fmtChord` (`:528`); klein bei Moll- oder verminderter
-     Terz (`m`, `m6`, `m7`, `mMaj7`, `m7b5`, `dim`, `dim7`), sonst groß.
-
-   Python-Vorbilder für genau diesen Split und die Qualitätslogik:
-   `_parse` in [control_guitar.py](../../jampilot/control_guitar.py) (`:38`)
-   und `_foreign_tones` in [harmony.py](../../jampilot/harmony.py) (`:30`) —
-   dort ist der E7-in-Moll-Fall bereits als Kommentar dokumentiert.
-   Aufruf in `chipHtml`, neue Zeile `<span class="degree">` mit CSS analog
-   `.eta`.
+1. `index.html`: `stufeVon(name)` → `"4"` / `"♭3"` / `null`. Die Stufe hängt
+   **nur am Grundton** — die Qualitätsauswertung aus der ersten Fassung
+   (Groß/klein nach Terz) ist ersatzlos entfallen. Damit reicht:
+   Grundton abtrennen wie in `fmtChord` (`:528`), Slash-Bass abschneiden wie
+   `_parse` in [control_guitar.py](../../jampilot/control_guitar.py) (`:38`,
+   `.split("/")[0]`), Halbton-Differenz zur Tonika bilden und in der festen
+   Zwölfer-Tabelle `["1","♭2","2","♭3","3","4","♭5","5","♭6","6","♭7","7"]`
+   nachschlagen. Aufruf in `chipHtml`, neue Zeile `<span class="degree">` mit
+   CSS analog `.eta`.
 2. Chip-Key bzw. Rebuild um die Tonika erweitern (Stolperstein 1);
    `apply(state)` löst bei Tonika-Wechsel `neuSchreibenFallsNoetig` aus.
 3. Dialog-Sektion + `setzeStufen(an)` nach dem Muster von `setzeGriffbrett`,
@@ -192,3 +222,5 @@ bestehenden zentralen `.opt`-Click-Dispatcher (`:1449`).
    Sektion und den Schlüssel erweitern (Muster: Fretboard-Toggle, `:116`).
 5. Visuelle Iteration über `?demo` (`index.html:1474`) — die Demo spielt
    F-Dur, Tonart kommt nach 8 s: exakt der Fall „Stufen erscheinen später".
+   Für den ♭-Fall die Demo-Progression um einen entliehenen Akkord (`E♭` in
+   F-Dur = `♭7`) ergänzen oder ein Moll-Stück laden.
