@@ -171,6 +171,29 @@ class TestSeite:
         # die Information, die der Akkordname allein nicht traegt.
         assert "bassPc" in PAGE
 
+    def test_stufen_sind_abschaltbar(self):
+        # Nashville-Stufen ueber den Laufband-Akkorden: an/aus im Dialog,
+        # gemerkt wie die anderen Einstellungen, per Body-Klasse geschaltet
+        # (kein Chip-Neuaufbau beim Umschalten).
+        for wahl in ("on", "off"):
+            assert f'data-degrees="{wahl}"' in PAGE, wahl
+        assert "jampilot.degrees" in PAGE
+        assert "nodegrees" in PAGE
+        assert "setzeStufen" in PAGE
+
+    def test_stufen_zaehlen_von_der_dur_skala(self):
+        # Die Stufe haengt nur am Grundton: feste Zwoelfertabelle relativ zur
+        # Dur-Skala der Tonika, b markiert die Abweichung - keine Qualitaets-
+        # Suffixe (Entwurf: docs/exploration/nashville-stufen.md).
+        assert "stufeVon" in PAGE
+        for stufe in ("♭2", "♭3", "♭5", "♭6", "♭7"):
+            assert f'"{stufe}"' in PAGE, stufe
+
+    def test_stufen_haengen_an_der_tonika(self):
+        # Kommt die Tonart erstmals an oder wechselt sie, muessen die Chips
+        # neu geschrieben werden - sonst stehen veraltete Stufen im Laufband.
+        assert "stufenTonika" in PAGE
+
 
 @pytest.fixture
 def server():

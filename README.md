@@ -164,6 +164,20 @@ and the safe shapes work is in [UNDER-THE-HOOD.md](UNDER-THE-HOOD.md) and
 (in F major you get B♭, not A♯). The gear menu can also force sharps or flats,
 per device.
 
+**Scale degrees — Nashville numbers:** the timeline shows each chord's degree
+in the detected key as a small number above the name: `1` is the key's root
+chord, `5` its fifth, and a `♭` marks a root borrowed from outside the key's
+major scale. A progression reads the same in every key — `1–6–4–5` stays
+`1–6–4–5` whether the song is in C or in E♭ — which is exactly how session
+musicians call tunes. The quality is not repeated: it already sits in the
+chord name right below the number. On by default; the gear menu hides the
+numbers, per device.
+
+![Scale degrees in the timeline: a small 2 above Gm, a ♭7 above the borrowed E♭, a 5 above C7](docs/bilder/scale-degrees.png)
+
+*The lane in F major: `Gm` is the `2`, `C7` the `5` — and the borrowed `E♭`
+carries its `♭7` as a small warning that the song steps outside the key.*
+
 ## Get it running
 
 One script, straight from a fresh clone — Linux and macOS:

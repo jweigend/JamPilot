@@ -244,6 +244,13 @@
   .chip .bassnote { color: #6ea8ff; }   /* das /E in C/E - die eigentliche Info */
   .chip .eta { display: block; text-align: left; font-size: 2vmin;
                color: #4a5158; font-weight: 400; margin-top: .4vh; }
+  /* Die Nashville-Stufe ueber dem Akkordnamen: leise wie der Countdown, damit
+     die Hierarchie stimmt - Akkordname laut, Stufe und Countdown leise. Die
+     Mindesthoehe reserviert die Zeile auch ohne Tonart, sonst spraengen die
+     Chips nach unten, wenn die Tonart nach ein paar Sekunden eintrifft. */
+  .chip .degree { display: block; text-align: left; font-size: 2.4vmin;
+                  color: #6b7480; font-weight: 500; min-height: 3vmin; }
+  body.nodegrees .chip .degree { display: none; }
 
   #hint { position: fixed; bottom: 24.5vh; right: 2.6vmin; color: #333;
           font-size: 1.7vmin; z-index: 5; }
@@ -424,6 +431,27 @@
                              &middot; A&#9837; &middot; B&#9837;</span>
         </span>
       </button>
+
+      <h2 class="second">Scale degrees</h2>
+      <p class="sub">Nashville-style numbers above the chords in the timeline:
+         <b>1</b> is the key's root, <b>5</b> its fifth, and &#9837; marks a
+         root outside the key's major scale. A progression looks the same in
+         every key &ndash; degrees appear once the key is settled.</p>
+      <button class="opt" data-degrees="on" role="radio">
+        <span class="glyph">&#9312;</span>
+        <span class="text">
+          <span class="label">Shown</span>
+          <span class="desc">Small numbers above each chord on the
+                             timeline.</span>
+        </span>
+      </button>
+      <button class="opt" data-degrees="off" role="radio">
+        <span class="glyph">&#8709;</span>
+        <span class="text">
+          <span class="label">Hidden</span>
+          <span class="desc">Just the chord names.</span>
+        </span>
+      </button>
     </div>
   </div>
 
@@ -500,6 +528,16 @@ let instrument = localStorage.getItem(INSTRUMENT_KEY) || "chords";  // chords | 
 const FRET_KEY = "jampilot.fretboard";
 let griffbrettAn = localStorage.getItem(FRET_KEY) !== "off";
 
+// NASHVILLE-STUFEN. Ueber jedem Chip steht die Stufe seines Grundtons,
+// gezaehlt von der DUR-Skala der erkannten Tonika - auch in Moll (Am in
+// a-Moll ist die 1, konsistent zum Badge). Nackte Ziffer = Grundton liegt auf
+// der Dur-Stufe, ♭ = einen Halbton darunter; die Qualitaet (Dur/Moll/7) wird
+// nicht wiederholt, sie steht im Akkordnamen direkt unter der Stufe.
+// Entwurf und verworfene Varianten: docs/exploration/nashville-stufen.md
+const STUFEN_KEY = "jampilot.degrees";
+let stufenAn = localStorage.getItem(STUFEN_KEY) !== "off";
+const STUFE = ["1", "♭2", "2", "♭3", "3", "4", "♭5", "5", "♭6", "6", "♭7", "7"];
+
 // Ohne erkannte Tonart gilt das Kreuz: das ist die Schreibweise ohne Vorzeichen
 // und die einzige ehrliche Vorgabe, solange wir die Tonart nicht kennen.
 function gewaehlteSchreibweise() {
@@ -544,6 +582,16 @@ function chordHtml(name) {
 function wurzelVon(name) {
   const m = name ? name.match(/^([A-G]#?)/) : null;
   return m ? m[1] : null;
+}
+
+// Die Stufe haengt NUR am Grundton: Halbton-Abstand zur Tonika, nachgeschlagen
+// in der festen Zwoelfertabelle. Ohne Tonart gibt es keine Stufe - dieselbe
+// Ehrlichkeit wie beim Tonart-Badge.
+function stufeVon(name) {
+  if (!tonart) return null;
+  const root = wurzelVon(name);
+  if (root === null) return null;
+  return STUFE[(NOTE_PC[root] - NOTE_PC[tonart.tonic] + 12) % 12];
 }
 
 // Die Umkehrung: liegt unten etwas anderes als der Grundton? Nur dann ist der
@@ -1176,15 +1224,18 @@ function renderKeyboard(seg) {
 }
 
 // Auf dem Laufband steht im Bass-Modus der Slash-Akkord: C/E. Genau das ist die
-// Information, die im Akkordnamen allein fehlt.
+// Information, die im Akkordnamen allein fehlt. Darueber die Nashville-Stufe -
+// sie steht IMMER im HTML (ggf. leer) und wird per Body-Klasse ausgeblendet:
+// so kostet das Umschalten keinen Chip-Neuaufbau, wie beim Griffbrett.
 function chipHtml(seg) {
   const html = chordHtml(seg.c);
   if (html === null) return null;
+  const kopf = '<span class="degree">' + (stufeVon(seg.c) || "") + "</span>";
   const bass = instrument === "bass" ? umkehrung(seg) : null;
-  return bass
+  return kopf + (bass
     ? html + '<span class="bassnote">/' + schreibeGrundton(bass, schreibweise)
              + "</span>"
-    : html;
+    : html);
 }
 
 function syncChips(now) {
@@ -1266,11 +1317,18 @@ function animate() {
 // Aendert sich die Schreibweise, muss ALLES neu geschrieben werden, was schon
 // dasteht - der grosse Akkord und jeder Chip auf dem Laufband. Beide cachen
 // ihr gerendertes HTML, also wird der Cache verworfen; die Chips baut
-// syncChips() im naechsten Frame ohnehin neu auf.
+// syncChips() im naechsten Frame ohnehin neu auf. Dasselbe gilt fuer die
+// TONIKA: an ihr haengen die Nashville-Stufen in den Chips - kommt die Tonart
+// erstmals an (nach ~12 s) oder wechselt sie, stuenden sonst veraltete Stufen
+// im Laufband. (Dur/Moll bei gleicher Tonika ist egal: gezaehlt wird immer
+// von der Dur-Skala.)
+let stufenTonika = null;   // Tonika, mit der die Chips zuletzt geschrieben wurden
 function neuSchreibenFallsNoetig() {
   const acc = gewaehlteSchreibweise();
-  const geaendert = acc !== schreibweise;
+  const tonika = tonart ? tonart.tonic : null;
+  const geaendert = acc !== schreibweise || tonika !== stufenTonika;
   schreibweise = acc;          // erst setzen, dann anzeigen: zeigeTonart liest es
+  stufenTonika = tonika;
   zeigeTonart();
   if (!geaendert) return;
   $("current").dataset.shown = "";
@@ -1331,6 +1389,15 @@ function setzeGriffbrett(an) {
   fbShown = ""; bbShown = ""; kbShown = "";  // beim Wiedereinschalten frisch aufbauen
   voicings.clear(); lastVoicing = null; lastBassPos = null;  // frisch planen
   kbVoicings.clear(); lastKeyVoicing = null;
+}
+
+function setzeStufen(an) {
+  stufenAn = an;
+  try { localStorage.setItem(STUFEN_KEY, an ? "on" : "off"); } catch (e) {}
+  for (const opt of document.querySelectorAll(".opt[data-degrees]"))
+    opt.setAttribute("aria-checked", String((opt.dataset.degrees === "on") === an));
+  // Nur ausblenden, nicht neu bauen: die Stufe steht immer im Chip-HTML.
+  document.body.classList.toggle("nodegrees", !an);
 }
 
 function dialog(offen) {
@@ -1451,6 +1518,7 @@ for (const opt of document.querySelectorAll(".opt"))
     if (opt.dataset.mode) setzeModus(opt.dataset.mode);
     else if (opt.dataset.inst) setzeInstrument(opt.dataset.inst);
     else if (opt.dataset.fret) setzeGriffbrett(opt.dataset.fret === "on");
+    else if (opt.dataset.degrees) setzeStufen(opt.dataset.degrees === "on");
     else if (opt.dataset.control)
       kontrollgitarreSetzen(opt.dataset.control === "on");
   });
@@ -1469,14 +1537,18 @@ document.addEventListener("keydown", ev => {
 setzeInstrument(instrument);   // gespeicherte Wahl anwenden und markieren
 setzeModus(modus);
 setzeGriffbrett(griffbrettAn);
+setzeStufen(stufenAn);
 zeigeKontrollgitarre(false);
 
 if (new URLSearchParams(location.search).has("demo")) {
   // Demo in F-Dur: die Progression enthaelt A# (= Bb), damit man die
-  // Schreibweise umschalten sieht - und zwei Umkehrungen (C/E, F/A), damit man
-  // im Bass-Modus sieht, wofuer die gemessene Bassnote gut ist.
+  // Schreibweise umschalten sieht - zwei Umkehrungen (C/E, F/A), damit man
+  // im Bass-Modus sieht, wofuer die gemessene Bassnote gut ist - und ein
+  // entliehenes D# (= Eb, die ♭7 in F), damit die Stufenanzeige auch ihren
+  // Vorzeichen-Fall zeigt.
   const prog = [["F", "F"], ["A#", "A#"], ["C", "E"], ["Dm", "D"],
-                ["F", "A"], ["Gm", "G"], ["C7", "A#"], ["A#", "A#"]];
+                ["F", "A"], ["Gm", "G"], ["D#", "D#"], ["C7", "A#"],
+                ["A#", "A#"]];
   const start = performance.now() / 1000;
   link = "live";
   setInterval(() => {

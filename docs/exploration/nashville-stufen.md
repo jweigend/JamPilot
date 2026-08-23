@@ -1,7 +1,6 @@
 # Nashville-Stufen in der Zeitleiste
 
-*Explorationsdokument. Status: Entwurf mit Entscheidungen und Umsetzungsplan —
-Grundlage für die Implementierung im selben Zweig
+*Explorationsdokument. Status: Umgesetzt im selben Zweig
 (`feature/nashville-scale-system`). Zweite Fassung: Die Notation ist nach
 Diskussion von klassischer Stufentheorie auf ein echtes Nashville-System
 umgestellt; die verworfenen Varianten sind unten dokumentiert. Die Idee steht
