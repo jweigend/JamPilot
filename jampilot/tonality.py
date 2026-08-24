@@ -37,6 +37,47 @@ MIN_KEY_SECONDS = 12.0
 # Anfang die Tonart auf ewig festnagelt.
 KEY_HALF_LIFE = 30.0
 
+# --- Zwei-Skalen-Betrieb (Live-Pfad) ----------------------------------------
+# Ein einzelner Zeithorizont ist lose-lose, gemessen an 9 Realaudio-Tracks
+# (tests/realaudio/REPORT_key_window.md): kurz (30 s) springt die Tonika
+# 27-mal und verpasst trotzdem Modulationen, lang ist ruhig, braucht fuer
+# einen Halbton-Wechsel aber Minuten - oder sieht ihn nie. Deshalb zwei
+# Histogramme: das lange bestimmt die Tonart, das kurze detektiert nur.
+
+# Das lange Histogramm. 120 s druecken die Tonika-Spruenge von 27 auf 4;
+# 240 s und mehr bringen nichts zusaetzlich.
+KEY_LONG_HALF_LIFE = 120.0
+
+# Das kurze Detektor-Histogramm. 10 s waren zu nervoes (Fehl-Resets auf
+# Ambiguitaeten), 25 s tragen genug Kontext fuer eine belastbare Korrelation.
+KEY_DETECT_HALF_LIFE = 25.0
+
+# Reset nur, wenn der Herausforderer im Kurzfenster DEUTLICH besser
+# korreliert als die amtierende Tonika (inkl. deren Parallel-Lesart). Der
+# grosse Vorsprung ist der Diskriminator: Nach echter Modulation korreliert
+# die neue Tonart ~0.9 gegen ~0.3 der alten; blosse Ambiguitaet
+# (Parallel-Moll, mixolydische Strophen) kommt nicht ueber ~0.15.
+KEY_DETECT_MARGIN = 0.20
+
+# ... und erst, wenn DIESELBE fremde Tonika so lange durchhaelt - gemessen
+# in klingender Musik. Eine echte Modulation traegt den Rest des Stuecks,
+# die kann das warten; ein Zwischenteil kann es nicht.
+KEY_DETECT_SUSTAIN = 15.0
+
+# --- Stille-Reset (Songwechsel) ---------------------------------------------
+# Der Estimator lebt pro Session, nicht pro Song. Die Luecke zwischen zwei
+# Playlist-Titeln ist das Signal, die Statistik ehrlich neu zu beginnen -
+# sonst zeigt das lange Histogramm minutenlang die Tonart des vorigen Stuecks.
+SILENCE_RESET_SECONDS = 2.0
+
+# Quasi-Stille: unter diesem absoluten Boden (digitale Stille liegt bei
+# ~1.4e-4 Chroma-Summe, Musik bei 17-150) ODER unter 1 % des mitlaufenden
+# Referenzpegels. Kalibriert an den 9 Referenztracks: feuert dort nur in der
+# Schlussstille, nie mitten im Song (REPORT_key_window.md).
+SILENCE_ABS_FLOOR = 0.05
+SILENCE_REL_FLOOR = 0.01
+SILENCE_LEVEL_HALF_LIFE = 60.0
+
 # Eine schon gemeldete Tonart wird nur abgeloest, wenn die neue DEUTLICH besser
 # passt. Ohne diese Schwelle springt die Erkennung zwischen verwandten Tonarten
 # (C-Dur/a-Moll, F-Dur/d-Moll) hin und her - und mit ihr die Schreibweise:
@@ -187,6 +228,7 @@ class KeyEstimator:
         self._heard = 0.0
         self._key: Key | None = None
         self._accidental: str | None = None     # None = noch nie festgelegt
+        self._fallback = SHARP                  # Anzeige, solange keine feststeht
         self._pending: str | None = None        # Schreibweise, die gerade anklopft
         self._pending_seconds = 0.0
 
@@ -208,7 +250,34 @@ class KeyEstimator:
         Schreibweise der gerade besten Tonart, und die darf wandern. Diese hier
         wandert erst, wenn die neue sich ACCIDENTAL_SETTLE lang durchgesetzt hat.
         """
-        return self._accidental or SHARP
+        return self._accidental or self._fallback
+
+    def reset(self):
+        """Alles Gehoerte vergessen - der Songwechsel (Stille-Reset).
+
+        Zurueck auf den Startzustand: keine Tonart, bis das neue Stueck
+        MIN_KEY_SECONDS geliefert hat. Nur die Schreibweise bleibt als
+        Anzeige-Fallback stehen - die noch sichtbare alte Zeitleiste soll
+        nicht grundlos auf Kreuze zurueckkippen. Die erste Tonart des neuen
+        Stuecks legt sie dann sofort neu fest (wie beim Programmstart).
+        """
+        self._fallback = self._accidental or self._fallback
+        self._histogram = np.zeros(12)
+        self._heard = 0.0
+        self._key = None
+        self._accidental = None
+        self._pending, self._pending_seconds = None, 0.0
+
+    def adopt(self, histogram: np.ndarray):
+        """Das Histogramm hart ersetzen und die Tonart neu bestimmen.
+
+        Fuer den Modulations-Reset des Zwei-Skalen-Estimators: Das Stueck ist
+        nachweislich woanders angekommen, die alte Statistik zaehlt nicht mehr.
+        Anders als `reset` bleibt die Tonart lueckenlos gemeldet - es IST ja
+        eine da, nur eben die aus dem uebergebenen (kurzen) Material.
+        """
+        self._histogram = histogram.copy()
+        self._update()
 
     def add(self, chroma: np.ndarray):
         """Ein Analysefenster einbringen. Nur mit klingendem Chroma aufrufen -
@@ -258,6 +327,93 @@ class KeyEstimator:
         if self._pending_seconds >= ACCIDENTAL_SETTLE:
             self._accidental = wanted
             self._pending, self._pending_seconds = None, 0.0
+
+
+class TwoScaleKeyEstimator:
+    """Tonart auf zwei Zeitskalen: ruhig UND modulationsfaehig.
+
+    Schnittstelle wie KeyEstimator (add/key/accidental/heard_seconds), gedacht
+    fuer den Live-Pfad, wo an der Tonart die Anzeige haengt (Badge,
+    Schreibweise, Nashville-Stufen - Letztere schreibt jeder Tonika-Sprung
+    komplett um). Messwerte und Herleitung: tests/realaudio/REPORT_key_window.md.
+
+     - Das LANGE Histogramm (KEY_LONG_HALF_LIFE) bestimmt die Tonart.
+     - Das KURZE (KEY_DETECT_HALF_LIFE) detektiert nur: Haelt dort dieselbe
+       fremde Tonika KEY_DETECT_SUSTAIN Sekunden lang KEY_DETECT_MARGIN
+       Korrelationsvorsprung vor der amtierenden, uebernimmt es das lange
+       Histogramm - das Stueck hat moduliert (typisch: Pop, Halbton rauf).
+     - Quasi-Stille ueber SILENCE_RESET_SECONDS ist ein Songwechsel:
+       kompletter Reset, ehrlich zurueck auf "keine Tonart", statt
+       minutenlang die Tonart des vorigen Titels zu zeigen.
+    """
+
+    def __init__(self, hop_seconds: float):
+        self._main = KeyEstimator(hop_seconds, half_life=KEY_LONG_HALF_LIFE)
+        self._hop = hop_seconds
+        self._short = np.zeros(12)
+        self._short_decay = 0.5 ** (hop_seconds / KEY_DETECT_HALF_LIFE)
+        self._level_decay = 0.5 ** (hop_seconds / SILENCE_LEVEL_HALF_LIFE)
+        self._level = 0.0                  # mitlaufender Referenzpegel
+        self._silence_seconds = 0.0
+        self._challenger: int | None = None    # Tonika, die gerade anklopft
+        self._challenger_seconds = 0.0
+
+    @property
+    def key(self) -> Key | None:
+        return self._main.key
+
+    @property
+    def accidental(self) -> str:
+        return self._main.accidental
+
+    @property
+    def heard_seconds(self) -> float:
+        return self._main.heard_seconds
+
+    def add(self, chroma: np.ndarray):
+        """Ein Analysefenster einbringen - anders als beim rohen KeyEstimator
+        AUCH in Stille: Der Live-Pfad ruft jeden Hop, und genau die Stille
+        traegt hier Information (Songwechsel)."""
+        total = float(chroma.sum())
+        self._level = max(self._level * self._level_decay, total)
+        if total < max(SILENCE_ABS_FLOOR, SILENCE_REL_FLOOR * self._level):
+            self._silence_seconds += self._hop
+            # heard_seconds > 0 statt eines Feuer-Flags: Nach dem Reset ist
+            # nichts mehr gehoert, die anhaltende Stille feuert also nur
+            # einmal - und auch ein tonartloser Anspiel-Fetzen vor der Luecke
+            # zaehlt nicht ins naechste Stueck hinein.
+            if (self._silence_seconds >= SILENCE_RESET_SECONDS
+                    and self._main.heard_seconds > 0.0):
+                self._main.reset()
+                self._short = np.zeros(12)
+                self._challenger, self._challenger_seconds = None, 0.0
+            return
+        self._silence_seconds = 0.0
+        self._short = self._short * self._short_decay + chroma / total
+        self._main.add(chroma)
+        self._detect_modulation()
+
+    def _detect_modulation(self):
+        key = self._main.key
+        if key is None:
+            self._challenger, self._challenger_seconds = None, 0.0
+            return
+        scores = correlate(self._short)
+        best = int(np.argmax(scores))
+        best_tonic = best % 12
+        # Die Parallel-Lesart verteidigt das Amt mit: C-Dur soll nicht
+        # fallen, nur weil das Kurzfenster gerade a-Moll besser findet -
+        # fuer die Stufen (und die Schreibweise) ist das dieselbe Welt.
+        incumbent = max(scores[key.tonic], scores[key.tonic + 12])
+        if best_tonic == key.tonic or scores[best] - incumbent <= KEY_DETECT_MARGIN:
+            self._challenger, self._challenger_seconds = None, 0.0
+            return
+        if best_tonic != self._challenger:
+            self._challenger, self._challenger_seconds = best_tonic, 0.0
+        self._challenger_seconds += self._hop
+        if self._challenger_seconds >= KEY_DETECT_SUSTAIN:
+            self._main.adopt(self._short)
+            self._challenger, self._challenger_seconds = None, 0.0
 
 
 def estimate_key(chromas, hop_seconds: float = 1.0) -> Key | None:

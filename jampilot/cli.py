@@ -654,7 +654,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
       - Safe-Voicings / Powerchord-Rueckzug (harmony.safe_pitch_classes):
         es gibt keine Kandidatenliste mehr. Feld "v" sendet None.
       - Key-Prior (harmony.interpret_chord): Labels kommen fertig vom Modell.
-        Die Tonart selbst laeuft weiter - nur fuer die Schreibweise.
+        Die Tonart selbst laeuft weiter - fuer Schreibweise, Badge und
+        Nashville-Stufen, seit dem Zwei-Skalen-Umbau (REPORT_key_window.md)
+        mit 120-s-Histogramm plus Modulations- und Stille-Detektor.
       - ChordSmoother und Onset-Suche (find_onset_frame): Glaettung und
       	Grenzen kommen aus dem Modell (93-ms-Raster + Mindestdauer).
 
@@ -664,13 +666,16 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
                       fold_bass_chroma, fold_chroma, refine_boundary,
                       segments_from_labels)
-    from .tonality import KeyEstimator, spell
+    from .tonality import TwoScaleKeyEstimator, spell
 
     sr = args.samplerate
     window_frames = int(round(BTC_LIVE_WINDOW * sr))
     hop_frames = int(round(ANALYSIS_HOP * sr))
     model = BTCModel()
-    keys = KeyEstimator(ANALYSIS_HOP)
+    # Zwei Zeitskalen: langes Histogramm fuer die Ruhe (an der Tonika haengen
+    # Stufen und Schreibweise), kurzes als Modulations-/Songwechsel-Detektor.
+    # Messwerte: tests/realaudio/REPORT_key_window.md.
+    keys = TwoScaleKeyEstimator(ANALYSIS_HOP)
     # Die Bassspur muss die ganze Zeitleiste abdecken - vom Anzeige-Rueckblick
     # bis zur Analysefront (wie im Template-Pfad, nur im 93-ms-Raster; der
     # Randbeschnitt schrumpft mit, EDGE zaehlt Frames).
@@ -766,8 +771,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             if engine is not None:
                 engine.lead = lead
 
-            # Tonart (nur Schreibweise): gefaltetes Chroma der NEU gesehenen
-            # Frames, damit kein Material doppelt in die Statistik faellt.
+            # Tonart (Schreibweise, Badge, Nashville-Stufen): gefaltetes
+            # Chroma der NEU gesehenen Frames, damit kein Material doppelt in
+            # die Statistik faellt. Auch Quasi-Stille geht hinein - sie ist
+            # das Songwechsel-Signal des Zwei-Skalen-Estimators.
             folded = fold_chroma(features)
             first_new = max(0, int((key_fed_until - window_start) / BTC_FRAME_SECONDS) + 1)
             if first_new < len(folded):
