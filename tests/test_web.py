@@ -172,14 +172,32 @@ class TestSeite:
         assert "bassPc" in PAGE
 
     def test_stufen_sind_abschaltbar(self):
-        # Nashville-Stufen ueber den Laufband-Akkorden: an/aus im Dialog,
+        # Nashville-Stufen ueber den Akkorden: an/invertiert/aus im Dialog,
         # gemerkt wie die anderen Einstellungen, per Body-Klasse geschaltet
         # (kein Chip-Neuaufbau beim Umschalten).
-        for wahl in ("on", "off"):
+        for wahl in ("on", "invert", "off"):
             assert f'data-degrees="{wahl}"' in PAGE, wahl
         assert "jampilot.degrees" in PAGE
         assert "nodegrees" in PAGE
         assert "setzeStufen" in PAGE
+
+    def test_stufen_sind_invertierbar(self):
+        # Dritter Modus: die Stufe gross, der Akkordname klein darueber - fuer
+        # Spieler, die in Funktionen denken. Reines CSS ueber die Body-Klasse
+        # und `order` (Name in eigenem Span). Wo KEINE Stufe steht (Tonart
+        # fehlt noch, N/-/?), muss der Name gross bleiben - sonst zeigte der
+        # Chip eine grosse Leerzeile; das leistet der :not(:empty)-Waechter.
+        assert "invdegrees" in PAGE
+        assert 'class="cname"' in PAGE
+        assert ".degree:not(:empty)" in PAGE
+
+    def test_stufe_steht_auch_am_grossen_akkord(self):
+        # Nicht nur im Laufband: auch die grosse Ansicht traegt die Stufe -
+        # klein darueber, im Invert-Modus gross. Im Bass-Modus ist es die
+        # Stufe des GEMESSENEN Basstons ("auf welcher Stufe stehe ich"),
+        # sonst die des Akkord-Grundtons.
+        assert "#current .degree" in PAGE
+        assert "stufeVon(bass || akkord)" in PAGE
 
     def test_stufen_zaehlen_von_der_dur_skala(self):
         # Die Stufe haengt nur am Grundton: feste Zwoelfertabelle relativ zur

@@ -7,6 +7,13 @@ umgestellt; die verworfenen Varianten sind unten dokumentiert. Die Idee steht
 seit dem ersten Entwurf auf der Liste ([first-draft.md](first-draft.md),
 „Nashville Number System").*
 
+*Nachtrag (2026-08-24): Die Sektion hat inzwischen eine **dritte Karte
+„Inverted"** (Stufe groß, Akkordname klein darüber — für Spieler, die in
+Funktionen denken), und die Stufe steht auch an der **großen Akkordansicht**
+(im Bass-Modus die des gemessenen Basstons). Ohne Tonart und bei `N`/`-`/`?`
+bleibt der Name groß. Der Folgeausbau „Stufe am großen Akkord" aus dem
+Abschnitt unten ist damit umgesetzt.*
+
 ---
 
 ## Die Idee

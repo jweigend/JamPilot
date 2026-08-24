@@ -134,9 +134,29 @@
     font-weight: 750; line-height: .9; white-space: nowrap;
     font-size: min(42vw, 52vh);
     transition: opacity .25s;
+    /* Spalte statt Fliesstext: darueber steht die Nashville-Stufe (bzw. im
+       Invert-Modus der kleine Name). JS schaltet display auf flex/none. */
+    display: flex; flex-direction: column; align-items: center;
   }
   #current .suffix { font-size: 45%; font-weight: 550; color: #6ea8ff;
                      vertical-align: baseline; }
+  /* Die Stufe ueber dem grossen Akkord: leise, wie in den Chips. Die
+     Mindesthoehe reserviert die Zeile auch ohne Tonart - sonst rutschte der
+     Akkord nach unten, wenn die Tonart nach ein paar Sekunden eintrifft. */
+  #current .degree { font-size: min(6vw, 7vh); line-height: 1.15;
+                     font-weight: 600; color: #4a5158;
+                     min-height: min(6.9vw, 8vh); }
+  body.nodegrees #current .degree { display: none; }
+  /* Invert: die Stufe ist die Hauptinformation - gross, wo sonst der Name
+     steht, der Name klein darueber. Nur wo eine Stufe STEHT (:not(:empty)):
+     ohne Tonart und bei N/-/? bleibt der Name gross, sonst zeigte die
+     Buehne eine riesige Leerzeile. */
+  body.invdegrees #current .degree:not(:empty) { order: 2; font-size: 1em;
+                     font-weight: inherit; color: inherit; line-height: inherit;
+                     min-height: 0; }
+  body.invdegrees #current .degree:not(:empty) + .cname {
+                     order: 1; font-size: min(6vw, 7vh); font-weight: 600;
+                     color: #565e66; line-height: 1.15; }
   #current.pop { animation: pop .45s ease-out; }
 
   /* Bass-Modus: der gemessene Basston gross, der Akkord als Kontext darunter.
@@ -239,6 +259,9 @@
     position: absolute; top: 42%; transform: translateY(-50%);
     font-size: 7.5vh; font-weight: 650; color: #9aa3ad;
     white-space: nowrap; will-change: left, opacity;
+    /* Spalte (Stufe / Name / Countdown) als Flex: so kann der Invert-Modus
+       Stufe und Name rein per CSS-`order` tauschen, ohne Chip-Neuaufbau. */
+    display: flex; flex-direction: column; align-items: flex-start;
   }
   .chip .suffix { font-size: 55%; color: #567da3; }
   .chip .bassnote { color: #6ea8ff; }   /* das /E in C/E - die eigentliche Info */
@@ -251,6 +274,16 @@
   .chip .degree { display: block; text-align: left; font-size: 2.4vmin;
                   color: #6b7480; font-weight: 500; min-height: 3vmin; }
   body.nodegrees .chip .degree { display: none; }
+  /* Invert: die Stufe gross, wo sonst der Name steht, der Name klein
+     darueber - die gespiegelte Hierarchie fuer Spieler, die in Funktionen
+     denken. Nur wo eine Stufe STEHT (:not(:empty)): ohne Tonart und bei
+     N/-/? bleibt der Name gross, sonst truege der Chip eine grosse
+     Leerzeile. */
+  body.invdegrees .chip .degree:not(:empty) { order: 2; font-size: 1em;
+                  color: #9aa3ad; font-weight: 650; min-height: 0; }
+  body.invdegrees .chip .degree:not(:empty) + .cname { order: 1;
+                  font-size: 2.4vmin; color: #6b7480; font-weight: 500; }
+  body.invdegrees .chip .eta { order: 3; }
 
   #hint { position: fixed; bottom: 24.5vh; right: 2.6vmin; color: #333;
           font-size: 1.7vmin; z-index: 5; }
@@ -433,16 +466,24 @@
       </button>
 
       <h2 class="second">Scale degrees</h2>
-      <p class="sub">Nashville-style numbers above the chords in the timeline:
-         <b>1</b> is the key's root, <b>5</b> its fifth, and &#9837; marks a
-         root outside the key's major scale. A progression looks the same in
-         every key &ndash; degrees appear once the key is settled.</p>
+      <p class="sub">Nashville-style numbers with the chords &ndash; on the
+         timeline and over the big chord: <b>1</b> is the key's root, <b>5</b>
+         its fifth, and &#9837; marks a root outside the key's major scale. A
+         progression looks the same in every key &ndash; degrees appear once
+         the key is settled.</p>
       <button class="opt" data-degrees="on" role="radio">
         <span class="glyph">&#9312;</span>
         <span class="text">
           <span class="label">Shown</span>
-          <span class="desc">Small numbers above each chord on the
-                             timeline.</span>
+          <span class="desc">Small numbers above the chord names.</span>
+        </span>
+      </button>
+      <button class="opt" data-degrees="invert" role="radio">
+        <span class="glyph">&#8645;</span>
+        <span class="text">
+          <span class="label">Inverted</span>
+          <span class="desc">The degree is the big thing, the chord name steps
+                             back small &ndash; for thinking in numbers.</span>
         </span>
       </button>
       <button class="opt" data-degrees="off" role="radio">
@@ -528,14 +569,16 @@ let instrument = localStorage.getItem(INSTRUMENT_KEY) || "chords";  // chords | 
 const FRET_KEY = "jampilot.fretboard";
 let griffbrettAn = localStorage.getItem(FRET_KEY) !== "off";
 
-// NASHVILLE-STUFEN. Ueber jedem Chip steht die Stufe seines Grundtons,
-// gezaehlt von der DUR-Skala der erkannten Tonika - auch in Moll (Am in
-// a-Moll ist die 1, konsistent zum Badge). Nackte Ziffer = Grundton liegt auf
-// der Dur-Stufe, ♭ = einen Halbton darunter; die Qualitaet (Dur/Moll/7) wird
-// nicht wiederholt, sie steht im Akkordnamen direkt unter der Stufe.
+// NASHVILLE-STUFEN. Ueber jedem Chip (und dem grossen Akkord) steht die Stufe
+// seines Grundtons, gezaehlt von der DUR-Skala der erkannten Tonika - auch in
+// Moll (Am in a-Moll ist die 1, konsistent zum Badge). Nackte Ziffer =
+// Grundton liegt auf der Dur-Stufe, ♭ = einen Halbton darunter; die Qualitaet
+// (Dur/Moll/7) wird nicht wiederholt, sie steht im Akkordnamen daneben.
+// Drei Modi: "on" (Stufe klein ueber dem Namen), "invert" (Stufe gross, Name
+// klein - fuer Spieler, die in Funktionen denken), "off".
 // Entwurf und verworfene Varianten: docs/exploration/nashville-stufen.md
 const STUFEN_KEY = "jampilot.degrees";
-let stufenAn = localStorage.getItem(STUFEN_KEY) !== "off";
+let stufenModus = localStorage.getItem(STUFEN_KEY) || "on";
 const STUFE = ["1", "♭2", "2", "♭3", "3", "4", "♭5", "5", "♭6", "6", "♭7", "7"];
 
 // Ohne erkannte Tonart gilt das Kreuz: das ist die Schreibweise ohne Vorzeichen
@@ -638,7 +681,14 @@ function setCurrent(seg) {
   if (chordHtml(akkord) === null) { showIdle(); return; }  // Stille/kein Akkord
 
   const bass = instrument === "bass" && seg.b ? seg.b : null;
-  const html = bass ? schreibeGrundton(bass, schreibweise) : chordHtml(akkord);
+  // Die Stufe des GEZEIGTEN: im Bass-Modus die des gemessenen Basstons (die
+  // Frage des Bassisten ist "auf welcher Stufe stehe ICH"), sonst die des
+  // Akkord-Grundtons. Wie in den Chips steht sie immer im HTML (ggf. leer) -
+  // Sichtbarkeit und Groesse (Invert) macht die Body-Klasse.
+  const html = '<span class="degree">' + (stufeVon(bass || akkord) || "")
+    + '</span><span class="cname">'
+    + (bass ? schreibeGrundton(bass, schreibweise) : chordHtml(akkord))
+    + "</span>";
   // Kontext nur, wenn der Akkord mehr sagt als der grosse Ton allein.
   const kontext = bass && akkord !== bass
     ? '<span class="over">over</span>' + chordHtml(akkord) : "";
@@ -646,7 +696,7 @@ function setCurrent(seg) {
   const el = $("current");
   $("idle").style.display = "none";
   $("idle").dataset.shown = "";
-  el.style.display = "block";
+  el.style.display = "flex";
 
   const ctx = $("context");
   ctx.style.display = kontext ? "block" : "none";
@@ -1240,10 +1290,12 @@ function chipHtml(seg) {
   if (html === null) return null;
   const kopf = '<span class="degree">' + (stufeVon(seg.c) || "") + "</span>";
   const bass = instrument === "bass" ? umkehrung(seg) : null;
-  return kopf + (bass
+  // Der Name in einem eigenen Span: als Flex-Zeile der Chip-Spalte, damit der
+  // Invert-Modus Stufe und Name per CSS-`order` tauschen kann.
+  return kopf + '<span class="cname">' + (bass
     ? html + '<span class="bassnote">/' + schreibeGrundton(bass, schreibweise)
              + "</span>"
-    : html);
+    : html) + "</span>";
 }
 
 function syncChips(now) {
@@ -1399,13 +1451,16 @@ function setzeGriffbrett(an) {
   kbVoicings.clear(); lastKeyVoicing = null;
 }
 
-function setzeStufen(an) {
-  stufenAn = an;
-  try { localStorage.setItem(STUFEN_KEY, an ? "on" : "off"); } catch (e) {}
+function setzeStufen(modus) {
+  if (modus !== "off" && modus !== "invert") modus = "on";   // auch Altbestand
+  stufenModus = modus;
+  try { localStorage.setItem(STUFEN_KEY, modus); } catch (e) {}
   for (const opt of document.querySelectorAll(".opt[data-degrees]"))
-    opt.setAttribute("aria-checked", String((opt.dataset.degrees === "on") === an));
-  // Nur ausblenden, nicht neu bauen: die Stufe steht immer im Chip-HTML.
-  document.body.classList.toggle("nodegrees", !an);
+    opt.setAttribute("aria-checked", String(opt.dataset.degrees === modus));
+  // Nur umstylen, nicht neu bauen: die Stufe steht immer im HTML; aus- bzw.
+  // grossblenden (Invert) machen die beiden Body-Klassen.
+  document.body.classList.toggle("nodegrees", modus === "off");
+  document.body.classList.toggle("invdegrees", modus === "invert");
 }
 
 function dialog(offen) {
@@ -1526,7 +1581,7 @@ for (const opt of document.querySelectorAll(".opt"))
     if (opt.dataset.mode) setzeModus(opt.dataset.mode);
     else if (opt.dataset.inst) setzeInstrument(opt.dataset.inst);
     else if (opt.dataset.fret) setzeGriffbrett(opt.dataset.fret === "on");
-    else if (opt.dataset.degrees) setzeStufen(opt.dataset.degrees === "on");
+    else if (opt.dataset.degrees) setzeStufen(opt.dataset.degrees);
     else if (opt.dataset.control)
       kontrollgitarreSetzen(opt.dataset.control === "on");
   });
@@ -1545,7 +1600,7 @@ document.addEventListener("keydown", ev => {
 setzeInstrument(instrument);   // gespeicherte Wahl anwenden und markieren
 setzeModus(modus);
 setzeGriffbrett(griffbrettAn);
-setzeStufen(stufenAn);
+setzeStufen(stufenModus);
 zeigeKontrollgitarre(false);
 
 if (new URLSearchParams(location.search).has("demo")) {
