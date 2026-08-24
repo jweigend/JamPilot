@@ -938,10 +938,18 @@ function bassNodeCost(p) {
   const pitch = BASS_MIDI[p.s] + p.f;
   return 0.8 * p.s + 0.10 * p.f + 0.05 * (pitch - 28) + 0.5 * Math.max(0, p.f - 9);
 }
-// Uebergangskosten: Handbewegung (Buende) plus ein kleiner Aufschlag fuer den
-// Saitenwechsel. Dominiert die Knotenkosten - die Linie bleibt an einem Fleck.
+// Uebergangskosten: Handbewegung (Buende) plus Saitenwechsel. Die Gewichte
+// (a je Bund, b je Saite) sind von zwei gemeldeten Fehlgriffen eingeklemmt:
+//  - D (A-Saite, 5. Bund) -> G muss der Quergriff D-Saite/5. Bund sein, nicht
+//    die tiefe Lage E-Saite/3. Bund. Die Knotenkosten geben der tiefen Lage
+//    2.4 Vorsprung, also 2a - b > 2.4. Die Urgewichte (1, 0.5) verletzen das.
+//  - Der Vamp D -> C -> D muss auf der A-Saite bleiben (5-3-5), nicht bei
+//    stehendem Bund zweimal zur G-Saite kreuzen (C eine Oktave hoeher!).
+//    Der Rundweg verlangt a - b < 0.6; (2, 1) verletzte DAS.
+// (2.5, 2) erfuellt beide mit Abstand. Die isolierte Vorgabe (nur
+// Knotenkosten, z.B. Eb -> A-Saite) haengt an keinem der Gewichte.
 function bassTransCost(a, b) {
-  return Math.abs(a.f - b.f) + 0.5 * Math.abs(a.s - b.s);
+  return 2.5 * Math.abs(a.f - b.f) + 2 * Math.abs(a.s - b.s);
 }
 // Viterbi ueber [aktuell, ...folgende] mit festem Startknoten `last` (die zuletzt
 // gegriffene Lage). Zurueck kommt der ganze beste Pfad; gezeigt werden die ersten

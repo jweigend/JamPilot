@@ -195,6 +195,69 @@ class TestSeite:
         assert "stufenTonika" in PAGE
 
 
+class TestBassPlaner:
+    """Der kuerzeste-Wege-Planer des Bass-Griffbretts - als ECHTE Rechnung.
+
+    Die Logik lebt als JavaScript in der Seite; String-Assertions sehen einen
+    falschen Gewichtsfaktor nicht. Darum wird der Planer-Block hier
+    ausgeschnitten und in Node ausgefuehrt. Ohne Node wird uebersprungen.
+    """
+
+    @staticmethod
+    def _plan(pcs, last):
+        import json
+        import shutil
+        import subprocess
+
+        if shutil.which("node") is None:
+            pytest.skip("kein node")
+        start = PAGE.index("const BASS_TUNING")
+        end = PAGE.index("// Die kommende Basslinie")
+        harness = (PAGE[start:end]
+                   + f"\nconsole.log(JSON.stringify("
+                     f"planBassLine({json.dumps(pcs)}, {json.dumps(last)})));")
+        out = subprocess.run(["node", "-e", harness], capture_output=True,
+                             text=True, check=True)
+        return json.loads(out.stdout)
+
+    def test_quergriff_schlaegt_die_tiefe_lage(self):
+        # Der gemeldete Bug: von D (A-Saite, 5. Bund) nach G zeigte der Planer
+        # die E-Saite am 3. Bund - die Knotenkosten (tiefe Saite, tiefe Oktave)
+        # ueberstimmten den kuerzesten Weg. Richtig ist der Quergriff:
+        # D-Saite, 5. Bund, gleicher Bund, eine Saite weiter.
+        pfad = self._plan([2, 7], {"s": 1, "f": 5})           # D -> G
+        assert pfad[1] == {"s": 2, "f": 5}
+
+    def test_isolierte_vorgabe_bleibt_idiomatisch(self):
+        # Ohne Kontext entscheiden allein die Knotenkosten: Eb gehoert auf die
+        # A-Saite (6. Bund), nicht hoch auf die E-Saite (11. Bund) - das
+        # dokumentierte Beispiel aus dem Planer-Kommentar.
+        pfad = self._plan([3], None)                          # Eb, isoliert
+        assert pfad[0] == {"s": 1, "f": 6}
+
+    def test_naher_lagenwechsel_bleibt_auf_der_saite(self):
+        # Gegenprobe zur Gewichtung: C nach D (A-Saite, 5. Bund) ist am
+        # kuerzesten zwei Buende runter auf derselben Saite - der staerkere
+        # Uebergangsfaktor darf das nicht auf eine andere Saite draengen.
+        pfad = self._plan([2, 0], {"s": 1, "f": 5})           # D -> C
+        assert pfad[1] == {"s": 1, "f": 3}
+
+    def test_ein_vamp_pendelt_auf_der_saite_statt_quer(self):
+        # Der zweite gemeldete Bug: der RUNDWEG D -> C -> D. Der Planer sieht
+        # die Rueckkehr und fand zweimal Saitenkreuzen bei stehendem Bund
+        # (C auf der G-Saite - eine Oktave zu hoch!) billiger als zweimal
+        # zwei Buende auf der A-Saite. Der paarweise Test oben sieht das
+        # nicht, erst die Linie mit Rueckkehr. Verlangt a - b < 0.6.
+        pfad = self._plan([2, 0, 2], {"s": 1, "f": 5})        # D -> C -> D
+        assert pfad == [{"s": 1, "f": 5}, {"s": 1, "f": 3}, {"s": 1, "f": 5}]
+
+    def test_der_quergriff_gewinnt_auch_im_rundweg(self):
+        # Und die Gegenrichtung des Vamps: D -> G -> D bleibt der Quergriff
+        # am 5. Bund - hier ist Saitenkreuzen richtig, weil der Bund steht.
+        pfad = self._plan([2, 7, 2], {"s": 1, "f": 5})        # D -> G -> D
+        assert pfad == [{"s": 1, "f": 5}, {"s": 2, "f": 5}, {"s": 1, "f": 5}]
+
+
 @pytest.fixture
 def server():
     """Echter Server auf einem freien Port - die Token-Pruefung sitzt im
