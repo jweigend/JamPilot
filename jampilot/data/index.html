@@ -117,6 +117,36 @@
   .opt .desc { display: block; font-size: max(1.7vmin, 12px); color: #6b7280;
                margin-top: .5vmin; line-height: 1.45; }
   #autokey { color: #6ea8ff; }
+  #detkey { color: #6ea8ff; }
+  /* Angepinnte Tonart: Der Hinweis im Badge traegt das Warn-Orange des
+     Stummschalters - beides sind manuelle Eingriffe, die man nach dem Song
+     nicht vergessen sollte. */
+  #keybadge .pin { color: #f5a524; font-weight: 600; letter-spacing: .06em; }
+  /* Der Tonart-Picker: 12 Grundtoene und Dur/Moll, kompakt statt 24 grosser
+     Radiokarten. Der Rahmen macht wie bei .opt sichtbar, ob er "gewaehlt"
+     ist (= eine Tonart angepinnt). */
+  #pinpicker { margin-top: 1.6vmin; padding: 1.6vmin 2vmin 2vmin;
+               background: #1b1e23; border: 1px solid #2a2f36;
+               border-radius: 1vmin;
+               transition: border-color .15s, background .15s; }
+  #pinpicker.pinned { border-color: #6ea8ff; background: #1a2130; }
+  #pinlabel { display: block; font-size: max(1.7vmin, 12px); color: #6b7280;
+              margin-bottom: 1.2vmin; }
+  #pinlabel b { color: #e6e9ed; font-weight: 600; }
+  #pinroots { display: grid; grid-template-columns: repeat(6, 1fr);
+              gap: 1vmin; }
+  #pinmodes { display: grid; grid-template-columns: 1fr 1fr; gap: 1vmin;
+              margin-top: 1vmin; }
+  .pinroot, .pinmode {
+    padding: 1.2vmin .4vmin; cursor: pointer; font: inherit;
+    font-size: max(1.9vmin, 13px); font-weight: 600; color: #c8cdd4;
+    background: #14161a; border: 1px solid #2a2f36; border-radius: .8vmin;
+    text-align: center; transition: border-color .15s, background .15s;
+  }
+  .pinroot:hover, .pinmode:hover { background: #202429;
+                                   border-color: #3a414a; }
+  .pinroot[aria-checked="true"], .pinmode[aria-checked="true"] {
+    border-color: #6ea8ff; background: #1a2130; color: #e6e9ed; }
 
   #qrbox { text-align: center; }
   #qrcard { background: #fff; border-radius: 1.2vmin; padding: .9vmin;
@@ -436,6 +466,28 @@
         </span>
       </button>
 
+      <h2 class="second">Key</h2>
+      <p class="sub">Spelling and scale degrees hang on the key. Detection
+         needs a few seconds of music and can mishear ambiguous songs &ndash;
+         if you know the key, pin it: degrees and spelling are reliable
+         instantly. The pin stays until you switch back.</p>
+      <button class="opt" data-keypin="auto" role="radio">
+        <span class="glyph">&#9678;</span>
+        <span class="text">
+          <span class="label">Automatic <span id="detkey"></span></span>
+          <span class="desc">Follows the detected key &ndash; the badge
+                             top-left shows the result.</span>
+        </span>
+      </button>
+      <div id="pinpicker">
+        <span id="pinlabel"></span>
+        <div id="pinroots" role="radiogroup" aria-label="Pinned key root"></div>
+        <div id="pinmodes" role="radiogroup" aria-label="Major or minor">
+          <button class="pinmode" data-pinmode="major" role="radio">major</button>
+          <button class="pinmode" data-pinmode="minor" role="radio">minor</button>
+        </div>
+      </div>
+
       <h2 class="second">Chord spelling</h2>
       <p class="sub">The same key is called A&#9839; or B&#9837;, depending on
          the key of the song. JamPilot detects the key and spells accordingly
@@ -580,6 +632,35 @@ let griffbrettAn = localStorage.getItem(FRET_KEY) !== "off";
 const STUFEN_KEY = "jampilot.degrees";
 let stufenModus = localStorage.getItem(STUFEN_KEY) || "on";
 const STUFE = ["1", "♭2", "2", "♭3", "3", "4", "♭5", "5", "♭6", "6", "♭7", "7"];
+
+// TONART-PIN. Die Erkennung braucht ~12 s Musik und liegt bei ambigen Stuecken
+// auch mal daneben (Parallel-Moll, verschmiertes Chroma - gemessen:
+// tests/realaudio/REPORT_key_labels.md). Wer mitspielt, KENNT die Tonart aber
+// oft - und an ihr haengen Stufen und Schreibweise. Der Pin ersetzt deshalb
+// die ERKANNTE Tonart durch eine feste; er ist reine Anzeige (wie Schreibweise
+// und Stufen-Modus), gilt pro Geraet und ueberlebt den Neustart bewusst NICHT
+// pro Song, sondern bis zum Zurueckschalten - das Badge warnt solange.
+const PIN_KEY = "jampilot.keypin";
+const ROOT_ORDER = ["C", "C#", "D", "D#", "E", "F",
+                    "F#", "G", "G#", "A", "A#", "B"];
+// Dur-Tonarten mit Kreuz-Vorzeichen (Quintenzirkel: C G D A E B F#); Moll erbt
+// von der Paralleltonart. Spiegelt tonality.accidental_for_key.
+const SHARP_MAJOR_PCS = new Set([0, 2, 4, 6, 7, 9, 11]);
+function accidentalForKey(root, minor) {
+  const rel = (NOTE_PC[root] + (minor ? 3 : 0)) % 12;
+  return SHARP_MAJOR_PCS.has(rel) ? "sharp" : "flat";
+}
+let keyPin = (() => {           // {root, minor} - oder null (Automatik)
+  try {
+    const raw = localStorage.getItem(PIN_KEY);
+    if (!raw) return null;
+    const [root, mode] = raw.split("|");
+    return root in { C:1,"C#":1,D:1,"D#":1,E:1,F:1,"F#":1,G:1,"G#":1,A:1,"A#":1,B:1 }
+      ? { root, minor: mode === "minor" } : null;
+  } catch (e) { return null; }
+})();
+let pinMode = keyPin && keyPin.minor ? "minor" : "major";  // Dur/Moll im Picker
+let serverTonart = null;        // die ERKANNTE Tonart, unabhaengig vom Pin
 
 // Ohne erkannte Tonart gilt das Kreuz: das ist die Schreibweise ohne Vorzeichen
 // und die einzige ehrliche Vorgabe, solange wir die Tonart nicht kennen.
@@ -1406,12 +1487,23 @@ function zeigeTonart() {
   // und zwar in der Schreibweise der TONART selbst - Bb-Moll heisst nie A#-Moll,
   // auch wenn der Benutzer Kreuze erzwungen hat.
   const zeichen = schreibweise === "flat" ? "♭" : "♯";
-  const label = tonart
-    ? schreibeGrundton(tonart.tonic, tonart.acc)
-      + (tonart.minor ? " minor" : " major")
-    : null;
-  $("keybadge").innerHTML = label ? label + " · <b>" + zeichen + "</b>" : "";
+  const label = tonart ? tonartLabel(tonart) : null;
+  // Der "pinned"-Hinweis steht im Badge, nicht nur im Dialog: Der Pin
+  // ueberlebt den Songwechsel, und eine vergessene feste Tonart saehe sonst
+  // exakt wie eine erkannte aus - mit falschen Stufen ueber allem.
+  $("keybadge").innerHTML = label
+    ? label + (keyPin ? ' · <span class="pin">pinned</span>' : "")
+      + " · <b>" + zeichen + "</b>"
+    : "";
   $("autokey").textContent = tonart ? "· " + label : "";
+  // Im Dialog zeigt die Automatik-Option weiter die ERKANNTE Tonart - so
+  // sieht man beim Zurueckschalten (und beim Zweifel am eigenen Pin), was
+  // die Erkennung gerade meint.
+  $("detkey").textContent = serverTonart ? "· " + tonartLabel(serverTonart) : "";
+}
+
+function tonartLabel(t) {
+  return schreibeGrundton(t.tonic, t.acc) + (t.minor ? " minor" : " major");
 }
 
 function setzeModus(neu) {
@@ -1463,6 +1555,65 @@ function setzeStufen(modus) {
   document.body.classList.toggle("invdegrees", modus === "invert");
 }
 
+function pinAlsTonart(pin) {
+  // Dieselbe Form wie state.key vom Server - alles Nachgelagerte (Stufen,
+  // Schreibweise, Badge) muss den Unterschied nicht kennen.
+  return { tonic: pin.root, minor: pin.minor,
+           acc: accidentalForKey(pin.root, pin.minor) };
+}
+
+function setzeKeyPin(pin) {     // {root, minor} - oder null (Automatik)
+  keyPin = pin;
+  if (pin) pinMode = pin.minor ? "minor" : "major";
+  try {
+    if (pin) localStorage.setItem(PIN_KEY,
+                                  pin.root + "|" + (pin.minor ? "minor" : "major"));
+    else localStorage.removeItem(PIN_KEY);
+  } catch (e) {}
+  tonart = keyPin ? pinAlsTonart(keyPin) : serverTonart;
+  malePinPicker();
+  // Wirkt sofort und rueckwirkend auf alles, was dasteht - wie ein Wechsel
+  // der Schreibweise: Stufen und Namen im Laufband werden neu geschrieben.
+  neuSchreibenFallsNoetig();
+}
+
+function malePinPicker() {
+  // Die Grundtoene tragen die Schreibweise der Tonart, die sie WAEREN:
+  // in der Moll-Reihe steht B♭ minor, nicht A♯ minor. Darum wird die Reihe
+  // bei jedem Dur/Moll-Wechsel neu beschriftet statt einmal statisch.
+  const minor = pinMode === "minor";
+  const roots = $("pinroots");
+  roots.innerHTML = "";
+  for (const root of ROOT_ORDER) {
+    const b = document.createElement("button");
+    b.className = "pinroot";
+    b.setAttribute("role", "radio");
+    b.textContent = schreibeGrundton(root, accidentalForKey(root, minor));
+    b.setAttribute("aria-checked",
+      String(!!keyPin && keyPin.root === root && keyPin.minor === minor));
+    b.addEventListener("click",
+      () => setzeKeyPin({ root, minor: pinMode === "minor" }));
+    roots.appendChild(b);
+  }
+  for (const b of document.querySelectorAll(".pinmode"))
+    b.setAttribute("aria-checked", String(b.dataset.pinmode === pinMode));
+  $("pinpicker").classList.toggle("pinned", !!keyPin);
+  $("pinlabel").innerHTML = keyPin
+    ? "Pinned: <b>" + tonartLabel(pinAlsTonart(keyPin)) + "</b>"
+    : "&hellip;or pin a key:";
+  for (const opt of document.querySelectorAll(".opt[data-keypin]"))
+    opt.setAttribute("aria-checked", String(!keyPin));
+}
+
+for (const b of document.querySelectorAll(".pinmode"))
+  b.addEventListener("click", () => {
+    pinMode = b.dataset.pinmode;
+    // Schon angepinnt? Dann ist der Wechsel dur<->moll ein neuer Pin. Sonst
+    // nur die Reihe umbeschriften - gewaehlt wird erst mit dem Grundton.
+    if (keyPin) setzeKeyPin({ root: keyPin.root, minor: pinMode === "minor" });
+    else malePinPicker();
+  });
+
 function dialog(offen) {
   $("backdrop").hidden = !offen;
   $("gear").classList.toggle("open", offen);
@@ -1471,7 +1622,8 @@ function dialog(offen) {
 function apply(state) {
   chords = state.chords || [];
   horizon = Math.max(1.5, (state.lead || 3) + 0.8);
-  tonart = state.key || null;
+  serverTonart = state.key || null;
+  tonart = keyPin ? pinAlsTonart(keyPin) : serverTonart;
   if ("muted" in state) zeigeStumm(state.muted);
   if ("control_guitar" in state) zeigeKontrollgitarre(state.control_guitar);
   neuSchreibenFallsNoetig();
@@ -1582,6 +1734,7 @@ for (const opt of document.querySelectorAll(".opt"))
     else if (opt.dataset.inst) setzeInstrument(opt.dataset.inst);
     else if (opt.dataset.fret) setzeGriffbrett(opt.dataset.fret === "on");
     else if (opt.dataset.degrees) setzeStufen(opt.dataset.degrees);
+    else if (opt.dataset.keypin) setzeKeyPin(null);
     else if (opt.dataset.control)
       kontrollgitarreSetzen(opt.dataset.control === "on");
   });
@@ -1601,6 +1754,7 @@ setzeInstrument(instrument);   // gespeicherte Wahl anwenden und markieren
 setzeModus(modus);
 setzeGriffbrett(griffbrettAn);
 setzeStufen(stufenModus);
+setzeKeyPin(keyPin);           // zeichnet auch den Picker (mit/ohne Pin)
 zeigeKontrollgitarre(false);
 
 if (new URLSearchParams(location.search).has("demo")) {

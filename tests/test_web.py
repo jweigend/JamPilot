@@ -212,6 +212,30 @@ class TestSeite:
         # neu geschrieben werden - sonst stehen veraltete Stufen im Laufband.
         assert "stufenTonika" in PAGE
 
+    def test_tonart_ist_anpinnbar(self):
+        # Der Pin ersetzt die ERKANNTE Tonart durch eine feste: Wer mitspielt,
+        # kennt die Tonart oft - und die Erkennungs-Restfehler sind nicht
+        # billig zu heilen (tests/realaudio/REPORT_key_labels.md). Reines
+        # Anzeige-Setting pro Geraet, gemerkt wie die Schreibweise.
+        assert 'data-keypin="auto"' in PAGE
+        assert "jampilot.keypin" in PAGE
+        assert 'id="pinroots"' in PAGE and 'id="pinmodes"' in PAGE
+        assert "setzeKeyPin" in PAGE and "pinAlsTonart" in PAGE
+
+    def test_pin_steht_im_badge(self):
+        # Der Pin ueberlebt den Songwechsel. Vergessen saehe eine feste
+        # Tonart exakt wie eine erkannte aus - mit falschen Stufen ueber
+        # allem. Darum der Hinweis im Badge, in der Warnfarbe des
+        # Stummschalters (beides manuelle Eingriffe).
+        assert '<span class="pin">pinned</span>' in PAGE
+        assert "#keybadge .pin" in PAGE
+
+    def test_erkennung_bleibt_unter_dem_pin_sichtbar(self):
+        # Die Automatik-Option im Dialog zeigt weiter, was die Erkennung
+        # meint - wer am eigenen Pin zweifelt, kann vergleichen, und beim
+        # Zurueckschalten weiss man, was man bekommt.
+        assert 'id="detkey"' in PAGE and "serverTonart" in PAGE
+
 
 class TestBassPlaner:
     """Der kuerzeste-Wege-Planer des Bass-Griffbretts - als ECHTE Rechnung.
@@ -274,6 +298,42 @@ class TestBassPlaner:
         # am 5. Bund - hier ist Saitenkreuzen richtig, weil der Bund steht.
         pfad = self._plan([2, 7, 2], {"s": 1, "f": 5})        # D -> G -> D
         assert pfad == [{"s": 1, "f": 5}, {"s": 2, "f": 5}, {"s": 1, "f": 5}]
+
+
+class TestTonartPin:
+    """Die Vorzeichen-Logik des Pins - als ECHTE Rechnung gegen tonality.
+
+    `accidentalForKey` in der Seite spiegelt tonality.accidental_for_key
+    (der Server schickt beim Pin ja keine Schreibweise mit). String-
+    Assertions saehen eine verrutschte Quintenzirkel-Menge nicht - darum
+    wird der Block ausgeschnitten und in Node gegen das Python-Original
+    gerechnet. Ohne Node wird uebersprungen.
+    """
+
+    def test_vorzeichen_spiegeln_tonality(self):
+        import json
+        import shutil
+        import subprocess
+
+        if shutil.which("node") is None:
+            pytest.skip("kein node")
+        from jampilot.chroma import NOTE_NAMES
+        from jampilot.tonality import accidental_for_key
+
+        note_pc = PAGE.index("const NOTE_PC")
+        start = PAGE.index("const SHARP_MAJOR_PCS")
+        harness = (PAGE[note_pc:PAGE.index("};", note_pc) + 2] + "\n"
+                   + PAGE[start:PAGE.index("let keyPin")] + """
+const out = {};
+for (const root of Object.keys(NOTE_PC))
+  out[root] = [accidentalForKey(root, false), accidentalForKey(root, true)];
+console.log(JSON.stringify(out));""")
+        ergebnis = subprocess.run(["node", "-e", harness], capture_output=True,
+                                  text=True, check=True)
+        js = json.loads(ergebnis.stdout)
+        for pc, name in enumerate(NOTE_NAMES):
+            assert js[name][0] == accidental_for_key(pc, False), f"{name}-Dur"
+            assert js[name][1] == accidental_for_key(pc, True), f"{name}-Moll"
 
 
 @pytest.fixture
