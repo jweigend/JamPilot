@@ -16,8 +16,24 @@ from jampilot.cli import _merge_model_segments
 
 FIXTURE = Path(__file__).parent / "data" / "btc_golden_window.npz"
 
+# Die Referenz-Labels im Golden-Fixture gelten fuer GENAU diese Gewichte. Mit
+# experimentellen Gewichten (MERT-Pseudo-Labeling) waere ein Fehlschlag keine
+# Aussage ueber den Port - dann wartet der Test, statt rot zu sein. Bleibt ein
+# neues Modell, wird das Fixture neu erzeugt und der Hash hier nachgezogen.
+_GOLDEN_WEIGHTS_SHA256 = \
+    "e839c4e215ab222c942c224cb608eb7c7f54af9f9900f46b871a1bc5d697b862"
+
+
+def _original_weights():
+    import hashlib
+    return hashlib.sha256(
+        btc._WEIGHTS_PATH.read_bytes()).hexdigest() == _GOLDEN_WEIGHTS_SHA256
+
 
 class TestGoldenWindow:
+    @pytest.mark.skipif(not _original_weights(),
+                        reason="experimentelle Gewichte - Golden-Fixture passt "
+                               "nur zu den Original-BTC-Gewichten")
     def test_port_reproduziert_torch_referenz_bitgenau(self):
         z = np.load(FIXTURE)
         labels = btc.BTCModel().predict(z["features"])
