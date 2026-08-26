@@ -117,6 +117,36 @@
   .opt .desc { display: block; font-size: max(1.7vmin, 12px); color: #6b7280;
                margin-top: .5vmin; line-height: 1.45; }
   #autokey { color: #6ea8ff; }
+  #detkey { color: #6ea8ff; }
+  /* Angepinnte Tonart: Der Hinweis im Badge traegt das Warn-Orange des
+     Stummschalters - beides sind manuelle Eingriffe, die man nach dem Song
+     nicht vergessen sollte. */
+  #keybadge .pin { color: #f5a524; font-weight: 600; letter-spacing: .06em; }
+  /* Der Tonart-Picker: 12 Grundtoene und Dur/Moll, kompakt statt 24 grosser
+     Radiokarten. Der Rahmen macht wie bei .opt sichtbar, ob er "gewaehlt"
+     ist (= eine Tonart angepinnt). */
+  #pinpicker { margin-top: 1.6vmin; padding: 1.6vmin 2vmin 2vmin;
+               background: #1b1e23; border: 1px solid #2a2f36;
+               border-radius: 1vmin;
+               transition: border-color .15s, background .15s; }
+  #pinpicker.pinned { border-color: #6ea8ff; background: #1a2130; }
+  #pinlabel { display: block; font-size: max(1.7vmin, 12px); color: #6b7280;
+              margin-bottom: 1.2vmin; }
+  #pinlabel b { color: #e6e9ed; font-weight: 600; }
+  #pinroots { display: grid; grid-template-columns: repeat(6, 1fr);
+              gap: 1vmin; }
+  #pinmodes { display: grid; grid-template-columns: 1fr 1fr; gap: 1vmin;
+              margin-top: 1vmin; }
+  .pinroot, .pinmode {
+    padding: 1.2vmin .4vmin; cursor: pointer; font: inherit;
+    font-size: max(1.9vmin, 13px); font-weight: 600; color: #c8cdd4;
+    background: #14161a; border: 1px solid #2a2f36; border-radius: .8vmin;
+    text-align: center; transition: border-color .15s, background .15s;
+  }
+  .pinroot:hover, .pinmode:hover { background: #202429;
+                                   border-color: #3a414a; }
+  .pinroot[aria-checked="true"], .pinmode[aria-checked="true"] {
+    border-color: #6ea8ff; background: #1a2130; color: #e6e9ed; }
 
   #qrbox { text-align: center; }
   #qrcard { background: #fff; border-radius: 1.2vmin; padding: .9vmin;
@@ -134,9 +164,29 @@
     font-weight: 750; line-height: .9; white-space: nowrap;
     font-size: min(42vw, 52vh);
     transition: opacity .25s;
+    /* Spalte statt Fliesstext: darueber steht die Nashville-Stufe (bzw. im
+       Invert-Modus der kleine Name). JS schaltet display auf flex/none. */
+    display: flex; flex-direction: column; align-items: center;
   }
   #current .suffix { font-size: 45%; font-weight: 550; color: #6ea8ff;
                      vertical-align: baseline; }
+  /* Die Stufe ueber dem grossen Akkord: leise, wie in den Chips. Die
+     Mindesthoehe reserviert die Zeile auch ohne Tonart - sonst rutschte der
+     Akkord nach unten, wenn die Tonart nach ein paar Sekunden eintrifft. */
+  #current .degree { font-size: min(6vw, 7vh); line-height: 1.15;
+                     font-weight: 600; color: #4a5158;
+                     min-height: min(6.9vw, 8vh); }
+  body.nodegrees #current .degree { display: none; }
+  /* Invert: die Stufe ist die Hauptinformation - gross, wo sonst der Name
+     steht, der Name klein darueber. Nur wo eine Stufe STEHT (:not(:empty)):
+     ohne Tonart und bei N/-/? bleibt der Name gross, sonst zeigte die
+     Buehne eine riesige Leerzeile. */
+  body.invdegrees #current .degree:not(:empty) { order: 2; font-size: 1em;
+                     font-weight: inherit; color: inherit; line-height: inherit;
+                     min-height: 0; }
+  body.invdegrees #current .degree:not(:empty) + .cname {
+                     order: 1; font-size: min(6vw, 7vh); font-weight: 600;
+                     color: #565e66; line-height: 1.15; }
   #current.pop { animation: pop .45s ease-out; }
 
   /* Bass-Modus: der gemessene Basston gross, der Akkord als Kontext darunter.
@@ -239,11 +289,31 @@
     position: absolute; top: 42%; transform: translateY(-50%);
     font-size: 7.5vh; font-weight: 650; color: #9aa3ad;
     white-space: nowrap; will-change: left, opacity;
+    /* Spalte (Stufe / Name / Countdown) als Flex: so kann der Invert-Modus
+       Stufe und Name rein per CSS-`order` tauschen, ohne Chip-Neuaufbau. */
+    display: flex; flex-direction: column; align-items: flex-start;
   }
   .chip .suffix { font-size: 55%; color: #567da3; }
   .chip .bassnote { color: #6ea8ff; }   /* das /E in C/E - die eigentliche Info */
   .chip .eta { display: block; text-align: left; font-size: 2vmin;
                color: #4a5158; font-weight: 400; margin-top: .4vh; }
+  /* Die Nashville-Stufe ueber dem Akkordnamen: leise wie der Countdown, damit
+     die Hierarchie stimmt - Akkordname laut, Stufe und Countdown leise. Die
+     Mindesthoehe reserviert die Zeile auch ohne Tonart, sonst spraengen die
+     Chips nach unten, wenn die Tonart nach ein paar Sekunden eintrifft. */
+  .chip .degree { display: block; text-align: left; font-size: 2.4vmin;
+                  color: #6b7480; font-weight: 500; min-height: 3vmin; }
+  body.nodegrees .chip .degree { display: none; }
+  /* Invert: die Stufe gross, wo sonst der Name steht, der Name klein
+     darueber - die gespiegelte Hierarchie fuer Spieler, die in Funktionen
+     denken. Nur wo eine Stufe STEHT (:not(:empty)): ohne Tonart und bei
+     N/-/? bleibt der Name gross, sonst truege der Chip eine grosse
+     Leerzeile. */
+  body.invdegrees .chip .degree:not(:empty) { order: 2; font-size: 1em;
+                  color: #9aa3ad; font-weight: 650; min-height: 0; }
+  body.invdegrees .chip .degree:not(:empty) + .cname { order: 1;
+                  font-size: 2.4vmin; color: #6b7480; font-weight: 500; }
+  body.invdegrees .chip .eta { order: 3; }
 
   #hint { position: fixed; bottom: 24.5vh; right: 2.6vmin; color: #333;
           font-size: 1.7vmin; z-index: 5; }
@@ -396,6 +466,28 @@
         </span>
       </button>
 
+      <h2 class="second">Key</h2>
+      <p class="sub">Spelling and scale degrees hang on the key. Detection
+         needs a few seconds of music and can mishear ambiguous songs &ndash;
+         if you know the key, pin it: degrees and spelling are reliable
+         instantly. The pin stays until you switch back.</p>
+      <button class="opt" data-keypin="auto" role="radio">
+        <span class="glyph">&#9678;</span>
+        <span class="text">
+          <span class="label">Automatic <span id="detkey"></span></span>
+          <span class="desc">Follows the detected key &ndash; the badge
+                             top-left shows the result.</span>
+        </span>
+      </button>
+      <div id="pinpicker">
+        <span id="pinlabel"></span>
+        <div id="pinroots" role="radiogroup" aria-label="Pinned key root"></div>
+        <div id="pinmodes" role="radiogroup" aria-label="Major or minor">
+          <button class="pinmode" data-pinmode="major" role="radio">major</button>
+          <button class="pinmode" data-pinmode="minor" role="radio">minor</button>
+        </div>
+      </div>
+
       <h2 class="second">Chord spelling</h2>
       <p class="sub">The same key is called A&#9839; or B&#9837;, depending on
          the key of the song. JamPilot detects the key and spells accordingly
@@ -422,6 +514,35 @@
           <span class="label">Always flats</span>
           <span class="desc">D&#9837; &middot; E&#9837; &middot; G&#9837;
                              &middot; A&#9837; &middot; B&#9837;</span>
+        </span>
+      </button>
+
+      <h2 class="second">Scale degrees</h2>
+      <p class="sub">Nashville-style numbers with the chords &ndash; on the
+         timeline and over the big chord: <b>1</b> is the key's root, <b>5</b>
+         its fifth, and &#9837; marks a root outside the key's major scale. A
+         progression looks the same in every key &ndash; degrees appear once
+         the key is settled.</p>
+      <button class="opt" data-degrees="on" role="radio">
+        <span class="glyph">&#9312;</span>
+        <span class="text">
+          <span class="label">Shown</span>
+          <span class="desc">Small numbers above the chord names.</span>
+        </span>
+      </button>
+      <button class="opt" data-degrees="invert" role="radio">
+        <span class="glyph">&#8645;</span>
+        <span class="text">
+          <span class="label">Inverted</span>
+          <span class="desc">The degree is the big thing, the chord name steps
+                             back small &ndash; for thinking in numbers.</span>
+        </span>
+      </button>
+      <button class="opt" data-degrees="off" role="radio">
+        <span class="glyph">&#8709;</span>
+        <span class="text">
+          <span class="label">Hidden</span>
+          <span class="desc">Just the chord names.</span>
         </span>
       </button>
     </div>
@@ -500,6 +621,47 @@ let instrument = localStorage.getItem(INSTRUMENT_KEY) || "chords";  // chords | 
 const FRET_KEY = "jampilot.fretboard";
 let griffbrettAn = localStorage.getItem(FRET_KEY) !== "off";
 
+// NASHVILLE-STUFEN. Ueber jedem Chip (und dem grossen Akkord) steht die Stufe
+// seines Grundtons, gezaehlt von der DUR-Skala der erkannten Tonika - auch in
+// Moll (Am in a-Moll ist die 1, konsistent zum Badge). Nackte Ziffer =
+// Grundton liegt auf der Dur-Stufe, ♭ = einen Halbton darunter; die Qualitaet
+// (Dur/Moll/7) wird nicht wiederholt, sie steht im Akkordnamen daneben.
+// Drei Modi: "on" (Stufe klein ueber dem Namen), "invert" (Stufe gross, Name
+// klein - fuer Spieler, die in Funktionen denken), "off".
+// Entwurf und verworfene Varianten: docs/exploration/nashville-stufen.md
+const STUFEN_KEY = "jampilot.degrees";
+let stufenModus = localStorage.getItem(STUFEN_KEY) || "on";
+const STUFE = ["1", "♭2", "2", "♭3", "3", "4", "♭5", "5", "♭6", "6", "♭7", "7"];
+
+// TONART-PIN. Die Erkennung braucht ~12 s Musik und liegt bei ambigen Stuecken
+// auch mal daneben (Parallel-Moll, verschmiertes Chroma - gemessen:
+// tests/realaudio/REPORT_key_labels.md). Wer mitspielt, KENNT die Tonart aber
+// oft - und an ihr haengen Stufen und Schreibweise. Der Pin ersetzt deshalb
+// die ERKANNTE Tonart durch eine feste; er ist reine Anzeige (wie Schreibweise
+// und Stufen-Modus), gilt pro Geraet und ueberlebt den Neustart bewusst NICHT
+// pro Song, sondern bis zum Zurueckschalten - das Badge warnt solange.
+const PIN_KEY = "jampilot.keypin";
+const ROOT_ORDER = ["C", "C#", "D", "D#", "E", "F",
+                    "F#", "G", "G#", "A", "A#", "B"];
+// Dur-Tonarten mit Kreuz-Vorzeichen (Quintenzirkel: C G D A E B F#); Moll erbt
+// von der Paralleltonart. Spiegelt tonality.accidental_for_key.
+const SHARP_MAJOR_PCS = new Set([0, 2, 4, 6, 7, 9, 11]);
+function accidentalForKey(root, minor) {
+  const rel = (NOTE_PC[root] + (minor ? 3 : 0)) % 12;
+  return SHARP_MAJOR_PCS.has(rel) ? "sharp" : "flat";
+}
+let keyPin = (() => {           // {root, minor} - oder null (Automatik)
+  try {
+    const raw = localStorage.getItem(PIN_KEY);
+    if (!raw) return null;
+    const [root, mode] = raw.split("|");
+    return root in { C:1,"C#":1,D:1,"D#":1,E:1,F:1,"F#":1,G:1,"G#":1,A:1,"A#":1,B:1 }
+      ? { root, minor: mode === "minor" } : null;
+  } catch (e) { return null; }
+})();
+let pinMode = keyPin && keyPin.minor ? "minor" : "major";  // Dur/Moll im Picker
+let serverTonart = null;        // die ERKANNTE Tonart, unabhaengig vom Pin
+
 // Ohne erkannte Tonart gilt das Kreuz: das ist die Schreibweise ohne Vorzeichen
 // und die einzige ehrliche Vorgabe, solange wir die Tonart nicht kennen.
 function gewaehlteSchreibweise() {
@@ -546,6 +708,16 @@ function wurzelVon(name) {
   return m ? m[1] : null;
 }
 
+// Die Stufe haengt NUR am Grundton: Halbton-Abstand zur Tonika, nachgeschlagen
+// in der festen Zwoelfertabelle. Ohne Tonart gibt es keine Stufe - dieselbe
+// Ehrlichkeit wie beim Tonart-Badge.
+function stufeVon(name) {
+  if (!tonart) return null;
+  const root = wurzelVon(name);
+  if (root === null) return null;
+  return STUFE[(NOTE_PC[root] - NOTE_PC[tonart.tonic] + 12) % 12];
+}
+
 // Die Umkehrung: liegt unten etwas anderes als der Grundton? Nur dann ist der
 // Bass eine eigene Information - sonst sagt der Akkordname schon alles.
 function umkehrung(seg) {
@@ -590,7 +762,14 @@ function setCurrent(seg) {
   if (chordHtml(akkord) === null) { showIdle(); return; }  // Stille/kein Akkord
 
   const bass = instrument === "bass" && seg.b ? seg.b : null;
-  const html = bass ? schreibeGrundton(bass, schreibweise) : chordHtml(akkord);
+  // Die Stufe des GEZEIGTEN: im Bass-Modus die des gemessenen Basstons (die
+  // Frage des Bassisten ist "auf welcher Stufe stehe ICH"), sonst die des
+  // Akkord-Grundtons. Wie in den Chips steht sie immer im HTML (ggf. leer) -
+  // Sichtbarkeit und Groesse (Invert) macht die Body-Klasse.
+  const html = '<span class="degree">' + (stufeVon(bass || akkord) || "")
+    + '</span><span class="cname">'
+    + (bass ? schreibeGrundton(bass, schreibweise) : chordHtml(akkord))
+    + "</span>";
   // Kontext nur, wenn der Akkord mehr sagt als der grosse Ton allein.
   const kontext = bass && akkord !== bass
     ? '<span class="over">over</span>' + chordHtml(akkord) : "";
@@ -598,7 +777,7 @@ function setCurrent(seg) {
   const el = $("current");
   $("idle").style.display = "none";
   $("idle").dataset.shown = "";
-  el.style.display = "block";
+  el.style.display = "flex";
 
   const ctx = $("context");
   ctx.style.display = kontext ? "block" : "none";
@@ -890,10 +1069,18 @@ function bassNodeCost(p) {
   const pitch = BASS_MIDI[p.s] + p.f;
   return 0.8 * p.s + 0.10 * p.f + 0.05 * (pitch - 28) + 0.5 * Math.max(0, p.f - 9);
 }
-// Uebergangskosten: Handbewegung (Buende) plus ein kleiner Aufschlag fuer den
-// Saitenwechsel. Dominiert die Knotenkosten - die Linie bleibt an einem Fleck.
+// Uebergangskosten: Handbewegung (Buende) plus Saitenwechsel. Die Gewichte
+// (a je Bund, b je Saite) sind von zwei gemeldeten Fehlgriffen eingeklemmt:
+//  - D (A-Saite, 5. Bund) -> G muss der Quergriff D-Saite/5. Bund sein, nicht
+//    die tiefe Lage E-Saite/3. Bund. Die Knotenkosten geben der tiefen Lage
+//    2.4 Vorsprung, also 2a - b > 2.4. Die Urgewichte (1, 0.5) verletzen das.
+//  - Der Vamp D -> C -> D muss auf der A-Saite bleiben (5-3-5), nicht bei
+//    stehendem Bund zweimal zur G-Saite kreuzen (C eine Oktave hoeher!).
+//    Der Rundweg verlangt a - b < 0.6; (2, 1) verletzte DAS.
+// (2.5, 2) erfuellt beide mit Abstand. Die isolierte Vorgabe (nur
+// Knotenkosten, z.B. Eb -> A-Saite) haengt an keinem der Gewichte.
 function bassTransCost(a, b) {
-  return Math.abs(a.f - b.f) + 0.5 * Math.abs(a.s - b.s);
+  return 2.5 * Math.abs(a.f - b.f) + 2 * Math.abs(a.s - b.s);
 }
 // Viterbi ueber [aktuell, ...folgende] mit festem Startknoten `last` (die zuletzt
 // gegriffene Lage). Zurueck kommt der ganze beste Pfad; gezeigt werden die ersten
@@ -1176,15 +1363,20 @@ function renderKeyboard(seg) {
 }
 
 // Auf dem Laufband steht im Bass-Modus der Slash-Akkord: C/E. Genau das ist die
-// Information, die im Akkordnamen allein fehlt.
+// Information, die im Akkordnamen allein fehlt. Darueber die Nashville-Stufe -
+// sie steht IMMER im HTML (ggf. leer) und wird per Body-Klasse ausgeblendet:
+// so kostet das Umschalten keinen Chip-Neuaufbau, wie beim Griffbrett.
 function chipHtml(seg) {
   const html = chordHtml(seg.c);
   if (html === null) return null;
+  const kopf = '<span class="degree">' + (stufeVon(seg.c) || "") + "</span>";
   const bass = instrument === "bass" ? umkehrung(seg) : null;
-  return bass
+  // Der Name in einem eigenen Span: als Flex-Zeile der Chip-Spalte, damit der
+  // Invert-Modus Stufe und Name per CSS-`order` tauschen kann.
+  return kopf + '<span class="cname">' + (bass
     ? html + '<span class="bassnote">/' + schreibeGrundton(bass, schreibweise)
              + "</span>"
-    : html;
+    : html) + "</span>";
 }
 
 function syncChips(now) {
@@ -1266,11 +1458,18 @@ function animate() {
 // Aendert sich die Schreibweise, muss ALLES neu geschrieben werden, was schon
 // dasteht - der grosse Akkord und jeder Chip auf dem Laufband. Beide cachen
 // ihr gerendertes HTML, also wird der Cache verworfen; die Chips baut
-// syncChips() im naechsten Frame ohnehin neu auf.
+// syncChips() im naechsten Frame ohnehin neu auf. Dasselbe gilt fuer die
+// TONIKA: an ihr haengen die Nashville-Stufen in den Chips - kommt die Tonart
+// erstmals an (nach ~12 s) oder wechselt sie, stuenden sonst veraltete Stufen
+// im Laufband. (Dur/Moll bei gleicher Tonika ist egal: gezaehlt wird immer
+// von der Dur-Skala.)
+let stufenTonika = null;   // Tonika, mit der die Chips zuletzt geschrieben wurden
 function neuSchreibenFallsNoetig() {
   const acc = gewaehlteSchreibweise();
-  const geaendert = acc !== schreibweise;
+  const tonika = tonart ? tonart.tonic : null;
+  const geaendert = acc !== schreibweise || tonika !== stufenTonika;
   schreibweise = acc;          // erst setzen, dann anzeigen: zeigeTonart liest es
+  stufenTonika = tonika;
   zeigeTonart();
   if (!geaendert) return;
   $("current").dataset.shown = "";
@@ -1288,12 +1487,23 @@ function zeigeTonart() {
   // und zwar in der Schreibweise der TONART selbst - Bb-Moll heisst nie A#-Moll,
   // auch wenn der Benutzer Kreuze erzwungen hat.
   const zeichen = schreibweise === "flat" ? "♭" : "♯";
-  const label = tonart
-    ? schreibeGrundton(tonart.tonic, tonart.acc)
-      + (tonart.minor ? " minor" : " major")
-    : null;
-  $("keybadge").innerHTML = label ? label + " · <b>" + zeichen + "</b>" : "";
+  const label = tonart ? tonartLabel(tonart) : null;
+  // Der "pinned"-Hinweis steht im Badge, nicht nur im Dialog: Der Pin
+  // ueberlebt den Songwechsel, und eine vergessene feste Tonart saehe sonst
+  // exakt wie eine erkannte aus - mit falschen Stufen ueber allem.
+  $("keybadge").innerHTML = label
+    ? label + (keyPin ? ' · <span class="pin">pinned</span>' : "")
+      + " · <b>" + zeichen + "</b>"
+    : "";
   $("autokey").textContent = tonart ? "· " + label : "";
+  // Im Dialog zeigt die Automatik-Option weiter die ERKANNTE Tonart - so
+  // sieht man beim Zurueckschalten (und beim Zweifel am eigenen Pin), was
+  // die Erkennung gerade meint.
+  $("detkey").textContent = serverTonart ? "· " + tonartLabel(serverTonart) : "";
+}
+
+function tonartLabel(t) {
+  return schreibeGrundton(t.tonic, t.acc) + (t.minor ? " minor" : " major");
 }
 
 function setzeModus(neu) {
@@ -1333,6 +1543,77 @@ function setzeGriffbrett(an) {
   kbVoicings.clear(); lastKeyVoicing = null;
 }
 
+function setzeStufen(modus) {
+  if (modus !== "off" && modus !== "invert") modus = "on";   // auch Altbestand
+  stufenModus = modus;
+  try { localStorage.setItem(STUFEN_KEY, modus); } catch (e) {}
+  for (const opt of document.querySelectorAll(".opt[data-degrees]"))
+    opt.setAttribute("aria-checked", String(opt.dataset.degrees === modus));
+  // Nur umstylen, nicht neu bauen: die Stufe steht immer im HTML; aus- bzw.
+  // grossblenden (Invert) machen die beiden Body-Klassen.
+  document.body.classList.toggle("nodegrees", modus === "off");
+  document.body.classList.toggle("invdegrees", modus === "invert");
+}
+
+function pinAlsTonart(pin) {
+  // Dieselbe Form wie state.key vom Server - alles Nachgelagerte (Stufen,
+  // Schreibweise, Badge) muss den Unterschied nicht kennen.
+  return { tonic: pin.root, minor: pin.minor,
+           acc: accidentalForKey(pin.root, pin.minor) };
+}
+
+function setzeKeyPin(pin) {     // {root, minor} - oder null (Automatik)
+  keyPin = pin;
+  if (pin) pinMode = pin.minor ? "minor" : "major";
+  try {
+    if (pin) localStorage.setItem(PIN_KEY,
+                                  pin.root + "|" + (pin.minor ? "minor" : "major"));
+    else localStorage.removeItem(PIN_KEY);
+  } catch (e) {}
+  tonart = keyPin ? pinAlsTonart(keyPin) : serverTonart;
+  malePinPicker();
+  // Wirkt sofort und rueckwirkend auf alles, was dasteht - wie ein Wechsel
+  // der Schreibweise: Stufen und Namen im Laufband werden neu geschrieben.
+  neuSchreibenFallsNoetig();
+}
+
+function malePinPicker() {
+  // Die Grundtoene tragen die Schreibweise der Tonart, die sie WAEREN:
+  // in der Moll-Reihe steht B♭ minor, nicht A♯ minor. Darum wird die Reihe
+  // bei jedem Dur/Moll-Wechsel neu beschriftet statt einmal statisch.
+  const minor = pinMode === "minor";
+  const roots = $("pinroots");
+  roots.innerHTML = "";
+  for (const root of ROOT_ORDER) {
+    const b = document.createElement("button");
+    b.className = "pinroot";
+    b.setAttribute("role", "radio");
+    b.textContent = schreibeGrundton(root, accidentalForKey(root, minor));
+    b.setAttribute("aria-checked",
+      String(!!keyPin && keyPin.root === root && keyPin.minor === minor));
+    b.addEventListener("click",
+      () => setzeKeyPin({ root, minor: pinMode === "minor" }));
+    roots.appendChild(b);
+  }
+  for (const b of document.querySelectorAll(".pinmode"))
+    b.setAttribute("aria-checked", String(b.dataset.pinmode === pinMode));
+  $("pinpicker").classList.toggle("pinned", !!keyPin);
+  $("pinlabel").innerHTML = keyPin
+    ? "Pinned: <b>" + tonartLabel(pinAlsTonart(keyPin)) + "</b>"
+    : "&hellip;or pin a key:";
+  for (const opt of document.querySelectorAll(".opt[data-keypin]"))
+    opt.setAttribute("aria-checked", String(!keyPin));
+}
+
+for (const b of document.querySelectorAll(".pinmode"))
+  b.addEventListener("click", () => {
+    pinMode = b.dataset.pinmode;
+    // Schon angepinnt? Dann ist der Wechsel dur<->moll ein neuer Pin. Sonst
+    // nur die Reihe umbeschriften - gewaehlt wird erst mit dem Grundton.
+    if (keyPin) setzeKeyPin({ root: keyPin.root, minor: pinMode === "minor" });
+    else malePinPicker();
+  });
+
 function dialog(offen) {
   $("backdrop").hidden = !offen;
   $("gear").classList.toggle("open", offen);
@@ -1341,7 +1622,8 @@ function dialog(offen) {
 function apply(state) {
   chords = state.chords || [];
   horizon = Math.max(1.5, (state.lead || 3) + 0.8);
-  tonart = state.key || null;
+  serverTonart = state.key || null;
+  tonart = keyPin ? pinAlsTonart(keyPin) : serverTonart;
   if ("muted" in state) zeigeStumm(state.muted);
   if ("control_guitar" in state) zeigeKontrollgitarre(state.control_guitar);
   neuSchreibenFallsNoetig();
@@ -1451,6 +1733,8 @@ for (const opt of document.querySelectorAll(".opt"))
     if (opt.dataset.mode) setzeModus(opt.dataset.mode);
     else if (opt.dataset.inst) setzeInstrument(opt.dataset.inst);
     else if (opt.dataset.fret) setzeGriffbrett(opt.dataset.fret === "on");
+    else if (opt.dataset.degrees) setzeStufen(opt.dataset.degrees);
+    else if (opt.dataset.keypin) setzeKeyPin(null);
     else if (opt.dataset.control)
       kontrollgitarreSetzen(opt.dataset.control === "on");
   });
@@ -1469,14 +1753,19 @@ document.addEventListener("keydown", ev => {
 setzeInstrument(instrument);   // gespeicherte Wahl anwenden und markieren
 setzeModus(modus);
 setzeGriffbrett(griffbrettAn);
+setzeStufen(stufenModus);
+setzeKeyPin(keyPin);           // zeichnet auch den Picker (mit/ohne Pin)
 zeigeKontrollgitarre(false);
 
 if (new URLSearchParams(location.search).has("demo")) {
   // Demo in F-Dur: die Progression enthaelt A# (= Bb), damit man die
-  // Schreibweise umschalten sieht - und zwei Umkehrungen (C/E, F/A), damit man
-  // im Bass-Modus sieht, wofuer die gemessene Bassnote gut ist.
+  // Schreibweise umschalten sieht - zwei Umkehrungen (C/E, F/A), damit man
+  // im Bass-Modus sieht, wofuer die gemessene Bassnote gut ist - und ein
+  // entliehenes D# (= Eb, die ♭7 in F), damit die Stufenanzeige auch ihren
+  // Vorzeichen-Fall zeigt.
   const prog = [["F", "F"], ["A#", "A#"], ["C", "E"], ["Dm", "D"],
-                ["F", "A"], ["Gm", "G"], ["C7", "A#"], ["A#", "A#"]];
+                ["F", "A"], ["Gm", "G"], ["D#", "D#"], ["C7", "A#"],
+                ["A#", "A#"]];
   const start = performance.now() / 1000;
   link = "live";
   setInterval(() => {

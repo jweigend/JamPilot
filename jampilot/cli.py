@@ -654,7 +654,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
       - Safe-Voicings / Powerchord-Rueckzug (harmony.safe_pitch_classes):
         es gibt keine Kandidatenliste mehr. Feld "v" sendet None.
       - Key-Prior (harmony.interpret_chord): Labels kommen fertig vom Modell.
-        Die Tonart selbst laeuft weiter - nur fuer die Schreibweise.
+        Die Tonart selbst laeuft weiter - fuer Schreibweise, Badge und
+        Nashville-Stufen, seit dem Zwei-Skalen-Umbau (REPORT_key_window.md)
+        mit 120-s-Histogramm plus Modulations- und Stille-Detektor.
       - ChordSmoother und Onset-Suche (find_onset_frame): Glaettung und
       	Grenzen kommen aus dem Modell (93-ms-Raster + Mindestdauer).
 
@@ -664,13 +666,16 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
                       fold_bass_chroma, fold_chroma, refine_boundary,
                       segments_from_labels)
-    from .tonality import KeyEstimator, spell
+    from .tonality import TwoScaleKeyEstimator, spell
 
     sr = args.samplerate
     window_frames = int(round(BTC_LIVE_WINDOW * sr))
     hop_frames = int(round(ANALYSIS_HOP * sr))
     model = BTCModel()
-    keys = KeyEstimator(ANALYSIS_HOP)
+    # Zwei Zeitskalen: langes Histogramm fuer die Ruhe (an der Tonika haengen
+    # Stufen und Schreibweise), kurzes als Modulations-/Songwechsel-Detektor.
+    # Messwerte: tests/realaudio/REPORT_key_window.md.
+    keys = TwoScaleKeyEstimator(ANALYSIS_HOP)
     # Die Bassspur muss die ganze Zeitleiste abdecken - vom Anzeige-Rueckblick
     # bis zur Analysefront (wie im Template-Pfad, nur im 93-ms-Raster; der
     # Randbeschnitt schrumpft mit, EDGE zaehlt Frames).
@@ -766,8 +771,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             if engine is not None:
                 engine.lead = lead
 
-            # Tonart (nur Schreibweise): gefaltetes Chroma der NEU gesehenen
-            # Frames, damit kein Material doppelt in die Statistik faellt.
+            # Tonart (Schreibweise, Badge, Nashville-Stufen): gefaltetes
+            # Chroma der NEU gesehenen Frames, damit kein Material doppelt in
+            # die Statistik faellt. Auch Quasi-Stille geht hinein - sie ist
+            # das Songwechsel-Signal des Zwei-Skalen-Estimators.
             folded = fold_chroma(features)
             first_new = max(0, int((key_fed_until - window_start) / BTC_FRAME_SECONDS) + 1)
             if first_new < len(folded):
@@ -843,6 +850,16 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
               f"(the two device clocks drifting apart)")
 
 
+def _label_at(segments, t):
+    """Das Etikett, das eine Segmentliste zum Zeitpunkt t behauptet."""
+    name = None
+    for pos, seg_name in segments:
+        if pos > t:
+            break
+        name = seg_name
+    return name
+
+
 def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=None):
     """BTC ist fuehrend: der unerhoerte Teil der Zeitleiste wird jedem Hop aus
     der frischen Modellausgabe neu aufgebaut.
@@ -853,6 +870,14 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
         bidirektionalen Attention der Zukunftskontext, dort flackern Labels.
       - Ein Segment, das an der Hoergrenze bereits laeuft, aendert das Etikett
         des Gehoerten nicht mehr; erst sein Nachfolger schreibt wieder.
+        AUSNAHME: Sagt das Modell zwei Laeufe in Folge, dass an der Hoergrenze
+        laengst ein ANDERER Akkord laeuft als der veroeffentlichte, bekommt die
+        Zeitleiste eine Grenze an der Einfrierzone. Ohne diese Ausnahme bleibt
+        eine in die Einfrierzone revidierte Grenze fuer immer verschluckt:
+        spielt das Stueck danach lange denselben Akkord (D - A - D, und das
+        zweite D kommt zu spaet oder uebermalt das A rueckwirkend), liefert
+        kein spaeterer Lauf je wieder eine neue Grenze - die Anzeige zeigte
+        das alte Etikett, bis das Stueck real wechselt.
       - Onset-Hysterese: Das CQT-Frameraster wandert pro Hop um eine NICHT
         ganze Framezahl (0.25s sind ~2.7 Frames), dieselbe Akkordgrenze landet
         also jedes Mal ein paar Millisekunden woanders. Ein bereits
@@ -889,6 +914,13 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
             if not timeline:            # Anlauf: noch nichts veroeffentlicht
                 timeline.append((pos, name))
                 last = name
+            elif (name != last and previous is not None
+                    and _label_at(previous, base) == name):
+                # Revision in die Einfrierzone (siehe Docstring): Gehoertes
+                # bleibt stehen, aber ab der Einfrierzone gilt das neue
+                # Etikett - sonst kaeme es nie mehr auf die Anzeige.
+                timeline.append((base, name))
+                last = name
             continue
         if name == last:
             continue
@@ -916,9 +948,11 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
     # Hop stehen - erst zwei einige Laeufe duerfen einen Chip abraeumen.
     if previous is not None:
         for alt_pos, alt_name in published:
+            # `>=`: auch die Korrektur-Grenze AN der Einfrierzone besetzt den
+            # Platz - sonst blitzte der gerade revidierte Chip einen Hop auf.
             if any(-ONSET_HYSTERESIS <= pos - alt_pos
                    <= ONSET_HYSTERESIS + _REFINED_LOOKBACK
-                   for pos, _ in timeline if pos > base):
+                   for pos, _ in timeline if pos >= base):
                 continue                # Platz neu besetzt: das WAR die Revision
             if any(prev_name == alt_name and abs(prev_pos - alt_pos) <= BTC_DEBOUNCE_MATCH
                    for prev_pos, prev_name in previous):

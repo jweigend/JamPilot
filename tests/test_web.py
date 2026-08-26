@@ -171,6 +171,170 @@ class TestSeite:
         # die Information, die der Akkordname allein nicht traegt.
         assert "bassPc" in PAGE
 
+    def test_stufen_sind_abschaltbar(self):
+        # Nashville-Stufen ueber den Akkorden: an/invertiert/aus im Dialog,
+        # gemerkt wie die anderen Einstellungen, per Body-Klasse geschaltet
+        # (kein Chip-Neuaufbau beim Umschalten).
+        for wahl in ("on", "invert", "off"):
+            assert f'data-degrees="{wahl}"' in PAGE, wahl
+        assert "jampilot.degrees" in PAGE
+        assert "nodegrees" in PAGE
+        assert "setzeStufen" in PAGE
+
+    def test_stufen_sind_invertierbar(self):
+        # Dritter Modus: die Stufe gross, der Akkordname klein darueber - fuer
+        # Spieler, die in Funktionen denken. Reines CSS ueber die Body-Klasse
+        # und `order` (Name in eigenem Span). Wo KEINE Stufe steht (Tonart
+        # fehlt noch, N/-/?), muss der Name gross bleiben - sonst zeigte der
+        # Chip eine grosse Leerzeile; das leistet der :not(:empty)-Waechter.
+        assert "invdegrees" in PAGE
+        assert 'class="cname"' in PAGE
+        assert ".degree:not(:empty)" in PAGE
+
+    def test_stufe_steht_auch_am_grossen_akkord(self):
+        # Nicht nur im Laufband: auch die grosse Ansicht traegt die Stufe -
+        # klein darueber, im Invert-Modus gross. Im Bass-Modus ist es die
+        # Stufe des GEMESSENEN Basstons ("auf welcher Stufe stehe ich"),
+        # sonst die des Akkord-Grundtons.
+        assert "#current .degree" in PAGE
+        assert "stufeVon(bass || akkord)" in PAGE
+
+    def test_stufen_zaehlen_von_der_dur_skala(self):
+        # Die Stufe haengt nur am Grundton: feste Zwoelfertabelle relativ zur
+        # Dur-Skala der Tonika, b markiert die Abweichung - keine Qualitaets-
+        # Suffixe (Entwurf: docs/exploration/nashville-stufen.md).
+        assert "stufeVon" in PAGE
+        for stufe in ("♭2", "♭3", "♭5", "♭6", "♭7"):
+            assert f'"{stufe}"' in PAGE, stufe
+
+    def test_stufen_haengen_an_der_tonika(self):
+        # Kommt die Tonart erstmals an oder wechselt sie, muessen die Chips
+        # neu geschrieben werden - sonst stehen veraltete Stufen im Laufband.
+        assert "stufenTonika" in PAGE
+
+    def test_tonart_ist_anpinnbar(self):
+        # Der Pin ersetzt die ERKANNTE Tonart durch eine feste: Wer mitspielt,
+        # kennt die Tonart oft - und die Erkennungs-Restfehler sind nicht
+        # billig zu heilen (tests/realaudio/REPORT_key_labels.md). Reines
+        # Anzeige-Setting pro Geraet, gemerkt wie die Schreibweise.
+        assert 'data-keypin="auto"' in PAGE
+        assert "jampilot.keypin" in PAGE
+        assert 'id="pinroots"' in PAGE and 'id="pinmodes"' in PAGE
+        assert "setzeKeyPin" in PAGE and "pinAlsTonart" in PAGE
+
+    def test_pin_steht_im_badge(self):
+        # Der Pin ueberlebt den Songwechsel. Vergessen saehe eine feste
+        # Tonart exakt wie eine erkannte aus - mit falschen Stufen ueber
+        # allem. Darum der Hinweis im Badge, in der Warnfarbe des
+        # Stummschalters (beides manuelle Eingriffe).
+        assert '<span class="pin">pinned</span>' in PAGE
+        assert "#keybadge .pin" in PAGE
+
+    def test_erkennung_bleibt_unter_dem_pin_sichtbar(self):
+        # Die Automatik-Option im Dialog zeigt weiter, was die Erkennung
+        # meint - wer am eigenen Pin zweifelt, kann vergleichen, und beim
+        # Zurueckschalten weiss man, was man bekommt.
+        assert 'id="detkey"' in PAGE and "serverTonart" in PAGE
+
+
+class TestBassPlaner:
+    """Der kuerzeste-Wege-Planer des Bass-Griffbretts - als ECHTE Rechnung.
+
+    Die Logik lebt als JavaScript in der Seite; String-Assertions sehen einen
+    falschen Gewichtsfaktor nicht. Darum wird der Planer-Block hier
+    ausgeschnitten und in Node ausgefuehrt. Ohne Node wird uebersprungen.
+    """
+
+    @staticmethod
+    def _plan(pcs, last):
+        import json
+        import shutil
+        import subprocess
+
+        if shutil.which("node") is None:
+            pytest.skip("kein node")
+        start = PAGE.index("const BASS_TUNING")
+        end = PAGE.index("// Die kommende Basslinie")
+        harness = (PAGE[start:end]
+                   + f"\nconsole.log(JSON.stringify("
+                     f"planBassLine({json.dumps(pcs)}, {json.dumps(last)})));")
+        out = subprocess.run(["node", "-e", harness], capture_output=True,
+                             text=True, check=True)
+        return json.loads(out.stdout)
+
+    def test_quergriff_schlaegt_die_tiefe_lage(self):
+        # Der gemeldete Bug: von D (A-Saite, 5. Bund) nach G zeigte der Planer
+        # die E-Saite am 3. Bund - die Knotenkosten (tiefe Saite, tiefe Oktave)
+        # ueberstimmten den kuerzesten Weg. Richtig ist der Quergriff:
+        # D-Saite, 5. Bund, gleicher Bund, eine Saite weiter.
+        pfad = self._plan([2, 7], {"s": 1, "f": 5})           # D -> G
+        assert pfad[1] == {"s": 2, "f": 5}
+
+    def test_isolierte_vorgabe_bleibt_idiomatisch(self):
+        # Ohne Kontext entscheiden allein die Knotenkosten: Eb gehoert auf die
+        # A-Saite (6. Bund), nicht hoch auf die E-Saite (11. Bund) - das
+        # dokumentierte Beispiel aus dem Planer-Kommentar.
+        pfad = self._plan([3], None)                          # Eb, isoliert
+        assert pfad[0] == {"s": 1, "f": 6}
+
+    def test_naher_lagenwechsel_bleibt_auf_der_saite(self):
+        # Gegenprobe zur Gewichtung: C nach D (A-Saite, 5. Bund) ist am
+        # kuerzesten zwei Buende runter auf derselben Saite - der staerkere
+        # Uebergangsfaktor darf das nicht auf eine andere Saite draengen.
+        pfad = self._plan([2, 0], {"s": 1, "f": 5})           # D -> C
+        assert pfad[1] == {"s": 1, "f": 3}
+
+    def test_ein_vamp_pendelt_auf_der_saite_statt_quer(self):
+        # Der zweite gemeldete Bug: der RUNDWEG D -> C -> D. Der Planer sieht
+        # die Rueckkehr und fand zweimal Saitenkreuzen bei stehendem Bund
+        # (C auf der G-Saite - eine Oktave zu hoch!) billiger als zweimal
+        # zwei Buende auf der A-Saite. Der paarweise Test oben sieht das
+        # nicht, erst die Linie mit Rueckkehr. Verlangt a - b < 0.6.
+        pfad = self._plan([2, 0, 2], {"s": 1, "f": 5})        # D -> C -> D
+        assert pfad == [{"s": 1, "f": 5}, {"s": 1, "f": 3}, {"s": 1, "f": 5}]
+
+    def test_der_quergriff_gewinnt_auch_im_rundweg(self):
+        # Und die Gegenrichtung des Vamps: D -> G -> D bleibt der Quergriff
+        # am 5. Bund - hier ist Saitenkreuzen richtig, weil der Bund steht.
+        pfad = self._plan([2, 7, 2], {"s": 1, "f": 5})        # D -> G -> D
+        assert pfad == [{"s": 1, "f": 5}, {"s": 2, "f": 5}, {"s": 1, "f": 5}]
+
+
+class TestTonartPin:
+    """Die Vorzeichen-Logik des Pins - als ECHTE Rechnung gegen tonality.
+
+    `accidentalForKey` in der Seite spiegelt tonality.accidental_for_key
+    (der Server schickt beim Pin ja keine Schreibweise mit). String-
+    Assertions saehen eine verrutschte Quintenzirkel-Menge nicht - darum
+    wird der Block ausgeschnitten und in Node gegen das Python-Original
+    gerechnet. Ohne Node wird uebersprungen.
+    """
+
+    def test_vorzeichen_spiegeln_tonality(self):
+        import json
+        import shutil
+        import subprocess
+
+        if shutil.which("node") is None:
+            pytest.skip("kein node")
+        from jampilot.chroma import NOTE_NAMES
+        from jampilot.tonality import accidental_for_key
+
+        note_pc = PAGE.index("const NOTE_PC")
+        start = PAGE.index("const SHARP_MAJOR_PCS")
+        harness = (PAGE[note_pc:PAGE.index("};", note_pc) + 2] + "\n"
+                   + PAGE[start:PAGE.index("let keyPin")] + """
+const out = {};
+for (const root of Object.keys(NOTE_PC))
+  out[root] = [accidentalForKey(root, false), accidentalForKey(root, true)];
+console.log(JSON.stringify(out));""")
+        ergebnis = subprocess.run(["node", "-e", harness], capture_output=True,
+                                  text=True, check=True)
+        js = json.loads(ergebnis.stdout)
+        for pc, name in enumerate(NOTE_NAMES):
+            assert js[name][0] == accidental_for_key(pc, False), f"{name}-Dur"
+            assert js[name][1] == accidental_for_key(pc, True), f"{name}-Moll"
+
 
 @pytest.fixture
 def server():

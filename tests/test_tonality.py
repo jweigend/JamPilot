@@ -7,10 +7,13 @@ from jampilot.chroma import NOTE_NAMES
 from jampilot.tonality import (
     ACCIDENTAL_SETTLE,
     FLAT,
+    KEY_DETECT_SUSTAIN,
     MIN_KEY_SECONDS,
     SHARP,
+    SILENCE_RESET_SECONDS,
     Key,
     KeyEstimator,
+    TwoScaleKeyEstimator,
     accidental_for_key,
     estimate_key,
     spell,
@@ -242,6 +245,95 @@ class TestSchreibweiseZiehtNach:
         assert key.label_in(SHARP) == "C# major"
         assert key.as_dict(SHARP) == {"tonic": "C#", "minor": False,
                                       "acc": SHARP, "label": "C# major"}
+
+
+def _transponiert(kadenz, halbtoene: int):
+    """Dieselbe Kadenz, um `halbtoene` nach oben verschoben."""
+    return [tuple(NOTE_NAMES[(NOTE_NAMES.index(n) + halbtoene) % 12]
+                  for n in akkord)
+            for akkord in kadenz]
+
+
+class TestTwoScaleKeyEstimator:
+    """Zwei Zeitskalen: ruhig bei Ambiguitaet, schnell bei echter Modulation,
+    Reset beim Songwechsel. Messwerte: tests/realaudio/REPORT_key_window.md."""
+
+    def _hoere(self, estimator, kadenz, sekunden, ab=0):
+        schritte = int(sekunden / 0.25)
+        for i in range(schritte):
+            estimator.add(_chroma(*kadenz[(ab + i) // 8 % len(kadenz)]))
+        return ab + schritte
+
+    def test_erkennt_die_tonart_wie_der_einfache_estimator(self):
+        estimator = TwoScaleKeyEstimator(0.25)
+        self._hoere(estimator, KADENZEN["C major"], 40.0)
+        assert estimator.key.label == "C major"
+        assert estimator.accidental == SHARP
+
+    def test_bleibt_bei_verwandter_tonart_stabil(self):
+        # Die C-Dur-Kadenz enthaelt Am - Parallel-Moll darf weder die lange
+        # Statistik kippen noch den Modulationsdetektor ausloesen.
+        estimator = TwoScaleKeyEstimator(0.25)
+        i = self._hoere(estimator, KADENZEN["C major"], 60.0)
+        gemeldet = set()
+        for j in range(200):
+            estimator.add(_chroma(*KADENZEN["C major"][(i + j) // 8 % 4]))
+            gemeldet.add(estimator.key.label)
+        assert gemeldet == {"C major"}
+
+    def test_folgt_einer_modulation_schnell_und_ohne_umweg(self):
+        # Der Pop-Fall: Halbton rauf. Der Detektor muss deutlich vor der
+        # 120-s-Halbwertszeit des langen Histogramms umschalten (ein purer
+        # 120-s-Estimator braucht auf dieser Sequenz 127 s und nimmt einen
+        # f-Moll-Umweg durch den Uebergangsmix beider Tonarten - genau den
+        # verhindert die Regel "derselbe Herausforderer haelt KEY_DETECT_SUSTAIN
+        # durch": der Sprung geht direkt C -> Db).
+        estimator = TwoScaleKeyEstimator(0.25)
+        i = self._hoere(estimator, KADENZEN["C major"], 100.0)
+        neu = _transponiert(KADENZEN["C major"], 1)
+        sekunden, gemeldet = 0.0, set()
+        while estimator.key.tonic != 1:
+            estimator.add(_chroma(*neu[(i + int(sekunden / 0.25)) // 8 % 4]))
+            sekunden += 0.25
+            gemeldet.add(estimator.key.label)
+            assert sekunden < 60.0, "die Modulation kommt nicht an"
+        assert estimator.key.label_in(FLAT) == "Db major"
+        assert gemeldet <= {"C major", "Db major"}   # kein Umweg
+
+    def test_stille_setzt_die_statistik_zurueck(self):
+        # Songwechsel in der Playlist: Luecke -> ehrlich "keine Tonart",
+        # dann zaehlt MIN_KEY_SECONDS fuer den neuen Titel von vorn.
+        estimator = TwoScaleKeyEstimator(0.25)
+        self._hoere(estimator, KADENZEN["F major"], 30.0)
+        assert estimator.key.label == "F major"
+        for _ in range(int(SILENCE_RESET_SECONDS / 0.25)):
+            estimator.add(np.zeros(12))
+        assert estimator.key is None
+        assert estimator.heard_seconds == 0.0
+        # Die Schreibweise bleibt als Anzeige-Fallback stehen: Die noch
+        # sichtbare alte Zeitleiste soll nicht auf Kreuze zurueckkippen.
+        assert estimator.accidental == FLAT
+
+    def test_nach_dem_reset_gilt_die_neue_schreibweise_sofort(self):
+        # Wie beim Programmstart: Die erste Tonart des neuen Stuecks legt
+        # die Schreibweise ohne ACCIDENTAL_SETTLE-Wartezeit fest.
+        estimator = TwoScaleKeyEstimator(0.25)
+        self._hoere(estimator, KADENZEN["F major"], 30.0)
+        for _ in range(int(SILENCE_RESET_SECONDS / 0.25)):
+            estimator.add(np.zeros(12))
+        self._hoere(estimator, KADENZEN["D major"], MIN_KEY_SECONDS + 1.0)
+        assert estimator.key.label == "D major"
+        assert estimator.accidental == SHARP
+
+    def test_eine_kurze_pause_resettet_nicht(self):
+        # Ein Break im Song ist kein Songwechsel.
+        estimator = TwoScaleKeyEstimator(0.25)
+        self._hoere(estimator, KADENZEN["F major"], 30.0)
+        gehoert = estimator.heard_seconds
+        for _ in range(int((SILENCE_RESET_SECONDS - 0.5) / 0.25)):
+            estimator.add(np.zeros(12))
+        assert estimator.key.label == "F major"
+        assert estimator.heard_seconds == gehoert   # Stille zaehlt nicht
 
 
 class TestEstimateKey:
