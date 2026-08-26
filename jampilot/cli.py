@@ -850,6 +850,16 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
               f"(the two device clocks drifting apart)")
 
 
+def _label_at(segments, t):
+    """Das Etikett, das eine Segmentliste zum Zeitpunkt t behauptet."""
+    name = None
+    for pos, seg_name in segments:
+        if pos > t:
+            break
+        name = seg_name
+    return name
+
+
 def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=None):
     """BTC ist fuehrend: der unerhoerte Teil der Zeitleiste wird jedem Hop aus
     der frischen Modellausgabe neu aufgebaut.
@@ -860,6 +870,14 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
         bidirektionalen Attention der Zukunftskontext, dort flackern Labels.
       - Ein Segment, das an der Hoergrenze bereits laeuft, aendert das Etikett
         des Gehoerten nicht mehr; erst sein Nachfolger schreibt wieder.
+        AUSNAHME: Sagt das Modell zwei Laeufe in Folge, dass an der Hoergrenze
+        laengst ein ANDERER Akkord laeuft als der veroeffentlichte, bekommt die
+        Zeitleiste eine Grenze an der Einfrierzone. Ohne diese Ausnahme bleibt
+        eine in die Einfrierzone revidierte Grenze fuer immer verschluckt:
+        spielt das Stueck danach lange denselben Akkord (D - A - D, und das
+        zweite D kommt zu spaet oder uebermalt das A rueckwirkend), liefert
+        kein spaeterer Lauf je wieder eine neue Grenze - die Anzeige zeigte
+        das alte Etikett, bis das Stueck real wechselt.
       - Onset-Hysterese: Das CQT-Frameraster wandert pro Hop um eine NICHT
         ganze Framezahl (0.25s sind ~2.7 Frames), dieselbe Akkordgrenze landet
         also jedes Mal ein paar Millisekunden woanders. Ein bereits
@@ -896,6 +914,13 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
             if not timeline:            # Anlauf: noch nichts veroeffentlicht
                 timeline.append((pos, name))
                 last = name
+            elif (name != last and previous is not None
+                    and _label_at(previous, base) == name):
+                # Revision in die Einfrierzone (siehe Docstring): Gehoertes
+                # bleibt stehen, aber ab der Einfrierzone gilt das neue
+                # Etikett - sonst kaeme es nie mehr auf die Anzeige.
+                timeline.append((base, name))
+                last = name
             continue
         if name == last:
             continue
@@ -923,9 +948,11 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
     # Hop stehen - erst zwei einige Laeufe duerfen einen Chip abraeumen.
     if previous is not None:
         for alt_pos, alt_name in published:
+            # `>=`: auch die Korrektur-Grenze AN der Einfrierzone besetzt den
+            # Platz - sonst blitzte der gerade revidierte Chip einen Hop auf.
             if any(-ONSET_HYSTERESIS <= pos - alt_pos
                    <= ONSET_HYSTERESIS + _REFINED_LOOKBACK
-                   for pos, _ in timeline if pos > base):
+                   for pos, _ in timeline if pos >= base):
                 continue                # Platz neu besetzt: das WAR die Revision
             if any(prev_name == alt_name and abs(prev_pos - alt_pos) <= BTC_DEBOUNCE_MATCH
                    for prev_pos, prev_name in previous):

@@ -156,6 +156,44 @@ class TestMergeModelSegments:
                               previous=[(0.0, "C")])
         assert timeline == [(0.0, "C")]
 
+    def test_uebermaltes_kurzsegment_verschluckt_die_rueckkehr_nicht(self):
+        # D - A - D, und das Modell uebermalt das gehoerte A rueckwirkend mit
+        # durchgehendem D: Es gibt nie wieder eine neue Grenze. Ohne Korrektur
+        # zeigte die Anzeige A, bis das Stueck real wechselt (JJ-Cale-Bug).
+        timeline = [(0.0, "D"), (2.0, "A")]
+        _merge_model_segments(timeline, [(0.0, "D")],
+                              audible_pos=5.0, horizon=10.0,
+                              previous=[(0.0, "D")])
+        # base = 5.0 + BTC_FREEZE_AHEAD: ab dort gilt wieder D.
+        assert timeline == [(0.0, "D"), (2.0, "A"), (6.5, "D")]
+
+    def test_spaete_grenze_in_der_einfrierzone_schreibt_ab_der_zone(self):
+        # Die Rueckkehr zu D wird erst erkannt, als ihre Grenze (6.0) schon in
+        # der Einfrierzone liegt - sie darf nicht verlorengehen.
+        timeline = [(0.0, "D"), (2.0, "A")]
+        segs = [(0.0, "D"), (2.0, "A"), (6.0, "D")]
+        _merge_model_segments(timeline, segs,
+                              audible_pos=5.0, horizon=10.0, previous=segs)
+        assert timeline == [(0.0, "D"), (2.0, "A"), (6.5, "D")]
+
+    def test_revision_in_die_einfrierzone_braucht_zwei_laeufe(self):
+        # Der vorige Lauf sah an der Hoergrenze noch A: Ein-Hop-Launen des
+        # Modells duerfen das laufende Etikett nicht umschreiben.
+        timeline = [(0.0, "D"), (2.0, "A")]
+        _merge_model_segments(timeline, [(0.0, "D")],
+                              audible_pos=5.0, horizon=10.0,
+                              previous=[(0.0, "D"), (2.0, "A")])
+        assert timeline == [(0.0, "D"), (2.0, "A")]
+
+    def test_korrigiertes_etikett_bleibt_im_folgelauf_stabil(self):
+        # Nach der Korrektur ist (6.5, D) eingefroren; der naechste Lauf mit
+        # demselben Modellbild darf keine weitere Grenze anhaengen.
+        timeline = [(0.0, "D"), (2.0, "A"), (6.5, "D")]
+        _merge_model_segments(timeline, [(0.0, "D")],
+                              audible_pos=5.25, horizon=10.25,
+                              previous=[(0.0, "D")])
+        assert timeline == [(0.0, "D"), (2.0, "A"), (6.5, "D")]
+
     def test_revision_ersetzt_ohne_luecke(self):
         # Bestaetigte Umbenennung: der Platz wird ersetzt, nicht erst geleert.
         timeline = [(0.0, "C"), (5.0, "G")]
