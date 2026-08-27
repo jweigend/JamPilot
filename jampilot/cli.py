@@ -398,8 +398,8 @@ def cmd_analyze(args):
     # (Tiefband aus der BTC-CQT), Safe-Voicings/Key-Prior bleiben stillgelegt.
     from . import bass as bassmodul
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_bass_chroma, fold_chroma, live_segments_from_labels,
-                      refine_boundary)
+                      fold_bass_chroma, fold_chroma, refine_boundary,
+                      segments_from_labels)
     from .tonality import SHARP, KeyEstimator, spell
 
     samples, samplerate = _load_wav_mono(args.file)

@@ -127,6 +127,8 @@ class _Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/":
             self._send(PAGE.encode(), "text/html; charset=utf-8")
+        elif path == "/timeline-poc":
+            self._send(TIMELINE_POC_PAGE.encode(), "text/html; charset=utf-8")
         elif path == "/qr.svg":
             # Der QR-Code traegt die URL SAMT Token. Offen ausgeliefert waere
             # er die Hintertuer, ueber die sich jeder im LAN das Token holt.
@@ -237,3 +239,5 @@ def start(port: int = DEFAULT_PORT) -> WebDisplay:
 # sie aus dem Speicher, und ein defektes Bundle faellt sofort auf, nicht erst
 # beim ersten Request.
 PAGE = (Path(__file__).with_name("data") / "index.html").read_text(encoding="utf-8")
+TIMELINE_POC_PAGE = (Path(__file__).with_name("data") / "timeline_poc.html").read_text(
+    encoding="utf-8")
