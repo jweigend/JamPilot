@@ -81,6 +81,27 @@ class TestSegmente:
         assert [name for _, name in segs] == ["C", "Cm"]
         assert segs[1][0] == pytest.approx(20 * btc.BTC_FRAME_SECONDS)
 
+    def test_live_nichtstilles_n_leert_die_anzeige_nicht(self):
+        frames, sr = 26, 1000
+        audio = np.full(int(round(frames * btc.BTC_FRAME_SECONDS * sr)),
+                        1e-2, dtype=np.float32)
+        labels = np.array([1] * 10 + [169] * 6 + [1] * 10)   # C - N - C
+        segs = btc.live_segments_from_labels(labels, audio, sr)
+        assert segs == [(0.0, "C")]
+
+    def test_live_stille_bleibt_trotz_modell_chord_stille(self):
+        frames, sr = 6, 1000
+        audio = np.full(int(round(frames * btc.BTC_FRAME_SECONDS * sr)),
+                        1e-2, dtype=np.float32)
+        grenze = int(round(3 * btc.BTC_FRAME_SECONDS * sr))
+        audio[:grenze] = 0.0
+        labels = np.array([1] * frames)          # Modell halluziniert C durchgehend
+        segs = btc.live_segments_from_labels(labels, audio, sr)
+        assert len(segs) == 2
+        assert segs[0] == (0.0, "-")
+        assert segs[1][0] == pytest.approx(3 * btc.BTC_FRAME_SECONDS)
+        assert segs[1][1] == "C"
+
 
 class TestMergeModelSegments:
     def test_gehoertes_bleibt_unantastbar(self):

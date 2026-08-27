@@ -398,8 +398,8 @@ def cmd_analyze(args):
     # (Tiefband aus der BTC-CQT), Safe-Voicings/Key-Prior bleiben stillgelegt.
     from . import bass as bassmodul
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_bass_chroma, fold_chroma, refine_boundary,
-                      segments_from_labels)
+                      fold_bass_chroma, fold_chroma, live_segments_from_labels,
+                      refine_boundary)
     from .tonality import SHARP, KeyEstimator, spell
 
     samples, samplerate = _load_wav_mono(args.file)
@@ -664,8 +664,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     """
     from . import bass as bassmodul
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_bass_chroma, fold_chroma, refine_boundary,
-                      segments_from_labels)
+                      fold_bass_chroma, fold_chroma, live_segments_from_labels,
+                      refine_boundary)
+    from .chords import SILENCE_RMS
     from .tonality import TwoScaleKeyEstimator, spell
 
     sr = args.samplerate
@@ -738,8 +739,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             features = features_from_audio(audio, sr)
             labels = model.predict(features)
             bass_track.add(fold_bass_chroma(features), window_start)
-            segments = [(pos, "-" if name == "N" else name)
-                        for pos, name in segments_from_labels(labels, offset=window_start)]
+            segments = live_segments_from_labels(labels, audio, sr,
+                                                 offset=window_start,
+                                                 silence_rms=SILENCE_RMS)
 
             audible_pos = loop.audible_position()
             horizon = window_end / sr - BTC_EDGE_GUARD

@@ -354,38 +354,76 @@ def fold_chroma(features: np.ndarray) -> np.ndarray:
     return out
 
 
-def segments_from_labels(labels: np.ndarray, offset: float = 0.0,
-                         min_seconds: float = MIN_SEGMENT_SECONDS) -> list[tuple[float, str]]:
-    """Frame-Labels -> Zeitleiste [(Startsekunde, Name)], Kurzsegmente verschmolzen.
+def _segments_from_sequence(names, offset: float = 0.0,
+                            min_seconds: float = MIN_SEGMENT_SECONDS) -> list[tuple[float, str]]:
+    """Frame-Namen -> Zeitleiste [(Startsekunde, Name)], Kurzsegmente verschmolzen.
 
     Ein Segment unter min_seconds ist 1-2-Frame-Flackern; es faellt an seinen
     Vorgaenger (das erste Segment an seinen Nachfolger).
     """
-    if len(labels) == 0:
+    if len(names) == 0:
         return []
-    runs: list[tuple[int, int, int]] = []      # (startframe, endframe, label)
+    runs: list[tuple[int, int, str]] = []      # (startframe, endframe, name)
     start = 0
-    for i in range(1, len(labels) + 1):
-        if i == len(labels) or labels[i] != labels[start]:
-            runs.append((start, i, int(labels[start])))
+    for i in range(1, len(names) + 1):
+        if i == len(names) or names[i] != names[start]:
+            runs.append((start, i, names[start]))
             start = i
     min_frames = max(1, int(round(min_seconds / BTC_FRAME_SECONDS)))
-    merged: list[tuple[int, int, int]] = []
-    for s, e, lab in runs:
+    merged: list[tuple[int, int, str]] = []
+    for s, e, name in runs:
         if merged and (e - s) < min_frames:
-            ps, _, plab = merged[-1]
-            merged[-1] = (ps, e, plab)
-        elif merged and merged[-1][2] == lab:
-            merged[-1] = (merged[-1][0], e, lab)
+            ps, _, prev_name = merged[-1]
+            merged[-1] = (ps, e, prev_name)
+        elif merged and merged[-1][2] == name:
+            merged[-1] = (merged[-1][0], e, name)
         else:
-            merged.append((s, e, lab))
+            merged.append((s, e, name))
     # Falls das allererste Segment zu kurz war, gehoert es zum Nachfolger.
     if len(merged) > 1 and (merged[0][1] - merged[0][0]) < min_frames:
         merged[1] = (merged[0][0], merged[1][1], merged[1][2])
         merged.pop(0)
     out = []
-    for s, _, lab in merged:
-        name = LABEL_NAMES[lab]
+    for s, _, name in merged:
         if not out or out[-1][1] != name:
             out.append((offset + s * BTC_FRAME_SECONDS, name))
+    return out
+
+
+def segments_from_labels(labels: np.ndarray, offset: float = 0.0,
+                         min_seconds: float = MIN_SEGMENT_SECONDS) -> list[tuple[float, str]]:
+    """Frame-Labels -> Zeitleiste [(Startsekunde, Name)], Kurzsegmente verschmolzen."""
+    return _segments_from_sequence([LABEL_NAMES[int(lab)] for lab in labels],
+                                   offset=offset, min_seconds=min_seconds)
+
+
+def live_segments_from_labels(labels: np.ndarray, audio: np.ndarray, samplerate: int,
+                              offset: float = 0.0,
+                              min_seconds: float = MIN_SEGMENT_SECONDS,
+                              silence_rms: float = 1e-4) -> list[tuple[float, str]]:
+    """BTC-Live-Labels -> Anzeige-Segmente mit alter Semantik fuer Unsicherheit.
+
+    Im Template-Pfad bedeutete echte Stille `-`, aber ein bloesses "kein
+    zuverlaessiger Akkord" hielt die Anzeige fest, statt sie auf "No music" zu
+    leeren. Das BTC-Modell liefert fuer beides `N`; deshalb trennen wir im
+    Live-Pfad wieder per RMS: stille Frames werden `-`, nicht-stille `N` werden
+    `?` und erzeugen gar kein neues Anzeigesegment.
+    """
+    from .chroma import rms
+
+    names = []
+    for i, lab in enumerate(labels):
+        start = int(round(i * BTC_FRAME_SECONDS * samplerate))
+        end = int(round((i + 1) * BTC_FRAME_SECONDS * samplerate))
+        name = "-" if rms(audio[start:end]) < silence_rms else LABEL_NAMES[int(lab)]
+        names.append("?" if name == "N" else name)
+
+    out = []
+    for pos, name in _segments_from_sequence(names, offset=offset,
+                                             min_seconds=min_seconds):
+        if name == "?":
+            continue
+        if out and out[-1][1] == name:
+            continue
+        out.append((pos, name))
     return out
