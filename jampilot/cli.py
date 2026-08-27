@@ -48,6 +48,31 @@ ONSET_HYSTERESIS = 0.35
 # zwischen Veroeffentlichung am Horizont und dem Einfrieren).
 BTC_FREEZE_AHEAD = 1.5
 
+# [Redesign 6.1] Publish-once-Kanal: Rutscht ein Zeitleisten-Eintrag naeher
+# als das an die hoerbare Position, wird er genau einmal als Event committet
+# und danach nie mehr angefasst (docs/exploration/zeitleiste-redesign.md).
+# Bewusst weiter draussen als BTC_FREEZE_AHEAD: im Band dazwischen revidiert
+# der Merge noch, der Event-Kanal hoert aber nicht mehr zu - genau diese
+# verworfenen Revisionen zaehlt die PoC-Seite (/timeline-poc).
+BTC_COMMIT_AHEAD = 2.0
+
+# Bass nur committen, wenn dieselbe Note ueber so viele Hops (~1 s) stabil
+# gemessen wurde. Blosse Poolinglaenge reicht nicht - der Live-Befund
+# (zeitleiste-redesign.md, Abschnitt 5) zeigte auch mit 2 s Pooling noch 19
+# spaeter zurueckgenommene Baesse; Persistenz filtert das Schwellen-Flattern
+# von slash_note. Danach gilt die monotone Regel: leer darf genau einmal auf
+# gesetzt nachruecken ("b_up"), nie zurueck.
+BASS_COMMIT_HOPS = 4
+
+# Bass ueber ein FESTES Fenster ab dem Onset poolen statt bis zum naechsten
+# Onset/zur Analysefront: Gegen die Isophonics-Bass-Annotationen ist das
+# 2-s-Urteil identisch mit dem des vollen Segments (1% falsche Slashes, 41%
+# Umkehrungs-Recall, 5/412 Kipper - Messung 2026-08-27, zeitleiste-redesign.md
+# Abschnitt 5). Das bewegliche Intervallende war die eigentliche Quelle der
+# Bass-Ruecknahmen: Sobald die 2 s voll sind, ist das Urteil per Konstruktion
+# final.
+BASS_POOL_SECONDS = 2.0
+
 # Eine NEUE Grenze kommt erst in die Zeitleiste, wenn schon der VORIGE
 # Modelllauf sie gesehen hat (gleicher Name, Lage bis auf diese Toleranz).
 # Das filtert Geister-Segmente, die nur einen einzigen Lauf lang existieren -
@@ -689,6 +714,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     # Bereits verfeinerte Grenzen: jede neue Grenze wird genau EINMAL aufs
     # Audio-Ereignis gezogen (refine_boundary); danach haelt die Hysterese sie.
     refined_bounds: list[tuple[float, str]] = []
+    ledger = EventLedger()          # [Redesign 6.1] Publish-once-Kanal
     lead = max(args.delay - BTC_EDGE_GUARD, 0.0)
     key_fed_until = 0.0
 
@@ -815,16 +841,28 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 debug.flush()
 
             key = keys.key
+            key_dict = key.as_dict(keys.accidental) if key else None
+
+            # [Redesign 6.1] Eintraege, die die Commit-Grenze passiert haben,
+            # genau einmal mit eingefrorenen Attributen committen. Die
+            # Zeitleiste selbst bleibt dahinter weiter revidierbar.
+            frontier = audible_pos + BTC_COMMIT_AHEAD
+            ledger.advance(timeline, basslinie, key_dict, frontier)
+            ledger.prune(audible_pos)
+
             if broadcaster:
-                # Protokoll unveraendert; [POC-BTC]: nur "v" (Safe-Voicings)
-                # sendet noch None, siehe Docstring. "b" ist wieder gemessen.
+                # Bisherige Felder unveraendert ("v"/Safe-Voicings sendet noch
+                # None, siehe Docstring); neu sind "frontier" und "committed" -
+                # der Publish-once-Kanal. index.html ignoriert beide.
                 broadcaster.publish({
                     "t": round(audible_pos, 3),
                     "chords": [{"c": name, "at": round(pos, 3), "b": bassnote,
                                 "v": None}
                                for (pos, name), bassnote in zip(timeline, basslinie)],
                     "lead": round(lead, 2),
-                    "key": key.as_dict(keys.accidental) if key else None,
+                    "key": key_dict,
+                    "frontier": round(frontier, 3),
+                    "committed": ledger.events,
                     "muted": loop.muted,
                     "control_guitar": loop.control_guitar,
                 })
@@ -1239,18 +1277,84 @@ def _locate_onset(chord, previous, history, window_end, last_onset):
     return min(onset, window_end)   # gefunden werden kann nur Vergangenes
 
 
+class EventLedger:
+    """[Redesign 6.1] Publish-once-Kanal neben dem heutigen Vollzustand.
+
+    Eintraege der (weiter revidierbaren) Zeitleiste, die unter die
+    Commit-Grenze rutschen, werden genau einmal mit eingefrorenen Attributen
+    (Onset, Akkord, Bass, Tonart) als Event uebernommen. Die Event-Liste ist
+    append-only: Spaetere Revisionen der Zeitleiste erreichen sie nicht -
+    auch nicht ein Eintrag, den der Merge nachtraeglich unter die schon
+    passierte Grenze schiebt. Einzige sanktionierte Ausnahme ist die monotone
+    Bass-Regel: Ein leer committeter Bass darf genau einmal auf gesetzt
+    nachruecken (markiert als "b_up"), nie zurueck und nie auf eine andere
+    Note. index.html ignoriert die neuen Felder, /timeline-poc liest sie.
+    """
+
+    def __init__(self):
+        self._until = float("-inf")
+        self.events: list[dict] = []
+        # Bass-Persistenz je Segment-Onset: (zuletzt gemessene Note, Hops in
+        # Folge mit genau dieser Note). Schwellen-Flattern von slash_note
+        # erreicht so nie ein Event.
+        self._streaks: dict[float, tuple[str | None, int]] = {}
+
+    def _stable_bass(self, pos_key: float) -> str | None:
+        note, hops = self._streaks.get(pos_key, (None, 0))
+        return note if note is not None and hops >= BASS_COMMIT_HOPS else None
+
+    def advance(self, timeline, basslinie, key_dict, frontier: float):
+        # Bass-Streaks fortschreiben (ein Aufruf = ein Hop); verschwundene
+        # Onsets vergessen.
+        live = set()
+        for (pos, _), bassnote in zip(timeline, basslinie):
+            k = round(pos, 3)
+            live.add(k)
+            note, hops = self._streaks.get(k, (None, 0))
+            self._streaks[k] = (bassnote, hops + 1 if bassnote == note else 1)
+        for k in [k for k in self._streaks if k not in live]:
+            del self._streaks[k]
+
+        for (pos, name), _ in zip(timeline, basslinie):
+            if self._until < pos <= frontier:
+                self.events.append({"at": round(pos, 3), "c": name,
+                                    "b": self._stable_bass(round(pos, 3)),
+                                    "key": key_dict})
+        self._until = max(self._until, frontier)
+
+        # Monotone Bass-Regel, zweite Haelfte: Ein leer committeter Bass darf
+        # genau einmal auf gesetzt nachruecken ("b_up" markiert das) - ein
+        # einmal gesetzter Bass wird nie wieder angefasst.
+        for e in self.events:
+            if e["b"] is None:
+                stable = self._stable_bass(e["at"])
+                if stable is not None:
+                    e["b"] = stable
+                    e["b_up"] = True
+
+    def prune(self, audible_pos: float):
+        # Wie die Zeitleiste: Vergangenes kurz behalten - und das letzte
+        # Event vor der JETZT-Linie bleibt immer stehen (aktueller Akkord).
+        while len(self.events) > 1 and self.events[1]["at"] <= audible_pos - 2.0:
+            self.events.pop(0)
+
+
 def _bass_per_segment(timeline, track, front: float) -> list[str | None]:
     """Zu jedem Zeitleisten-Segment die vorherrschende Bassnote (kanonisch).
 
-    Ein Segment reicht von seinem Onset bis zum naechsten; das letzte bis zur
-    Analysefront. Waehrend einer Stille gibt es keinen Bass - und wo die Messung
-    keine Mehrheit findet, steht None: lieber nichts anzeigen als raten.
+    Gemessen wird in einem FESTEN Fenster ab dem Onset (BASS_POOL_SECONDS,
+    gekappt am naechsten Onset bzw. der Analysefront): gleiche Urteilsqualitaet
+    wie das volle Segment, aber unabhaengig davon, wie sich das Segmentende
+    spaeter noch verschiebt. Waehrend einer Stille gibt es keinen Bass - und wo
+    die Messung keine Mehrheit findet, steht None: lieber nichts anzeigen als
+    raten.
     """
     from . import bass as bassmodul
 
     noten = []
     for i, (onset, chord) in enumerate(timeline):
         ende = timeline[i + 1][0] if i + 1 < len(timeline) else front
+        ende = min(ende, onset + BASS_POOL_SECONDS)
         if chord == "-" or ende <= onset:
             noten.append(None)
             continue

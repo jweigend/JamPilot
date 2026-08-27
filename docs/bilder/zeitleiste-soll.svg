@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 400" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="sf" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto">
+      <polygon points="0,0 9,4 0,8" fill="#243040"/>
+    </marker>
+    <marker id="sr" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto">
+      <polygon points="0,0 9,4 0,8" fill="#C0483A"/>
+    </marker>
+    <marker id="so" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto">
+      <polygon points="0,0 9,4 0,8" fill="#D97B33"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="940" height="400" fill="#FBFAF7"/>
+
+  <!-- Server -->
+  <rect x="24" y="64" width="560" height="300" rx="10" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="44" y="94" font-size="13" font-weight="700" fill="#243040">Server &#183; Analyse &amp; Commit</text>
+
+  <!-- Interne Timeline (Eingang, revidiert frei) -->
+  <text x="48" y="122" font-size="11.5" font-weight="600" fill="#66707E">interne Timeline &#183; revidiert frei</text>
+  <rect x="48" y="132" width="278" height="60" rx="7" fill="#F0F1F3" stroke="#9AA4B1" stroke-dasharray="5 4"/>
+  <rect x="100" y="146" width="60" height="32" rx="6" fill="#FBFAF7" stroke="#9AA4B1" stroke-dasharray="4 3"/>
+  <text x="130" y="166" text-anchor="middle" font-size="12.5" fill="#66707E">Em?</text>
+  <rect x="200" y="146" width="60" height="32" rx="6" fill="#FBFAF7" stroke="#9AA4B1" stroke-dasharray="4 3"/>
+  <text x="230" y="166" text-anchor="middle" font-size="12.5" fill="#66707E">C?</text>
+
+  <!-- Commit-Grenze -->
+  <line x1="336" y1="96" x2="336" y2="206" stroke="#D97B33" stroke-width="3.5"/>
+  <!-- Uebertritt -->
+  <line x1="296" y1="162" x2="352" y2="162" stroke="#D97B33" stroke-width="1.8" marker-end="url(#so)"/>
+
+  <!-- Committete Events (Ausgang) -->
+  <text x="346" y="122" font-size="11.5" font-weight="600" fill="#2F6FBF">committete Events &#183; append-only</text>
+  <rect x="346" y="132" width="214" height="60" rx="7" fill="#EAF1F9" stroke="#2F6FBF"/>
+  <rect x="360" y="146" width="56" height="32" rx="6" fill="#FFFFFF" stroke="#2F6FBF"/>
+  <text x="388" y="166" text-anchor="middle" font-size="12.5" font-weight="600" fill="#243040">G</text>
+  <rect x="426" y="146" width="56" height="32" rx="6" fill="#FFFFFF" stroke="#2F6FBF"/>
+  <text x="454" y="166" text-anchor="middle" font-size="12.5" font-weight="600" fill="#243040">D</text>
+  <rect x="492" y="146" width="56" height="32" rx="6" fill="#FFFFFF" stroke="#2F6FBF"/>
+  <text x="520" y="166" text-anchor="middle" font-size="12.5" font-weight="600" fill="#243040">A</text>
+  <text x="453" y="214" text-anchor="middle" font-size="11" fill="#66707E" font-family="ui-monospace, monospace">{at, Akkord, Bass, Tonart, Stufe}</text>
+
+  <!-- Revisionen enden an der Grenze -->
+  <line x1="256" y1="238" x2="328" y2="238" stroke="#C0483A" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#sr)"/>
+  <text x="48" y="224" font-size="11.5" fill="#C0483A">Revisionen enden hier &#8212;</text>
+  <text x="48" y="241" font-size="11.5" fill="#C0483A">Committetes wird nie umgeschrieben</text>
+  <text x="336" y="262" text-anchor="middle" font-size="12" font-weight="700" fill="#D97B33">Commit-Grenze = h&#246;rbar + Vorlauf (2 s)</text>
+
+  <!-- Analyse-Freiheit -->
+  <text x="48" y="296" font-size="11.5" fill="#66707E">Vor der Grenze darf die Analyse alles:</text>
+  <text x="48" y="313" font-size="11.5" fill="#66707E">verschieben, umbenennen, verwerfen.</text>
+  <text x="48" y="330" font-size="11.5" fill="#66707E">Nur nichts davon erreicht den Client.</text>
+
+  <!-- Kontrollgitarre -->
+  <rect x="330" y="284" width="230" height="56" rx="7" fill="#F4F5F7" stroke="#9AA4B1"/>
+  <text x="445" y="306" text-anchor="middle" font-size="12.5" font-weight="600" fill="#243040">Kontrollgitarre &amp; Engine</text>
+  <text x="445" y="324" text-anchor="middle" font-size="11" fill="#66707E">lesen weiter die interne Timeline</text>
+
+  <!-- Auslieferung -->
+  <line x1="584" y1="162" x2="674" y2="162" stroke="#D97B33" stroke-width="1.8" marker-end="url(#so)"/>
+  <text x="629" y="140" text-anchor="middle" font-size="11.5" font-weight="600" fill="#D97B33">Events</text>
+  <text x="629" y="186" text-anchor="middle" font-size="11" fill="#66707E">genau einmal</text>
+
+  <!-- Client -->
+  <rect x="680" y="64" width="236" height="180" rx="10" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="700" y="94" font-size="13" font-weight="700" fill="#243040">Client &#183; Renderer (dumm)</text>
+  <text x="700" y="122" font-size="12" fill="#243040">&#8226; zeichnet committete Events</text>
+  <text x="700" y="144" font-size="12" fill="#243040">&#8226; NOW-Linie aus t</text>
+  <text x="700" y="166" font-size="12" fill="#243040">&#8226; kein eigener Zustand</text>
+  <line x1="700" y1="182" x2="896" y2="182" stroke="#C9CFD8" stroke-width="1"/>
+  <text x="700" y="204" font-size="11.5" fill="#66707E">Reconnect: Server liefert das</text>
+  <text x="700" y="221" font-size="11.5" fill="#66707E">committete Fenster erneut aus.</text>
+
+  <text x="680" y="290" font-size="11.5" font-weight="600" fill="#243040">Vertrag des Protokolls:</text>
+  <text x="680" y="309" font-size="11.5" fill="#66707E">&#8222;Bis zur Grenze kommt nichts mehr &#8212;</text>
+  <text x="680" y="326" font-size="11.5" fill="#66707E">und was da ist, bleibt.&#8220;</text>
+</svg>

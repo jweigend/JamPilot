@@ -342,3 +342,119 @@ class TestOhneArgument:
         with patch("jampilot.cli.cmd_analyze") as an:
             cli.main()
         assert an.called and an.call_args[0][0].file == "song.wav"
+
+
+class TestEventLedger:
+    """[Redesign 6.1] Publish-once-Kanal: committete Events sind unantastbar."""
+
+    def test_eintrag_wird_genau_einmal_committet(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C"), (3.0, "G")]
+        baesse = [None, None]
+        led.advance(zeitleiste, baesse, None, frontier=2.0)
+        assert [e["c"] for e in led.events] == ["C"]
+        led.advance(zeitleiste, baesse, None, frontier=3.5)
+        led.advance(zeitleiste, baesse, None, frontier=3.5)
+        assert [(e["at"], e["c"]) for e in led.events] == [(1.0, "C"), (3.0, "G")]
+
+    def test_revision_unter_der_grenze_wird_nicht_mehr_committet(self):
+        led = cli.EventLedger()
+        led.advance([(1.0, "C")], [None], None, frontier=2.0)
+        # Merge schiebt nachtraeglich einen Wechsel bei 1.8 ein - zu spaet:
+        # die Grenze ist schon vorbei, das Event darf nicht mehr entstehen.
+        led.advance([(1.0, "C"), (1.8, "Am")], [None, None], None, frontier=2.0)
+        assert [e["c"] for e in led.events] == ["C"]
+
+    def test_attribute_bleiben_eingefroren(self):
+        led = cli.EventLedger()
+        for _ in range(cli.BASS_COMMIT_HOPS):
+            led.advance([(1.0, "C")], ["E"], {"tonic": "C"}, frontier=0.5)
+        led.advance([(1.0, "C")], ["E"], {"tonic": "C"}, frontier=2.0)
+        # Zeitleiste, Bass und Tonart aendern sich danach - das Event nicht.
+        led.advance([(1.0, "Cmaj7")], ["G"], {"tonic": "G"}, frontier=2.5)
+        assert led.events == [{"at": 1.0, "c": "C", "b": "E", "key": {"tonic": "C"}}]
+
+    def test_prune_behaelt_das_letzte_event_vor_jetzt(self):
+        led = cli.EventLedger()
+        led.advance([(1.0, "C"), (2.0, "G"), (6.0, "F")], [None] * 3, None,
+                    frontier=7.0)
+        led.prune(audible_pos=5.0)
+        assert [e["at"] for e in led.events] == [2.0, 6.0]
+
+
+class TestBassRegel:
+    """Monotone Bass-Regel: Persistenz vor Commit, einmal nachruecken, nie zurueck."""
+
+    def test_fluechtiger_bass_wird_nicht_committet(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C")]
+        # Nur 2 Hops mit derselben Note gemessen - unter BASS_COMMIT_HOPS.
+        led.advance(zeitleiste, ["E"], None, frontier=0.5)
+        led.advance(zeitleiste, ["E"], None, frontier=2.0)
+        assert led.events[0]["b"] is None
+
+    def test_persistenter_bass_wird_committet(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C")]
+        for _ in range(cli.BASS_COMMIT_HOPS):
+            led.advance(zeitleiste, ["E"], None, frontier=0.5)
+        led.advance(zeitleiste, ["E"], None, frontier=2.0)
+        assert led.events[0]["b"] == "E"
+        assert "b_up" not in led.events[0]
+
+    def test_flatternder_bass_setzt_die_persistenz_zurueck(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C")]
+        for note in ["E", "E", "E", None, "E"]:
+            led.advance(zeitleiste, [note], None, frontier=0.5)
+        led.advance(zeitleiste, ["E"], None, frontier=2.0)   # erst 3 Hops "E"
+        assert led.events[0]["b"] is None
+
+    def test_bass_darf_genau_einmal_nachruecken(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C")]
+        led.advance(zeitleiste, [None], None, frontier=2.0)  # leer committet
+        for _ in range(cli.BASS_COMMIT_HOPS):
+            led.advance(zeitleiste, ["E"], None, frontier=2.0)
+        assert led.events[0]["b"] == "E" and led.events[0]["b_up"] is True
+        # Danach ist der Bass unantastbar - auch wenn die Messung kippt.
+        for note in [None, "G", "G", "G", "G", "G"]:
+            led.advance(zeitleiste, [note], None, frontier=2.0)
+        assert led.events[0]["b"] == "E"
+
+    def test_gesetzter_bass_faellt_nie_zurueck(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C")]
+        for _ in range(cli.BASS_COMMIT_HOPS):
+            led.advance(zeitleiste, ["E"], None, frontier=0.5)
+        led.advance(zeitleiste, ["E"], None, frontier=2.0)
+        for _ in range(6):
+            led.advance(zeitleiste, [None], None, frontier=2.0)
+        assert led.events[0]["b"] == "E"
+
+
+class TestBassFenster:
+    """Bass wird ueber ein festes Fenster ab dem Onset gepoolt."""
+
+    def test_pooling_endet_nach_bass_pool_seconds(self):
+        class Aufzeichnung:
+            def __init__(self):
+                self.intervalle = []
+            def pooled_between(self, a, b):
+                self.intervalle.append((a, b))
+                return None
+        track = Aufzeichnung()
+        cli._bass_per_segment([(1.0, "C"), (8.0, "G")], track, front=20.0)
+        assert track.intervalle == [(1.0, 1.0 + cli.BASS_POOL_SECONDS),
+                                    (8.0, 8.0 + cli.BASS_POOL_SECONDS)]
+
+    def test_kurzes_segment_bleibt_am_naechsten_onset_gekappt(self):
+        class Aufzeichnung:
+            def __init__(self):
+                self.intervalle = []
+            def pooled_between(self, a, b):
+                self.intervalle.append((a, b))
+                return None
+        track = Aufzeichnung()
+        cli._bass_per_segment([(1.0, "C"), (2.2, "G")], track, front=2.8)
+        assert track.intervalle == [(1.0, 2.2), (2.2, 2.8)]

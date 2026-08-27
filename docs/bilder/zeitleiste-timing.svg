@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 320" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="tm" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <polygon points="0,0 8,4 0,8" fill="#66707E"/>
+    </marker>
+    <marker id="tms" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto">
+      <polygon points="8,0 0,4 8,8" fill="#66707E"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="940" height="320" fill="#FBFAF7"/>
+
+  <!-- Marker-Beschriftungen -->
+  <text x="200" y="80" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2F6FBF">JETZT</text>
+  <text x="200" y="96" text-anchor="middle" font-size="11" fill="#66707E">h&#246;rbare Position</text>
+  <text x="424" y="80" text-anchor="middle" font-size="12.5" font-weight="700" fill="#D97B33">Commit-Grenze</text>
+  <text x="424" y="96" text-anchor="middle" font-size="11" fill="#66707E">JETZT + 2 s Vorlauf</text>
+  <text x="648" y="80" text-anchor="middle" font-size="12.5" font-weight="700" fill="#243040">Horizont</text>
+  <text x="648" y="96" text-anchor="middle" font-size="11" fill="#66707E">Fensterrand &#8722; Edge-Guard</text>
+  <text x="766" y="80" font-size="12.5" font-weight="700" fill="#243040">Aufnahmefront</text>
+  <text x="766" y="96" font-size="11" fill="#66707E">JETZT + --delay</text>
+
+  <!-- Baender -->
+  <rect x="60" y="126" width="140" height="48" fill="#E9EBEE"/>
+  <text x="130" y="155" text-anchor="middle" font-size="11" fill="#66707E">schon geh&#246;rt</text>
+  <rect x="200" y="126" width="224" height="48" fill="#EAF1F9" stroke="#2F6FBF"/>
+  <text x="312" y="149" text-anchor="middle" font-size="11.5" font-weight="600" fill="#2F6FBF">Vorlauf &#183; committet</text>
+  <text x="312" y="165" text-anchor="middle" font-size="10.5" fill="#2F6FBF">unver&#228;nderlich sichtbar</text>
+  <rect x="424" y="126" width="224" height="48" fill="#F0F1F3" stroke="#9AA4B1" stroke-dasharray="5 4"/>
+  <text x="536" y="149" text-anchor="middle" font-size="11.5" font-weight="600" fill="#66707E">nur intern &#183; revidierbar</text>
+  <text x="536" y="165" text-anchor="middle" font-size="10.5" fill="#66707E">erreicht den Client nicht</text>
+  <rect x="648" y="126" width="112" height="48" fill="#F7F5F1" stroke="#C9CFD8" stroke-dasharray="3 3"/>
+  <text x="704" y="153" text-anchor="middle" font-size="10.5" fill="#66707E">Edge-Guard 1 s</text>
+
+  <!-- Achse -->
+  <line x1="60" y1="174" x2="760" y2="174" stroke="#243040" stroke-width="1.6"/>
+  <line x1="760" y1="174" x2="900" y2="174" stroke="#9AA4B1" stroke-width="1.4" stroke-dasharray="4 4"/>
+  <text x="828" y="165" text-anchor="middle" font-size="10.5" fill="#66707E">noch nicht aufgenommen</text>
+
+  <!-- Markerlinien -->
+  <line x1="200" y1="104" x2="200" y2="180" stroke="#2F6FBF" stroke-width="2.5"/>
+  <line x1="424" y1="104" x2="424" y2="180" stroke="#D97B33" stroke-width="3"/>
+  <line x1="648" y1="104" x2="648" y2="180" stroke="#243040" stroke-width="1.6"/>
+  <line x1="760" y1="104" x2="760" y2="180" stroke="#243040" stroke-width="1.6"/>
+
+  <!-- Verstehzeit -->
+  <line x1="424" y1="212" x2="648" y2="212" stroke="#66707E" stroke-width="1.4" marker-start="url(#tms)" marker-end="url(#tm)"/>
+  <text x="536" y="234" text-anchor="middle" font-size="11.5" fill="#243040">vom Modell gesehener Kontext, wenn ein Onset committet wird:</text>
+  <text x="536" y="252" text-anchor="middle" font-size="11.5" font-weight="600" fill="#243040">delay &#8722; Vorlauf &#8722; Edge-Guard&#160;&#160;(4 s &#8594; 1 s &#183; 5 s &#8594; 2 s)</text>
+
+  <!-- Delay -->
+  <line x1="200" y1="278" x2="760" y2="278" stroke="#66707E" stroke-width="1.4" marker-start="url(#tms)" marker-end="url(#tm)"/>
+  <text x="480" y="300" text-anchor="middle" font-size="11.5" fill="#243040">--delay: Abstand Aufnahme &#8594; Wiedergabe &#183; vom Nutzer w&#228;hlbar (Default 4 s, Vorschlag 5 s)</text>
+</svg>

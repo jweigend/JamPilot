@@ -109,3 +109,16 @@ fruehere Fehlgriff `Cmaj7/B` verschwindet.
 
 Messskripte: Session-Scratchpad `verify_reference.py` (Versions-Check),
 Timing- und Bass-Auswertung; alle nutzen nur `jampilot.btc` + librosa.
+
+## Publish-once-Messungen (2026-08-27, eingecheckt)
+
+Fuer das Zeitleisten-Redesign (docs/exploration/zeitleiste-redesign.md)
+liegen zwei Skripte direkt hier:
+
+- `messung_einfrieren.py` - simuliert das gleitende 10-s-Fenster und misst,
+  wie viel Root-Accuracy das Einfrieren an der Commit-Grenze gegenueber dem
+  Endurteil kostet (Ergebnis: ~1 Punkt bei 2 s Verstehzeit).
+- `messung_bass_gt.py` - misst `slash_note` gegen die Isophonics-Bass-
+  Annotationen bei 2 s / 3 s / Vollsegment-Pooling (Ergebnis: Urteil ab 2 s
+  identisch zum Vollsegment; die Instabilitaet kam vom beweglichen
+  Intervallende, daher jetzt `BASS_POOL_SECONDS`).
