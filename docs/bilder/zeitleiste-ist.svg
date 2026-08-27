@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 470" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="pf" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto">
+      <polygon points="0,0 9,4 0,8" fill="#243040"/>
+    </marker>
+    <marker id="pr" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto">
+      <polygon points="0,0 9,4 0,8" fill="#C0483A"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="940" height="470" fill="#FBFAF7"/>
+
+  <!-- Revision erreicht die Anzeige (Bogen ueber alles) -->
+  <path d="M 289,108 C 289,26 790,26 790,108" fill="none" stroke="#C0483A" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#pr)"/>
+  <text x="530" y="34" text-anchor="middle" font-size="12.5" font-weight="600" fill="#C0483A">Revision erreicht die Anzeige</text>
+
+  <!-- Server -->
+  <rect x="24" y="52" width="540" height="286" rx="10" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="44" y="82" font-size="13" font-weight="700" fill="#243040">Server &#183; _display_loop &#8212; alle 250 ms</text>
+
+  <rect x="44" y="108" width="140" height="52" rx="7" fill="#F4F5F7" stroke="#9AA4B1"/>
+  <text x="114" y="129" text-anchor="middle" font-size="12.5" font-weight="600" fill="#243040">BTC-Modelllauf</text>
+  <text x="114" y="147" text-anchor="middle" font-size="11" fill="#66707E">10-s-Fenster</text>
+
+  <line x1="184" y1="134" x2="208" y2="134" stroke="#243040" stroke-width="1.6" marker-end="url(#pf)"/>
+
+  <rect x="214" y="108" width="150" height="52" rx="7" fill="#F4F5F7" stroke="#9AA4B1"/>
+  <text x="289" y="129" text-anchor="middle" font-size="12.5" font-weight="600" fill="#243040">Merge</text>
+  <text x="289" y="147" text-anchor="middle" font-size="11" fill="#66707E">revidiert die Zukunft</text>
+
+  <line x1="364" y1="134" x2="388" y2="134" stroke="#243040" stroke-width="1.6" marker-end="url(#pf)"/>
+
+  <rect x="394" y="108" width="160" height="52" rx="7" fill="#F4F5F7" stroke="#9AA4B1"/>
+  <text x="474" y="129" text-anchor="middle" font-size="12.5" font-weight="600" fill="#243040">Timeline</text>
+  <text x="474" y="147" text-anchor="middle" font-size="11" fill="#66707E">aktuelle Hypothese</text>
+
+  <!-- Daempfer -->
+  <text x="44" y="212" font-size="11" fill="#66707E">D&#228;mpfer gegen das Flackern &#8212; je ein Flicken pro Symptom:</text>
+  <line x1="119" y1="224" x2="255" y2="162" stroke="#C9CFD8" stroke-width="1"/>
+  <line x1="294" y1="224" x2="289" y2="162" stroke="#C9CFD8" stroke-width="1"/>
+  <line x1="474" y1="224" x2="323" y2="162" stroke="#C9CFD8" stroke-width="1"/>
+  <rect x="44" y="224" width="150" height="28" rx="14" fill="#FBFAF7" stroke="#9AA4B1" stroke-dasharray="4 3"/>
+  <text x="119" y="242" text-anchor="middle" font-size="11" fill="#243040">Einfrierzone 1,5 s</text>
+  <rect x="209" y="224" width="170" height="28" rx="14" fill="#FBFAF7" stroke="#9AA4B1" stroke-dasharray="4 3"/>
+  <text x="294" y="242" text-anchor="middle" font-size="11" fill="#243040">Best&#228;tigungs-Debounce</text>
+  <rect x="394" y="224" width="170" height="28" rx="14" fill="#FBFAF7" stroke="#9AA4B1" stroke-dasharray="4 3"/>
+  <text x="479" y="242" text-anchor="middle" font-size="11" fill="#243040">Onset-Hysterese 0,35 s</text>
+
+  <text x="44" y="296" font-size="11.5" fill="#66707E">Kein Vertrag: was gesendet wurde, darf in der</text>
+  <text x="44" y="313" font-size="11.5" fill="#66707E">n&#228;chsten Nachricht fehlen, verschoben oder anders sein.</text>
+
+  <!-- Publish -->
+  <line x1="564" y1="134" x2="658" y2="134" stroke="#243040" stroke-width="1.8" marker-end="url(#pf)"/>
+  <text x="611" y="112" text-anchor="middle" font-size="11.5" font-weight="600" fill="#243040">Vollzustand</text>
+  <text x="611" y="158" text-anchor="middle" font-size="11" fill="#66707E">4&#215;/s</text>
+
+  <!-- Client -->
+  <rect x="664" y="52" width="252" height="286" rx="10" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="684" y="82" font-size="13" font-weight="700" fill="#243040">Client &#183; Browser</text>
+
+  <rect x="684" y="108" width="212" height="48" rx="7" fill="#F4F5F7" stroke="#9AA4B1"/>
+  <text x="790" y="137" text-anchor="middle" font-size="12.5" font-weight="600" fill="#243040">Diff alt &#8596; neu</text>
+
+  <line x1="790" y1="156" x2="790" y2="184" stroke="#243040" stroke-width="1.6" marker-end="url(#pf)"/>
+
+  <rect x="684" y="190" width="212" height="48" rx="7" fill="#F4F5F7" stroke="#9AA4B1"/>
+  <text x="790" y="211" text-anchor="middle" font-size="12.5" font-weight="600" fill="#243040">DOM l&#246;schen +</text>
+  <text x="790" y="228" text-anchor="middle" font-size="12.5" font-weight="600" fill="#243040">neu erzeugen</text>
+
+  <rect x="684" y="266" width="212" height="28" rx="14" fill="#FBFAF7" stroke="#9AA4B1" stroke-dasharray="4 3"/>
+  <text x="790" y="284" text-anchor="middle" font-size="10.5" fill="#243040">Flicken: Chip-Identit&#228;t Zeit|Akkord|Bass</text>
+
+  <!-- Protokollfolge -->
+  <text x="24" y="392" font-size="12" font-weight="600" fill="#66707E">Folge im Protokoll:</text>
+  <text x="180" y="392" font-size="11.5" fill="#66707E">Hop n</text>
+  <rect x="180" y="400" width="92" height="32" rx="7" fill="#EAF1F9" stroke="#2F6FBF"/>
+  <text x="226" y="420" text-anchor="middle" font-size="12" fill="#243040">105,0 &#183; A</text>
+  <rect x="282" y="400" width="92" height="32" rx="7" fill="#EAF1F9" stroke="#2F6FBF"/>
+  <text x="328" y="420" text-anchor="middle" font-size="12" fill="#243040">106,3 &#183; D</text>
+
+  <line x1="396" y1="416" x2="466" y2="416" stroke="#243040" stroke-width="1.4" marker-end="url(#pf)"/>
+  <text x="431" y="404" text-anchor="middle" font-size="10.5" fill="#66707E">250 ms sp&#228;ter</text>
+
+  <text x="488" y="392" font-size="11.5" fill="#66707E">Hop n+1</text>
+  <rect x="488" y="400" width="92" height="32" rx="7" fill="#EAF1F9" stroke="#2F6FBF"/>
+  <text x="534" y="420" text-anchor="middle" font-size="12" fill="#243040">105,0 &#183; A</text>
+  <rect x="590" y="400" width="92" height="32" rx="7" fill="none" stroke="#C0483A" stroke-dasharray="5 4"/>
+  <text x="636" y="420" text-anchor="middle" font-size="12" font-weight="600" fill="#C0483A">D fehlt</text>
+
+  <text x="712" y="411" font-size="11.5" fill="#66707E">F&#252;r den Client nicht unterscheidbar</text>
+  <text x="712" y="428" font-size="11.5" fill="#66707E">von &#8222;gab es nie&#8220;.</text>
+</svg>

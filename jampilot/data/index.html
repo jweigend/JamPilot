@@ -273,6 +273,8 @@
   #nowline {
     position: absolute; left: 14%; top: 0; bottom: 0; width: 2px;
     background: linear-gradient(#6ea8ff88, #6ea8ff22);
+    z-index: 50;   /* ueber den deckenden Chips - sonst radierte ein
+                      durchlaufender Chip die Linie kurz aus */
   }
   #nowline.hit { animation: hit .35s ease-out; }
   @keyframes hit {
@@ -286,9 +288,16 @@
     /* Nur vertikal zentrieren: die LINKE Textkante markiert den Zeitpunkt,
        nicht die Label-Mitte. Sie trifft die JETZT-Linie in genau dem Frame,
        in dem der Akkord erklingt - sonst laege der Wechsel im Wortinneren. */
-    position: absolute; top: 42%; transform: translateY(-50%);
+    position: absolute; top: 42%; left: 0; transform: translateY(-50%);
     font-size: 7.5vh; font-weight: 650; color: #9aa3ad;
-    white-space: nowrap; will-change: left, opacity;
+    /* Bewegung per transform (Compositor), nicht per `left` (Layout): sonst
+       ruckelt das Laufband, sobald der Browser pro Frame layouten muss. */
+    white-space: nowrap; will-change: transform, opacity;
+    /* Deckender Hintergrund (auf Schwarz unsichtbar): Bei schnellen Wechseln
+       schneidet der SPAETERE Chip den frueheren rechts an, statt sich mit ihm
+       zu ueberlagern - seine linke Kante IST das Ende des vorigen Akkords.
+       Die Stapelreihenfolge (spaeter = vorn) setzt syncChips per z-index. */
+    background: #000; padding-right: .25em;
     /* Spalte (Stufe / Name / Countdown) als Flex: so kann der Invert-Modus
        Stufe und Name rein per CSS-`order` tauschen, ohne Chip-Neuaufbau. */
     display: flex; flex-direction: column; align-items: flex-start;
@@ -581,16 +590,26 @@ const $ = id => document.getElementById(id);
 const NOW_PCT = 14;          // Position der JETZT-Linie in %
 const RIGHT_PCT = 97;        // Einstiegsposition rechts
 
-// Der Server schickt die Akkorde mit ihrer Onset-Position in Stream-Sekunden
-// (`at`) und dazu die gerade hoerbare Position (`t`). Der Browser rechnet
-// beides in seine eigene Uhr um und leitet GROSSEN AKKORD UND LAUFBAND aus
-// derselben Position ab. Deshalb kann der Akkordwechsel gar nicht anders, als
-// exakt dann zu passieren, wenn der Chip die JETZT-Linie beruehrt.
-let chords = [];             // [{c, at}] Onsets in Stream-Sekunden
-let horizon = 4;             // Sekunden von rechts bis JETZT-Linie
-let offset = null;           // browserZeit(s) - streamPosition(s)
+// Der Server schickt den PUBLISH-ONCE-KANAL: `committed` sind einmal
+// committete Events [{at, c, b}] mit Onset-Position in Stream-Sekunden -
+// ein Event aendert sich nie mehr (einzige Ausnahme: ein leerer Bass darf
+// genau einmal nachruecken), verschiebt sich nie und verschwindet erst,
+// wenn es durchgelaufen ist. `frontier` sagt, bis wohin die Zukunft final
+// ist; `t` ist die gerade hoerbare Position. Der Browser rechnet `t` in
+// seine eigene Uhr um und leitet GROSSEN AKKORD UND LAUFBAND aus derselben
+// Position ab - der Akkordwechsel passiert exakt, wenn der Chip die
+// JETZT-Linie beruehrt. (Die intern weiter revidierbare Hypothese sendet
+// der Server als `chords` nur noch fuer die Debug-Seite /timeline-poc.)
+let events = [];             // committete Events [{at, c, b}]
+let horizon = 2.8;           // Sekunden von rechts bis JETZT-Linie
+let offset = null;           // browserZeit(s) - streamPosition(s), Schaetzung
+let shownOffset = null;      // was die ANZEIGE benutzt - laeuft dem Schaetzer
+                             // nur mit ~2% Zeitraffung nach, damit Korrekturen
+                             // Tempoaenderungen sind statt sichtbarer Spruenge
 let offsetSamples = [];
-let chips = new Map();       // key -> {el, at, chord}
+let laneW = 0;               // Laufbandbreite in px (fuer transform)
+let lastFrame = null;
+let chips = new Map();       // at-Schluessel -> {el, at, sig}
 let link = "connecting";     // connecting | live | lost
 
 // SCHREIBWEISE. Der Server schickt die Akkorde kanonisch, immer mit Kreuz
@@ -685,7 +704,7 @@ function syncClock(t) {
   else offset += (target - offset) * 0.2;   // sanft nachziehen, keine Spruenge
 }
 
-function streamNow() { return performance.now() / 1000 - offset; }
+function streamNow() { return performance.now() / 1000 - shownOffset; }
 
 function fmtChord(name) {
   if (!name || name === "-" || name === " ") return null;
@@ -975,7 +994,7 @@ function fretSvg(shape) {
 // greifen kann, sagt `kennt` - Gitarre und Keyboard haben verschiedene Kataloge.
 function futureWindow(seg, kennt) {
   const out = [];
-  for (const c of chords) {
+  for (const c of events) {
     if (c.at < seg.at || c.c === "-" || c.c === "?") continue;
     const m = c.c.match(/^([A-G]#?)(.*)$/);
     if (!m || !kennt(m[2])) continue;
@@ -1113,7 +1132,7 @@ function planBassLine(pcs, last) {
 // genug fuer den Vorlauf.
 function bassLine(seg) {
   const out = [];
-  for (const c of chords) {
+  for (const c of events) {
     if (c.at < seg.at || c.c === "-" || c.c === "?") continue;
     const m = c.c.match(/^([A-G]#?)/);
     if (!m) continue;
@@ -1381,31 +1400,53 @@ function chipHtml(seg) {
 
 function syncChips(now) {
   const wanted = new Map();
-  for (const c of chords) {
-    if (c.c === "-" || c.c === "?") continue;
+  for (const c of events) {
+    if (c.c === "-") continue;             // Stille traegt keinen Chip
     if (c.at < now - 0.7) continue;        // schon durchgelaufen
-    // Die Bassnote gehoert in den Schluessel: aendert sie sich, muss der Chip
-    // neu gezeichnet werden - sonst bliebe ein "C" stehen, wo "C/E" hingehoert.
-    wanted.set(c.at.toFixed(2) + "|" + c.c + "|" + (c.b || ""), c);
+    // Publish-once: Das Event ist seine eigene stabile Identitaet - der
+    // Onset genuegt als Schluessel. Ein Chip wird nie geloescht und neu
+    // erzeugt; nur wenn der Bass einmalig nachrueckt (b_up), wird sein
+    // Inhalt an Ort und Stelle nachgezeichnet.
+    wanted.set(c.at.toFixed(2), c);
   }
   for (const [key, c] of wanted) {
-    if (chips.has(key)) continue;
+    const sig = c.c + "|" + (c.b || "");
+    const bekannt = chips.get(key);
+    if (bekannt) {
+      if (bekannt.sig !== sig) {
+        bekannt.sig = sig;
+        bekannt.el.innerHTML = chipHtml(c) + '<span class="eta"></span>';
+        bekannt.eta = bekannt.el.querySelector(".eta");
+        bekannt.etaText = "";
+      }
+      continue;
+    }
     const html = chipHtml(c);
     if (!html) continue;
     const el = document.createElement("div");
     el.className = "chip";
     el.innerHTML = html + '<span class="eta"></span>';
     $("lane").appendChild(el);
-    chips.set(key, { el, at: c.at });
+    chips.set(key, { el, at: c.at, sig,
+                     eta: el.querySelector(".eta"), etaText: "" });
   }
   for (const [key, chip] of chips) {
-    if (wanted.has(key)) continue;
+    if (wanted.has(key)) continue;         // durchgelaufen (Server raeumt auf)
     chip.el.remove(); chips.delete(key);
   }
+  // Stapelreihenfolge: der spaetere Akkord liegt vorn und schneidet mit
+  // seinem deckenden Hintergrund den frueheren rechts an (CSS .chip).
+  let z = 0;
+  for (const chip of [...chips.values()].sort((a, b) => a.at - b.at))
+    chip.el.style.zIndex = String(++z);
 }
 
 function animate() {
   requestAnimationFrame(animate);
+
+  const frameT = performance.now() / 1000;
+  const dt = lastFrame === null ? 0 : Math.min(frameT - lastFrame, 0.1);
+  lastFrame = frameT;
 
   // Ohne Verbindung oder ohne Uhr gibt es nichts anzuzeigen - dann sagen wir das,
   // statt eine eingefrorene Zeitleiste weiterlaufen zu lassen.
@@ -1418,6 +1459,16 @@ function animate() {
     chips.clear();
     return;
   }
+  // Die Anzeige-Uhr dem Schaetzer nachfuehren: grosse Spruenge (Reconnect,
+  // Quellenwechsel) sofort, alles andere mit maximal 2% Zeitraffung - so
+  // absorbiert das Laufband Netz-Jitter als unmerkliche Tempoaenderung.
+  if (shownOffset === null || Math.abs(offset - shownOffset) > 0.5) {
+    shownOffset = offset;
+  } else {
+    const step = 0.02 * dt;
+    shownOffset += Math.max(-step, Math.min(step, offset - shownOffset));
+  }
+  if (!laneW) laneW = $("lane").clientWidth;
   const now = streamNow();
 
   // Hoerbar ist das letzte Segment, dessen Onset erreicht ist. Es traegt den
@@ -1430,7 +1481,7 @@ function animate() {
     audible = frozenSeg;
   } else {
     audible = null;
-    for (const c of chords) {
+    for (const c of events) {
       if (c.at > now) break;
       audible = c;
     }
@@ -1447,13 +1498,18 @@ function animate() {
   for (const chip of chips.values()) {
     const remaining = chip.at - now;       // dieselbe Uhr wie oben
     const frac = Math.max(remaining, 0) / horizon;
-    chip.el.style.left = (NOW_PCT + Math.min(frac, 1.15) * (RIGHT_PCT - NOW_PCT)) + "%";
+    const x = (NOW_PCT + Math.min(frac, 1.15) * (RIGHT_PCT - NOW_PCT)) / 100 * laneW;
+    chip.el.style.transform = "translate(" + x.toFixed(1) + "px, -50%)";
     chip.el.style.opacity = remaining < 0 ? String(1 + remaining / 0.7)
                           : String(0.45 + 0.55 * (1 - Math.min(frac, 1)));
-    chip.el.querySelector(".eta").textContent =
-      remaining > 0.05 ? "in " + remaining.toFixed(1) + "s" : "";
+    // Nur schreiben, wenn sich der Text aendert - 60 identische
+    // textContent-Zuweisungen pro Sekunde sind unnoetige Style-Arbeit.
+    const eta = remaining > 0.05 ? "in " + remaining.toFixed(1) + "s" : "";
+    if (eta !== chip.etaText) { chip.etaText = eta; chip.eta.textContent = eta; }
   }
 }
+
+window.addEventListener("resize", () => { laneW = 0; });
 
 // Aendert sich die Schreibweise, muss ALLES neu geschrieben werden, was schon
 // dasteht - der grosse Akkord und jeder Chip auf dem Laufband. Beide cachen
@@ -1473,6 +1529,9 @@ function neuSchreibenFallsNoetig() {
   zeigeTonart();
   if (!geaendert) return;
   $("current").dataset.shown = "";
+  // Schreibweise/Tonika wirken rueckwirkend auf alles Sichtbare - das ist
+  // Anzeige-Logik, kein Widerspruch zum Publish-once des INHALTS: die Events
+  // selbst (Akkord, Onset, Bass) bleiben unangetastet.
   for (const chip of chips.values()) chip.el.remove();
   chips.clear();
 }
@@ -1620,8 +1679,11 @@ function dialog(offen) {
 }
 
 function apply(state) {
-  chords = state.chords || [];
-  horizon = Math.max(1.5, (state.lead || 3) + 0.8);
+  events = state.committed || [];
+  // Sichtbarer Vorlauf = Commit-Grenze; etwas Rand, damit ein frisch
+  // committetes Event am rechten Rand einsteigt statt darauf.
+  horizon = Math.max(1.5, (state.frontier != null
+                           ? state.frontier - state.t : 2) + 0.8);
   serverTonart = state.key || null;
   tonart = keyPin ? pinAlsTonart(keyPin) : serverTonart;
   if ("muted" in state) zeigeStumm(state.muted);
@@ -1662,10 +1724,10 @@ let frozenSeg = null;      // eingefrorenes Segment fuer den Kopf, solange stumm
 // Das gerade hoerbare Segment - genau das, was der Kopf zeigt. Zum Einfrieren im
 // Moment des Stummschaltens.
 function currentAudible() {
-  if (offset === null) return null;
+  if (shownOffset === null) return null;
   const now = streamNow();
   let a = null;
-  for (const c of chords) { if (c.at > now) break; a = c; }
+  for (const c of events) { if (c.at > now) break; a = c; }
   return a;
 }
 
@@ -1770,14 +1832,15 @@ if (new URLSearchParams(location.search).has("demo")) {
   link = "live";
   setInterval(() => {
     const t = performance.now() / 1000 - start;   // "hoerbare" Position
+    // Wie der echte Kanal: nur bis zur Commit-Grenze (t + 2s) ist Zukunft da.
     const list = [];
-    for (let i = Math.floor(t / 2) - 1; i < t / 2 + 3; i++)
+    for (let i = Math.floor(t / 2) - 1; i * 2 <= t + 2; i++)
       if (i >= 0) list.push({ c: prog[i % prog.length][0], at: i * 2,
                               b: prog[i % prog.length][1] });
     // Die Tonart faellt erst nach ein paar Sekunden - wie im echten Betrieb.
     const key = t < 8 ? null
       : { tonic: "F", minor: false, acc: "flat", label: "F-Dur" };
-    apply({ t, chords: list, lead: 3, key });
+    apply({ t, frontier: t + 2, committed: list, key });
   }, 250);
   $("dot").classList.add("on");
 } else {

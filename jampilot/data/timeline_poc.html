@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JamPilot Timeline POC</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0c0f14;
+    --panel: #141922;
+    --line: #222936;
+    --text: #eef3fb;
+    --muted: #97a6ba;
+    --accent: #6ea8ff;
+    --accent2: #e8934a;
+    --ok: #70d89e;
+    --warn: #e7c46a;
+    --bad: #e07080;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: linear-gradient(180deg, #0c0f14 0%, #0f141c 100%);
+    color: var(--text);
+    font: 16px/1.35 system-ui, sans-serif;
+  }
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 24px 20px 40px;
+  }
+  h1 {
+    margin: 0 0 6px;
+    font-size: 28px;
+    line-height: 1.1;
+  }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .grid {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: 1.2fr .8fr;
+  }
+  .card {
+    background: rgba(20,25,34,.9);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px 18px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.18);
+  }
+  .wide { grid-column: 1 / -1; }
+  .title { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+  .big {
+    min-height: 68px;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .big .chord { font-size: clamp(34px, 7vw, 64px); font-weight: 700; letter-spacing: -.03em; }
+  .big .meta { color: var(--muted); }
+  .metrics { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px 16px; }
+  .metrics.five { grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); }
+  .metric b { display:block; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 3px; }
+  .metric span { font-size: 20px; }
+  .metric span.zero { color: var(--muted); }
+  .metric span.hot { color: var(--warn); }
+  .metric span.contract-ok { color: var(--ok); }
+  .metric span.contract-bad { color: var(--bad); }
+  #lane {
+    position: relative;
+    height: 154px;
+    overflow: hidden;
+    border-top: 1px solid var(--line);
+    padding-top: 18px;
+  }
+  #nowline {
+    position: absolute;
+    left: 12%; top: 0; bottom: 0;
+    width: 2px;
+    background: linear-gradient(180deg, rgba(110,168,255,.0), rgba(110,168,255,.95) 15%, rgba(110,168,255,.95) 85%, rgba(110,168,255,.0));
+  }
+  #nowlabel {
+    position: absolute;
+    left: calc(12% - 18px);
+    top: 0;
+    color: var(--accent);
+    font-size: 12px;
+    letter-spacing: .12em;
+    font-weight: 700;
+  }
+  #frontierline {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 2px;
+    background: linear-gradient(180deg, rgba(232,147,74,.0), rgba(232,147,74,.9) 15%, rgba(232,147,74,.9) 85%, rgba(232,147,74,.0));
+  }
+  #frontierlabel {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    color: var(--accent2);
+    font-size: 12px;
+    letter-spacing: .1em;
+    font-weight: 700;
+  }
+  .chip {
+    position: absolute;
+    top: 38px;
+    min-width: 84px;
+    padding: 8px 11px 9px;
+    border-radius: 14px;
+    background: #1a2230;
+    border: 1px solid #2a3550;
+    transform: translateX(-50%);
+    box-shadow: 0 8px 20px rgba(0,0,0,.22);
+  }
+  .chip .deg {
+    display: block;
+    min-height: 18px;
+    color: var(--warn);
+    font-size: 13px;
+    font-weight: 650;
+  }
+  .chip .name {
+    display: block;
+    font-size: 26px;
+    font-weight: 760;
+    line-height: 1;
+    letter-spacing: -.03em;
+  }
+  .chip .bass { color: var(--accent2); font-size: .7em; }
+  .chip .eta {
+    display: block;
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .chip.ghost {
+    opacity: .45;
+    border-style: dashed;
+  }
+  .chip.silent .name { color: #6e7786; }
+  #eventLog {
+    display: grid;
+    gap: 8px;
+    max-height: 270px;
+    overflow: auto;
+  }
+  .evt {
+    display: grid;
+    grid-template-columns: 74px 1fr 84px 110px;
+    gap: 10px;
+    align-items: baseline;
+    padding: 9px 0;
+    border-bottom: 1px solid rgba(255,255,255,.05);
+  }
+  .evt:last-child { border-bottom: 0; }
+  .evt .time, .evt .mode { color: var(--muted); font-size: 13px; }
+  .evt .name { font-size: 22px; font-weight: 700; }
+  .evt .deg { color: var(--warn); font-weight: 700; }
+  .legend { color: var(--muted); font-size: 14px; }
+  code { font-family: ui-monospace, monospace; font-size: .95em; }
+  @media (max-width: 860px) {
+    .grid { grid-template-columns: 1fr; }
+    .evt { grid-template-columns: 68px 1fr 70px 90px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Timeline POC · publish once</h1>
+  <p class="sub">Dummer Renderer des Server-Commit-Kanals: Der Server committet jeden Eintrag genau einmal, sobald er die Commit-Grenze (<span style="color:var(--accent2)">orange</span>) passiert — mit eingefrorenem Onset, Akkord, Bass und Tonart. Diese Seite zeichnet nur noch. Gestrichelte Chips rechts der Grenze sind die noch revidierbare Hypothese.</p>
+
+  <div class="grid">
+    <section class="card wide">
+      <div class="title">Published Lane · committete Events + Hypothesen-Geister</div>
+      <div id="lane">
+        <div id="nowline"></div>
+        <div id="nowlabel">NOW</div>
+        <div id="frontierline"></div>
+        <div id="frontierlabel">COMMIT</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="title">Aktueller Akkord (committet)</div>
+      <div class="big">
+        <div class="chord" id="bigChord">…</div>
+        <div class="meta" id="bigMeta">waiting for data</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="title">Commit-Status</div>
+      <div class="metrics">
+        <div class="metric"><b>Vorlauf</b><span id="leadNow">–</span></div>
+        <div class="metric"><b>Events committet</b><span id="totalCommitted">0</span></div>
+        <div class="metric"><b>Bass nachger&#252;ckt</b><span id="bassUps" class="zero">0</span></div>
+        <div class="metric"><b>Key jetzt</b><span id="keyNow">…</span></div>
+        <div class="metric"><b>Verbindung</b><span id="linkState">connecting</span></div>
+      </div>
+    </section>
+
+    <section class="card wide">
+      <div class="title">Verworfene Revisionen · Zeitleiste widerspricht einem committeten Event</div>
+      <div class="metrics five">
+        <div class="metric"><b>Namenswechsel</b><span id="revName" class="zero">0</span></div>
+        <div class="metric"><b>Grenze &gt; 150 ms</b><span id="revBound" class="zero">0</span></div>
+        <div class="metric"><b>Bass fehlte bei NOW</b><span id="revBassLate" class="zero">0</span></div>
+        <div class="metric"><b>Bass fiel weg (Ton&#8594;leer)</b><span id="revBassGone" class="zero">0</span></div>
+        <div class="metric"><b>Bass wechselte (Ton&#8594;Ton)</b><span id="revBassSwap" class="zero">0</span></div>
+        <div class="metric"><b>Event verschwunden</b><span id="revGone" class="zero">0</span></div>
+        <div class="metric"><b>betroffene Events</b><span id="revQuote" class="zero">0&thinsp;%</span></div>
+        <div class="metric"><b>Vertragsverletzungen</b><span id="violations" class="contract-ok">0</span></div>
+      </div>
+    </section>
+
+    <section class="card wide">
+      <div class="title">Event-Log · append-only, neueste zuerst</div>
+      <div id="eventLog"></div>
+    </section>
+
+    <section class="card wide">
+      <div class="title">Notes</div>
+      <p class="legend">Der Feed liefert weiter den Vollzustand (<code>chords</code>, revidierbar) und neu den Publish-once-Kanal (<code>frontier</code>, <code>committed</code>). Die Z&#228;hler vergleichen beide: Widerspricht die Hypothese einem bereits committeten Event im Band zwischen Commit und H&#246;rbarkeit, ist das eine Revision, die das Redesign bewusst verwirft &#8212; jedes Event z&#228;hlt pro Kategorie h&#246;chstens einmal. F&#252;r den Bass gilt die <b>monotone Regel</b>: Committet wird er nur nach stabiler Messung &#252;ber ~1&thinsp;s (Persistenz), danach darf ein leerer Bass genau einmal auf gesetzt nachr&#252;cken (Z&#228;hler &#8222;Bass nachger&#252;ckt&#8220;), nie zur&#252;ck. <b>Vertragsverletzungen</b> pr&#252;ft den Kanal selbst: Abgesehen vom einmaligen Bass-Nachr&#252;cken darf sich ein gesendetes Event nie &#228;ndern (Soll: dauerhaft 0).</p>
+    </section>
+  </div>
+</div>
+<script>
+const NOW_PCT = 12;
+const RIGHT_PCT = 96;
+const LANE_SECONDS = 3.0;
+const STUFE = ["1", "♭2", "2", "♭3", "3", "4", "♭5", "5", "♭6", "6", "♭7", "7"];
+const NOTE_PC = { C:0, "C#":1, D:2, "D#":3, E:4, F:5, "F#":6, G:7, "G#":8, A:9, "A#":10, B:11 };
+const FLAT_OF = { "C#":"Db", "D#":"Eb", "F#":"Gb", "G#":"Ab", "A#":"Bb" };
+
+let offset = null;
+let offsetSamples = [];
+let latestState = null;
+let link = "connecting";
+// Publish-once-Buchhaltung: was wir schon gesehen haben (Vertragspruefung),
+// welche Events geflaggt wurden (Revisionszaehler) und das Anzeige-Log.
+const seen = new Map();        // at(str) -> {c, b, violated}
+const flags = new Map();       // at(str) -> Set(kategorie)
+const log = [];                // committete Events in Ankunftsreihenfolge
+let totalCommitted = 0;
+let violations = 0;
+let bassUps = 0;
+const counters = { name: 0, grenze: 0, bass_spaet: 0, bass_weg: 0,
+                   bass_anders: 0, weg: 0 };
+
+const $ = id => document.getElementById(id);
+function syncClock(t) {
+  offsetSamples.push(performance.now() / 1000 - t);
+  if (offsetSamples.length > 40) offsetSamples.shift();
+  const target = Math.min(...offsetSamples);
+  if (offset === null) offset = target;
+  else offset += (target - offset) * 0.2;
+}
+function streamNow() { return performance.now() / 1000 - offset; }
+function writeRoot(root, acc) {
+  if (!root || !root.includes("#")) return root || "";
+  return acc === "flat" ? (FLAT_OF[root] || root) : root;
+}
+function fmtChord(name, acc) {
+  if (!name || name === "-") return "—";
+  const m = name.match(/^([A-G]#?)(.*)$/);
+  if (!m) return name;
+  return writeRoot(m[1], acc) + m[2];
+}
+function chordRoot(name) {
+  const m = name ? name.match(/^([A-G]#?)/) : null;
+  return m ? m[1] : null;
+}
+function slashPart(evt, acc) {
+  if (!evt.b) return "";
+  const root = chordRoot(evt.c);
+  if (!root || root === evt.b) return "";
+  return "/" + writeRoot(evt.b, acc);
+}
+function degreeOf(name, key) {
+  if (!key) return "";
+  const root = chordRoot(name);
+  if (!root) return "";
+  return STUFE[(NOTE_PC[root] - NOTE_PC[key.tonic] + 12) % 12];
+}
+function segmentAt(chords, t) {
+  let seg = null;
+  for (const c of (chords || [])) { if (c.at > t) break; seg = c; }
+  return seg;
+}
+function flag(atKey, kategorie) {
+  let set = flags.get(atKey);
+  if (!set) { set = new Set(); flags.set(atKey, set); }
+  if (set.has(kategorie)) return;
+  set.add(kategorie);
+  counters[kategorie] += 1;
+}
+function checkContract(committed) {
+  for (const e of committed) {
+    const k = e.at.toFixed(3);
+    const old = seen.get(k);
+    if (!old) {
+      seen.set(k, { c: e.c, b: e.b || null, violated: false });
+      totalCommitted += 1;
+      log.push(e);
+      if (log.length > 60) log.shift();
+    } else if (!old.violated) {
+      // Monotone Bass-Regel: leer->Ton ist genau einmal erlaubt (b_up);
+      // alles andere an c oder b ist eine Vertragsverletzung.
+      if (old.c !== e.c || (old.b && (e.b || null) !== old.b)) {
+        old.violated = true;
+        violations += 1;
+      } else if (!old.b && e.b) {
+        old.b = e.b;
+        bassUps += 1;
+        const logged = log.find(x => x.at.toFixed(3) === k);
+        if (logged) logged.b = e.b;
+      }
+    }
+  }
+}
+function countRevisions(state) {
+  // Nur das Band zwischen Commit und Hoerbarkeit ist interessant: dort
+  // wuerde eine Revision den Spieler noch erreichen, wird aber verworfen.
+  const chords = state.chords || [];
+  if (!chords.length) return;
+  for (const e of (state.committed || [])) {
+    if (e.at <= state.t - 0.45) continue;
+    const k = e.at.toFixed(3);
+    const hyp = segmentAt(chords, e.at + 0.075);
+    let nearest = null;
+    for (const c of chords) {
+      if (c.c !== e.c) continue;
+      if (!nearest || Math.abs(c.at - e.at) < Math.abs(nearest.at - e.at)) nearest = c;
+    }
+    if (e.at <= state.t + 0.05) {
+      // Gerade hoerbar geworden: Hat die Hypothese einen Bass, den das
+      // Event nie bekommen hat, kam das Nachruecken zu spaet.
+      if (!e.b && nearest && Math.abs(nearest.at - e.at) <= 0.15 && nearest.b) {
+        flag(k, "bass_spaet");
+      }
+      continue;
+    }
+    if (nearest && Math.abs(nearest.at - e.at) <= 0.15) {
+      // leer->Ton ist hier KEIN Widerspruch mehr - das erledigt die
+      // sanktionierte Nachrueck-Regel (Zaehler "Bass nachgerueckt").
+      if (e.b && (nearest.b || null) !== e.b) {
+        flag(k, !nearest.b ? "bass_weg" : "bass_anders");
+      }
+    } else if (nearest && Math.abs(nearest.at - e.at) <= 0.6) {
+      flag(k, "grenze");
+    } else if (hyp && hyp.c !== e.c) {
+      flag(k, "name");
+    } else if (!hyp || !nearest) {
+      flag(k, "weg");
+    }
+  }
+  // Buchhaltung hinter der Hoerlinie aufraeumen.
+  for (const k of [...seen.keys()]) {
+    if (parseFloat(k) < state.t - 8) { seen.delete(k); flags.delete(k); }
+  }
+}
+function lanePos(at, now) {
+  const frac = Math.max(at - now, 0) / LANE_SECONDS;
+  return NOW_PCT + Math.min(frac, 1.05) * (RIGHT_PCT - NOW_PCT);
+}
+function chipHtml(evt, now, acc, ghost) {
+  const remaining = evt.at - now;
+  const el = document.createElement("div");
+  el.className = "chip" + (ghost ? " ghost" : "") + (evt.c === "-" ? " silent" : "");
+  el.style.left = lanePos(evt.at, now) + "%";
+  const key = ghost ? (latestState && latestState.key) : evt.key;
+  const deg = evt.c === "-" ? "" : degreeOf(evt.c, key);
+  el.innerHTML = '<span class="deg">' + (deg || "&nbsp;") + '</span>'
+    + '<span class="name">' + fmtChord(evt.c, acc)
+    + (evt.c !== "-" && evt.b ? '<span class="bass">' + slashPart(evt, acc) + '</span>' : "")
+    + '</span>'
+    + '<span class="eta">' + (ghost ? "Hypothese" : "in " + Math.max(remaining, 0).toFixed(1) + "s") + '</span>';
+  return el;
+}
+function renderLane(now) {
+  const lane = $("lane");
+  for (const el of Array.from(lane.querySelectorAll(".chip"))) el.remove();
+  if (!latestState) return;
+  const frontier = latestState.frontier || now;
+  const fPos = lanePos(frontier, now);
+  $("frontierline").style.left = fPos + "%";
+  $("frontierlabel").style.left = fPos + "%";
+  const committed = latestState.committed || [];
+  for (const e of committed) {
+    if (e.at < now - 0.1 || e.at > now + LANE_SECONDS) continue;
+    lane.appendChild(chipHtml(e, now, e.key ? e.key.acc : "sharp", false));
+  }
+  for (const c of (latestState.chords || [])) {
+    if (c.at <= frontier || c.at > now + LANE_SECONDS) continue;
+    const acc = latestState.key ? latestState.key.acc : "sharp";
+    lane.appendChild(chipHtml(c, now, acc, true));
+  }
+}
+function renderCurrent(now) {
+  const committed = latestState ? (latestState.committed || []) : [];
+  let cur = null;
+  for (const e of committed) { if (e.at > now + 0.02) break; cur = e; }
+  if (!cur) {
+    $("bigChord").textContent = "…";
+    $("bigMeta").textContent = link === "live" ? "waiting for first committed event" : "waiting for connection";
+    return;
+  }
+  const acc = cur.key ? cur.key.acc : "sharp";
+  $("bigChord").textContent = fmtChord(cur.c, acc) + (cur.c !== "-" ? slashPart(cur, acc) : "");
+  const deg = cur.c === "-" ? "" : degreeOf(cur.c, cur.key);
+  $("bigMeta").textContent = (deg ? "Stufe " + deg + " · " : "")
+    + (cur.key ? cur.key.label : "key not committed yet");
+}
+function renderCounters() {
+  const set = (id, n, hot) => {
+    const el = $(id);
+    el.textContent = n;
+    el.className = n === 0 ? "zero" : (hot || "hot");
+  };
+  set("revName", counters.name);
+  set("revBound", counters.grenze);
+  set("revBassLate", counters.bass_spaet);
+  set("revBassGone", counters.bass_weg);
+  set("revBassSwap", counters.bass_anders);
+  set("revGone", counters.weg);
+  const quote = totalCommitted ? Math.round(100 * countAffected() / totalCommitted) : 0;
+  const q = $("revQuote");
+  q.textContent = quote + " %";
+  q.className = quote === 0 ? "zero" : "hot";
+  const v = $("violations");
+  v.textContent = violations;
+  v.className = violations === 0 ? "contract-ok" : "contract-bad";
+  const up = $("bassUps");
+  up.textContent = bassUps;
+  up.className = bassUps === 0 ? "zero" : "contract-ok";
+  $("totalCommitted").textContent = totalCommitted;
+}
+let affectedEver = new Set();
+function countAffected() {
+  for (const [k, set] of flags) if (set.size) affectedEver.add(k);
+  return affectedEver.size;
+}
+function renderLog() {
+  const rows = log.slice(-8).reverse();
+  $("eventLog").innerHTML = rows.map(e => {
+    const acc = e.key ? e.key.acc : "sharp";
+    const deg = e.c === "-" ? "" : degreeOf(e.c, e.key);
+    return '<div class="evt">'
+      + '<div class="time">' + e.at.toFixed(1) + 's</div>'
+      + '<div class="name">' + fmtChord(e.c, acc)
+      + (e.c !== "-" && e.b ? '<span class="bass">' + slashPart(e, acc) + '</span>' : "")
+      + '</div>'
+      + '<div class="deg">' + (deg || "–") + '</div>'
+      + '<div class="mode">' + (e.key ? e.key.label : "no key yet") + '</div>'
+      + '</div>';
+  }).join("");
+}
+function renderMetrics(now) {
+  if (latestState && latestState.frontier != null) {
+    $("leadNow").textContent = Math.max(latestState.frontier - now, 0).toFixed(1) + "s";
+  }
+  $("keyNow").textContent = latestState && latestState.key ? latestState.key.label : "…";
+  $("linkState").textContent = link;
+}
+function animate() {
+  requestAnimationFrame(animate);
+  if (offset === null) return;
+  const now = streamNow();
+  renderMetrics(now);
+  renderLane(now);
+  renderCurrent(now);
+}
+function apply(state) {
+  latestState = state;
+  syncClock(state.t);
+  checkContract(state.committed || []);
+  countRevisions(state);
+  renderCounters();
+  renderLog();
+}
+function connect() {
+  const es = new EventSource("/events");
+  es.onopen = () => { link = "live"; };
+  es.onerror = () => { link = "lost"; };
+  es.onmessage = e => { link = "live"; apply(JSON.parse(e.data)); };
+}
+connect();
+animate();
+</script>
+</body>
+</html>

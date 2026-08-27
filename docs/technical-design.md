@@ -20,7 +20,7 @@ hier mitziehen.
 
 ## 1. Die Signalkette in einem Satz
 
-Live-Audio läuft mit **~4 s Verzögerung** durch. In diesem Puffer wird alle
+Live-Audio läuft mit **~5 s Verzögerung** durch. In diesem Puffer wird alle
 **250 ms** ein **1,5-s-Fenster** analysiert: daraus entsteht ein **Chroma**
 (12 Tonklassen-Energien), das gegen **5 Akkord-Schablonen** gematcht wird; ein
 **Tonart-Prior** ordnet knappe Lesarten, und **sichere Tonmengen** entscheiden,
@@ -33,7 +33,7 @@ gibt **drei** verschiedene Zeitskalen mit verschiedenen Aufgaben:
 
 | Raster | Wert | Konstante | Aufgabe |
 |---|---|---|---|
-| **Ausgabeverzögerung** | 4,0 s (Default) | `--delay` ([cli.py:623](../jampilot/cli.py#L623)) | Vorlauf, damit der Akkord *vor* dem Ton angezeigt werden kann |
+| **Ausgabeverzögerung** | 5,0 s (Default) | `--delay` ([cli.py:623](../jampilot/cli.py#L623)) | Vorlauf, damit der Akkord *vor* dem Ton angezeigt werden kann |
 | **Analysefenster** | 1,5 s | `ANALYSIS_WINDOW` ([cli.py:27](../jampilot/cli.py#L27)) | **Wie viel Klang** jede Analyse sieht — bestimmt *welcher* Akkord |
 | **Hop (Analysetakt)** | 250 ms | `ANALYSIS_HOP` ([cli.py:28](../jampilot/cli.py#L28)) | **Wie oft** wir neu hinschauen — die Fenster überlappen um 1,25 s |
 | **CQT-Frame** | ~23 ms | `FRAME_SECONDS` ([chroma.py:34](../jampilot/chroma.py#L34)) | **Wann** ein Wechsel einsetzt (Onset), nicht *welcher* Akkord |
@@ -174,7 +174,7 @@ als zu früh (siehe Kommentar in [chroma.py:147](../jampilot/chroma.py#L147)).
 
 ```
 Mikrofon
-  │  (4 s Puffer, DelayedLoopback)
+  │  (5 s Puffer, DelayedLoopback)
   ▼
 alle 250 ms ein 1,5-s-Fenster
   ▼

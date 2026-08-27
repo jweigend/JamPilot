@@ -86,3 +86,65 @@ zum Pain-Point wird; Evidenz bisher nur synthetisch.
 3. Danach wie geplant der Instrument-Playtest; die Signalwege mit Substanz
    (HPSS/Tuning vor der Tonart-Faltung, Progressionskontext) sind Projekte,
    keine Quick Wins.
+
+## Nachtrag 2026-08-27: Zehnter Track deckt einen Metrik-Split auf
+
+Anlass: You and Your Friend (Dire Straits, g-Moll, terzlose Voicings; jetzt
+`tests/realaudio/you_and_your_friend.mp3`) - die Produktion meldet dort
+G-DUR. Messung mit identischem Setup wiederholt (Baseline w=0 exakt
+reproduziert: 4 Spruenge / 77,9 % auf den alten 9 Tracks), Track als
+zehnter ergaenzt, zusaetzlich Geschlecht (Dur/Moll) ausgewertet
+(Skript: Session-Scratchpad `label_hybrid_10tracks.py`).
+
+Ergebnis:
+
+- **Die Tonika-Metrik ist auf diesem Song blind**: Tonika G stimmt in allen
+  Varianten (~100 %), falsch ist nur das Geschlecht - Baseline 0 % Gm
+  (durchgaengig G-Dur samt Kreuz-Schreibweise).
+- **Jede Label-Beimischung repariert das Geschlecht**: w=0,25 -> 89 % Gm,
+  w=0,5 -> 91 %, w=1,0 -> 96 %.
+- **Das Tonika-Gesamturteil bleibt Fehler-Tausch** (w=0,5 ueber 10 Tracks:
+  82,1 % vs. 80,1 %, aber 8 statt 4 Spruenge; Sting weiterhin 94 -> 30 %).
+  Die Verwerfung des vollen Hybrids bleibt bestehen.
+
+**Offene Spur (nie gemessen):** Die Labels sind schaedlich fuer die
+Tonika-WAHL, aber stark fuer die Dur/Moll-ENTSCHEIDUNG. Ein schmaler Hybrid
+- Tonika aus dem Chroma wie heute, nur das Geschlecht der gewaehlten Tonika
+per Label-Votum - wuerde You and Your Friend reparieren, ohne den
+Tonika-Pfad anzufassen, an dem Sting haengt. Sichtbar betroffen sind genau
+Nashville-Label und Vorzeichen-Schreibweise.
+
+### Messung des schmalen Hybrids (2026-08-27, gleicher Tag)
+
+Skript: Session-Scratchpad `mode_hybrid_experiment.py`. Tonika unveraendert
+aus der Produktions-Baseline; Geschlecht pro Hop per Votum aus einem
+gedaempften Label-Histogramm NUR fuer die gewaehlte Tonika. Geschlechts-GT
+je Track festgelegt (It's Too Late = a-dorisch -> Moll; Sting =
+mixolydisch -> Dur). Bewertet nur Hops mit Tonika in der GT.
+
+| Geschlechts-Quelle | korrekt (hop-gew.) | Track-Mittel | Umschalter |
+|---|---|---|---|
+| Chroma (heute) | 66,9 % | 76,4 % | 2 |
+| **Akkord-Votum hl=120s** | **98,4 %** | **98,8 %** | 4 |
+| Akkord-Votum hl=30s | 98,6 % | 98,9 % | 5 |
+| Terz-Votum hl=120s | 97,4 % | 98,0 % | 2 |
+
+(Akkord-Votum: Moll- vs. Dur-Masse der Labels mit Grundton == Tonika,
+m/m6/m7/mMaj7 gegen ""/6/7/maj7, sus/dim/aug enthalten sich; Fallback bei
+zu wenig Evidenz ist das Chroma-Urteil.)
+
+Einzelbefunde:
+
+- **You and Your Friend: 0 % -> 98 %** (Ziel des Experiments).
+- **It's Too Late: 0 % -> 100 %** - Ueberraschungsfund: das Chroma meldet
+  die a-dorische Nummer durchgaengig als A-DUR; der "unbeobachtete
+  Moll-Fall" der Nashville-Stufen lag schon immer im Set, verdeckt von der
+  Tonika-Metrik. ZWEI von zehn Tracks zeigten also das falsche Geschlecht.
+- Kein Dur-Track kippt (alle 100 %; Crazy verbessert sich 93 -> 100 %).
+- Preis: Sting (mixolydisch) 95 -> 92 %; 4 Geschlechts-Umschalter auf
+  ~7900 Hops.
+
+**Empfehlung: Akkord-Votum hl=120s produktiv machen** - Tonika-Pfad bleibt
+unangetastet (die Verwerfung oben gilt weiter), nur k.minor kommt aus dem
+Label-Votum. Sichtbare Wirkung: korrektes Moll-Label, b-Schreibweise und
+Nashville-Stufen auf Moll-Nummern.
