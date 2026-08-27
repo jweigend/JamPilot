@@ -105,6 +105,19 @@ ACCIDENTAL_SETTLE = MIN_KEY_SECONDS
 SHARP = "sharp"
 FLAT = "flat"
 
+# --- Geschlechts-Votum aus den Akkordlabels ---------------------------------
+# Das Chroma waehlt die TONIKA am besten, verwechselt aber Dur und Moll, wenn
+# die Terz im Klangbild schwach ist (terzlose Voicings, dorische Faerbung).
+# Die Akkordlabels des Modells sind dort der bessere Zeuge: Gemessen kippt
+# das Votum kein Dur-Stueck, repariert aber zwei Moll-Faelle von 0 auf
+# ~100 % (tests/realaudio/REPORT_key_labels.md, Nachtrag 2026-08-27). Es
+# entscheidet NUR ueber Dur/Moll der gewaehlten Tonika - die Tonika-Wahl
+# selbst bleibt beim Chroma (der volle Label-Hybrid ist gemessen und
+# verworfen, siehe derselbe Report).
+MODE_HALF_LIFE = 120.0
+# Unter so vielen Frame-Stimmen entscheidet weiter das Chroma allein.
+MODE_MIN_FRAMES = 3.0
+
 # Zu jeder Tonklasse mit Vorzeichen die b-Schreibweise. Die Kreuz-Schreibweise
 # ist NOTE_NAMES selbst - sie ist die kanonische Form im ganzen Programm.
 FLAT_NAMES = {"C#": "Db", "D#": "Eb", "F#": "Gb", "G#": "Ab", "A#": "Bb"}
@@ -225,6 +238,9 @@ class KeyEstimator:
         self._hop = hop_seconds
         self._decay = 1.0 if half_life is None else 0.5 ** (hop_seconds / half_life)
         self._histogram = np.zeros(12)
+        self._mode_decay = (1.0 if half_life is None
+                            else 0.5 ** (hop_seconds / MODE_HALF_LIFE))
+        self._mode_hist = np.zeros((12, 2))   # je Tonika: [Dur-, Moll-Stimmen]
         self._heard = 0.0
         self._key: Key | None = None
         self._accidental: str | None = None     # None = noch nie festgelegt
@@ -239,8 +255,24 @@ class KeyEstimator:
 
     @property
     def key(self) -> Key | None:
-        """Die erkannte Tonart - oder None, solange zu wenig Musik da war."""
-        return self._key
+        """Die erkannte Tonart - oder None, solange zu wenig Musik da war.
+
+        Das Geschlecht kommt aus dem Label-Votum, sobald genug Stimmen fuer
+        die gewaehlte Tonika vorliegen (add_mode_votes) - intern rechnet die
+        Tonika-Wahl weiter mit dem reinen Chroma-Urteil.
+        """
+        return self._voted(self._key)
+
+    def _voted(self, key: Key | None) -> Key | None:
+        if key is None:
+            return None
+        dur, moll = self._mode_hist[key.tonic]
+        # bool(): numpy.bool_ wuerde bis in key.as_dict() durchsickern und
+        # dort json.dumps zum Absturz bringen.
+        voted = bool(moll > dur)
+        if dur + moll < MODE_MIN_FRAMES or voted == key.minor:
+            return key
+        return Key(tonic=key.tonic, minor=voted, confidence=key.confidence)
 
     @property
     def accidental(self) -> str:
@@ -263,6 +295,7 @@ class KeyEstimator:
         """
         self._fallback = self._accidental or self._fallback
         self._histogram = np.zeros(12)
+        self._mode_hist = np.zeros((12, 2))
         self._heard = 0.0
         self._key = None
         self._accidental = None
@@ -290,6 +323,15 @@ class KeyEstimator:
         self._heard += self._hop
         self._update()
 
+    def add_mode_votes(self, votes: np.ndarray):
+        """Dur/Moll-Stimmen je Grundton (12x2) aus den Akkordlabels.
+
+        Ein Aufruf pro Hop (btc.label_mode_votes der neuen Frames). Die
+        Stimmen entscheiden ausschliesslich das GESCHLECHT der vom Chroma
+        gewaehlten Tonika - siehe MODE_HALF_LIFE.
+        """
+        self._mode_hist = self._mode_hist * self._mode_decay + votes
+
     def _update(self):
         if self._heard < MIN_KEY_SECONDS:
             return
@@ -304,7 +346,9 @@ class KeyEstimator:
         # Gemeldet wird die ungeschoente Korrelation, nicht die mit Bonus.
         self._key = Key(tonic=best % 12, minor=best >= 12,
                         confidence=float(scores[best]))
-        self._settle_accidental(self._key.accidental)
+        # Die Schreibweise folgt dem GEMELDETEN Geschlecht: g-Moll schreibt
+        # mit b, auch wenn das Chroma intern G-Dur (Kreuze) sieht.
+        self._settle_accidental(self._voted(self._key).accidental)
 
     def _settle_accidental(self, wanted: str):
         """Die Schreibweise nachziehen - aber erst nach ACCIDENTAL_SETTLE.
@@ -392,6 +436,11 @@ class TwoScaleKeyEstimator:
         self._short = self._short * self._short_decay + chroma / total
         self._main.add(chroma)
         self._detect_modulation()
+
+    def add_mode_votes(self, votes: np.ndarray):
+        """Geschlechts-Stimmen durchreichen; der Stille-Reset des
+        Haupt-Estimators leert auch dieses Histogramm."""
+        self._main.add_mode_votes(votes)
 
     def _detect_modulation(self):
         key = self._main.key

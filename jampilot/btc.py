@@ -71,6 +71,43 @@ def _label_names() -> list[str]:
 
 LABEL_NAMES = _label_names()
 
+# Dur/Moll-Stimmrecht je Label fuer das Geschlechts-Votum der Tonart
+# (tonality.add_mode_votes): eindeutige Moll- bzw. Dur-Qualitaeten stimmen
+# fuer ihren Grundton, sus/dim/aug und N/? enthalten sich.
+_MODE_MINOR = {"m", "m6", "m7", "mMaj7"}
+_MODE_MAJOR = {"", "6", "7", "maj7"}
+
+
+def _mode_vote_table() -> tuple[np.ndarray, np.ndarray]:
+    roots = np.full(len(LABEL_NAMES), -1, dtype=np.int64)
+    cols = np.zeros(len(LABEL_NAMES), dtype=np.int64)
+    for i, name in enumerate(LABEL_NAMES):
+        if not name or name[0] not in "ABCDEFG":
+            continue
+        root_name = name[:2] if len(name) > 1 and name[1] == "#" else name[:1]
+        suffix = name[len(root_name):]
+        if suffix in _MODE_MINOR:
+            cols[i] = 1
+        elif suffix in _MODE_MAJOR:
+            cols[i] = 0
+        else:
+            continue
+        roots[i] = NOTE_NAMES.index(root_name)
+    return roots, cols
+
+
+_MODE_ROOTS, _MODE_COLS = _mode_vote_table()
+
+
+def label_mode_votes(labels) -> np.ndarray:
+    """(12, 2)-Stimmen [Dur, Moll] je Grundton fuer eine Frame-Label-Folge."""
+    votes = np.zeros((12, 2))
+    for lab in labels:
+        root = _MODE_ROOTS[int(lab)]
+        if root >= 0:
+            votes[root, _MODE_COLS[int(lab)]] += 1.0
+    return votes
+
 
 def _layer_norm(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray) -> np.ndarray:
     mean = x.mean(axis=-1, keepdims=True)

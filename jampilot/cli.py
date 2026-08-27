@@ -423,8 +423,8 @@ def cmd_analyze(args):
     # (Tiefband aus der BTC-CQT), Safe-Voicings/Key-Prior bleiben stillgelegt.
     from . import bass as bassmodul
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_bass_chroma, fold_chroma, refine_boundary,
-                      segments_from_labels)
+                      fold_bass_chroma, fold_chroma, label_mode_votes,
+                      refine_boundary, segments_from_labels)
     from .tonality import SHARP, KeyEstimator, spell
 
     samples, samplerate = _load_wav_mono(args.file)
@@ -443,6 +443,7 @@ def cmd_analyze(args):
     keys = KeyEstimator(BTC_FRAME_SECONDS, half_life=None)
     for frame in fold_chroma(features):
         keys.add(frame)
+    keys.add_mode_votes(label_mode_votes(labels))
     key = keys.key
     accidental = key.accidental if key else SHARP
     print(f"  Key: {key.label} ({'b' if accidental != SHARP else '#'})\n" if key
@@ -689,8 +690,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     """
     from . import bass as bassmodul
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_bass_chroma, fold_chroma, live_segments_from_labels,
-                      refine_boundary)
+                      fold_bass_chroma, fold_chroma, label_mode_votes,
+                      live_segments_from_labels, refine_boundary)
     from .chords import SILENCE_RMS
     from .tonality import TwoScaleKeyEstimator, spell
 
@@ -807,6 +808,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             first_new = max(0, int((key_fed_until - window_start) / BTC_FRAME_SECONDS) + 1)
             if first_new < len(folded):
                 keys.add(folded[first_new:].mean(axis=0))
+                # Geschlechts-Votum aus den Labels derselben neuen Frames -
+                # entscheidet nur Dur/Moll der Chroma-Tonika (tonality.py).
+                keys.add_mode_votes(label_mode_votes(labels[first_new:]))
                 key_fed_until = window_start + len(folded) * BTC_FRAME_SECONDS
 
             # Vergangenes behalten wir kurz - die Anzeige blendet Akkorde

@@ -273,3 +273,15 @@ class TestRefineBoundary:
     def test_randlage_bleibt_unveraendert(self):
         y, sr = self._zwei_akkorde()
         assert btc.refine_boundary(y, sr, 0.2, "C", "F") == 0.2
+
+
+class TestModeVotes:
+    def test_eindeutige_qualitaeten_stimmen_der_rest_enthaelt_sich(self):
+        idx = {name: i for i, name in enumerate(btc.LABEL_NAMES)}
+        labels = np.array([idx["Gm"], idx["Gm7"], idx["G"], idx["Gsus4"],
+                           idx["Gdim"], idx["N"]])
+        votes = btc.label_mode_votes(labels)
+        g = 7
+        assert votes[g][1] == 2.0     # Moll: Gm, Gm7
+        assert votes[g][0] == 1.0     # Dur: G
+        assert votes.sum() == 3.0     # sus/dim/N enthalten sich

@@ -345,3 +345,69 @@ class TestEstimateKey:
 
     def test_zu_wenig_material_liefert_keine_tonart(self):
         assert estimate_key([_chroma("C", "E", "G")], hop_seconds=1.0) is None
+
+
+class TestGeschlechtsVotum:
+    """Dur/Moll aus den Akkordlabels - die Tonika bleibt Sache des Chromas."""
+
+    def _stimmen(self, tonika: int, moll: bool, anzahl: float = 10.0):
+        stimmen = np.zeros((12, 2))
+        stimmen[tonika, 1 if moll else 0] = anzahl
+        return stimmen
+
+    def test_votum_kippt_nur_das_geschlecht(self):
+        est = _hoere(KADENZEN["C major"])
+        assert est.key.label == "C major"
+        est.add_mode_votes(self._stimmen(0, moll=True))
+        assert est.key.label == "C minor"
+        assert est.key.tonic == 0
+
+    def test_zu_wenig_evidenz_laesst_das_chroma_entscheiden(self):
+        est = _hoere(KADENZEN["C major"])
+        est.add_mode_votes(self._stimmen(0, moll=True, anzahl=1.0))
+        assert est.key.label == "C major"
+
+    def test_stimmen_fuer_fremde_tonika_wirken_nicht(self):
+        est = _hoere(KADENZEN["C major"])
+        est.add_mode_votes(self._stimmen(9, moll=True))
+        assert est.key.label == "C major"
+
+    def test_schreibweise_folgt_dem_votum(self):
+        # Der Dire-Straits-Fall: Chroma sieht G-Dur (Kreuze), die Labels
+        # sagen g-Moll - gemeldet wird g-Moll samt b-Schreibweise.
+        g_dur = [("G", "B", "D"), ("C", "E", "G"), ("D", "F#", "A"),
+                 ("E", "G", "B")]
+        est = KeyEstimator(0.25)
+        est.add_mode_votes(self._stimmen(NOTE_NAMES.index("G"), moll=True,
+                                         anzahl=50.0))
+        for i in range(int(40.0 / 0.25)):
+            est.add(_chroma(*g_dur[i // 8 % len(g_dur)]))
+        assert est.key.tonic == NOTE_NAMES.index("G") and est.key.minor
+        assert est.accidental == FLAT
+
+    def test_reset_vergisst_das_votum(self):
+        est = _hoere(KADENZEN["C major"])
+        est.add_mode_votes(self._stimmen(0, moll=True))
+        assert est.key.minor
+        est.reset()
+        for i in range(int(40.0 / 0.25)):
+            est.add(_chroma(*KADENZEN["C major"][i // 8 % 4]))
+        assert est.key.label == "C major"
+
+    def test_zwei_skalen_estimator_reicht_stimmen_durch(self):
+        est = TwoScaleKeyEstimator(0.25)
+        for i in range(int(40.0 / 0.25)):
+            est.add(_chroma(*KADENZEN["C major"][i // 8 % 4]))
+        assert est.key.label == "C major"
+        est.add_mode_votes(self._stimmen(0, moll=True))
+        assert est.key.label == "C minor"
+
+    def test_gekipptes_geschlecht_bleibt_json_serialisierbar(self):
+        # Regressionstest: numpy.bool_ aus dem Stimmenvergleich brachte
+        # json.dumps im Broadcast zum Absturz, sobald das Votum erstmals
+        # kippte ("Object of type bool_ is not JSON serializable").
+        import json
+        est = _hoere(KADENZEN["C major"])
+        est.add_mode_votes(self._stimmen(0, moll=True))
+        assert est.key.minor is True
+        json.dumps(est.key.as_dict())
