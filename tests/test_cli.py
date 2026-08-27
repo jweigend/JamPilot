@@ -299,7 +299,7 @@ class TestOhneArgument:
             cli.main()
         assert run.called
         args = run.call_args[0][0]
-        assert args.delay == 4.0 and args.port == 8765      # die Standardwerte
+        assert args.delay == 5.0 and args.port == 8765      # die Standardwerte
 
     def test_hilfe_geht_weiterhin(self, monkeypatch, capsys):
         from jampilot import cli
@@ -458,3 +458,20 @@ class TestBassFenster:
         track = Aufzeichnung()
         cli._bass_per_segment([(1.0, "C"), (2.2, "G")], track, front=2.8)
         assert track.intervalle == [(1.0, 2.2), (2.2, 2.8)]
+
+
+class TestCommitAhead:
+    """--delay teilt sich haelftig in Vorlauf und Verstehzeit."""
+
+    @pytest.mark.parametrize("delay,vorlauf", [
+        (5.0, 2.0),    # Default: der gemessene Arbeitspunkt
+        (6.0, 2.5),
+        (3.0, 1.0),
+        (8.0, 3.5),
+    ])
+    def test_haelftige_teilung_nach_edge_guard(self, delay, vorlauf):
+        assert cli._commit_ahead(delay) == pytest.approx(vorlauf)
+
+    def test_winziger_puffer_wird_geklemmt(self):
+        # Unter der Klemme gaebe es gar keine Commit-Grenze mehr vor NOW.
+        assert cli._commit_ahead(1.5) == pytest.approx(0.5)

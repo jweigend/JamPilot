@@ -30,7 +30,7 @@ ANALYSIS_HOP = 0.25
 # [POC-BTC] BTC-Transformer fuehrend (siehe _display_loop). Das Modell sieht
 # pro Lauf ein 10-s-Fenster (108 Frames); der juengste Rand hat keinen
 # Zukunftskontext und flackert - Segmente dort warten bis zum naechsten Hop.
-# Beides zehrt vom --delay-Puffer (Default 4s), nicht von der Anzeige.
+# Beides zehrt vom --delay-Puffer (Default 5s), nicht von der Anzeige.
 BTC_LIVE_WINDOW = 10.0
 BTC_EDGE_GUARD = 1.0
 
@@ -41,20 +41,32 @@ BTC_EDGE_GUARD = 1.0
 # Einmal-Verbrauch je alter Grenze und der Monotonie-Waechter - nicht die Weite.
 ONSET_HYSTERESIS = 0.35
 
-# Naeher als das an der hoerbaren Position wird NICHTS mehr umgebaut: Diese
-# Chips liest der Musiker gerade, um den Griff vorzubereiten - eine Korrektur
-# dort ist schlimmer als ein stehengelassener Fehler. Revisionen darf das
-# Modell nur weiter draussen anbringen (bei --delay 4 bleiben dafuer ~1.5s
-# zwischen Veroeffentlichung am Horizont und dem Einfrieren).
-BTC_FREEZE_AHEAD = 1.5
-
-# [Redesign 6.1] Publish-once-Kanal: Rutscht ein Zeitleisten-Eintrag naeher
-# als das an die hoerbare Position, wird er genau einmal als Event committet
-# und danach nie mehr angefasst (docs/exploration/zeitleiste-redesign.md).
-# Bewusst weiter draussen als BTC_FREEZE_AHEAD: im Band dazwischen revidiert
-# der Merge noch, der Event-Kanal hoert aber nicht mehr zu - genau diese
-# verworfenen Revisionen zaehlt die PoC-Seite (/timeline-poc).
+# Publish-once-Kanal (docs/exploration/zeitleiste-redesign.md): Rutscht ein
+# Zeitleisten-Eintrag naeher als das an die hoerbare Position, wird er genau
+# einmal als Event committet und danach nie mehr angefasst. Dieselbe Grenze
+# schuetzt auch die interne Zeitleiste vor dem Merge und der Nachverfeinerung:
+# Unterhalb hoert niemand mehr zu (die Anzeige liest nur Events, die
+# Kontrollgitarre soll dasselbe spielen wie die Anzeige zeigt) - eine
+# Revision dort waere reine Buchhaltung. Sie hat die fruehere Einfrierzone
+# (BTC_FREEZE_AHEAD, 1.5 s) ersetzt, deren Zweck - den lesenden Musiker vor
+# Korrekturen schuetzen - der Commit-Kanal strukturell erfuellt.
+#
+# Der Wert gilt beim Default --delay 5; live rechnet _commit_ahead() den
+# Vorlauf aus dem Puffer: haelftige Teilung mit der Verstehzeit.
 BTC_COMMIT_AHEAD = 2.0
+
+
+def _commit_ahead(delay: float) -> float:
+    """Sichtbarer Vorlauf (Commit-Grenze) fuer einen --delay-Puffer.
+
+    Der Puffer teilt sich nach Abzug des Edge-Guards HAELFTIG in Vorlauf und
+    Verstehzeit: Wer mehr Puffer gibt, sieht weiter voraus UND bekommt besser
+    abgehangene Events - beides waechst im Gleichschritt (--delay 5 -> 2s/2s,
+    6 -> 2.5s/2.5s). Die Verstehzeit-Messung (zeitleiste-redesign.md, §3/§5)
+    zeigt ab ~2s abflachenden Nutzen - zusaetzliche Sekunden sind im Vorlauf
+    besser angelegt als in noch mehr Verstehzeit.
+    """
+    return max(0.5, (delay - BTC_EDGE_GUARD) / 2)
 
 # Bass nur committen, wenn dieselbe Note ueber so viele Hops (~1 s) stabil
 # gemessen wurde. Blosse Poolinglaenge reicht nicht - der Live-Befund
@@ -715,13 +727,16 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     # Bereits verfeinerte Grenzen: jede neue Grenze wird genau EINMAL aufs
     # Audio-Ereignis gezogen (refine_boundary); danach haelt die Hysterese sie.
     refined_bounds: list[tuple[float, str]] = []
-    ledger = EventLedger()          # [Redesign 6.1] Publish-once-Kanal
+    ledger = EventLedger()          # Publish-once-Kanal
+    commit_ahead = _commit_ahead(args.delay)
     lead = max(args.delay - BTC_EDGE_GUARD, 0.0)
     key_fed_until = 0.0
 
     print(f"Running: output delayed by {loop.delay_seconds:.1f}s. Ctrl+C quits.")
-    if args.delay < BTC_EDGE_GUARD + 1.0:
-        print("Note: --delay is tight; choose >= 3s for a useful lead.")
+    # Unter 3s Puffer bleibt nach dem Edge-Guard weder eine Sekunde Vorlauf
+    # noch eine Sekunde Verstehzeit (haelftige Teilung, s. _commit_ahead).
+    if args.delay < 3.0:
+        print("Note: --delay is tight; choose >= 3s for a useful lookahead.")
     print()
 
     debug_path = os.environ.get("JAMPILOT_DEBUG")
@@ -771,18 +786,20 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                                                  silence_rms=SILENCE_RMS)
 
             audible_pos = loop.audible_position()
+            frontier = audible_pos + commit_ahead
             horizon = window_end / sr - BTC_EDGE_GUARD
             _merge_model_segments(timeline, segments, audible_pos, horizon,
-                                  previous_segments)
+                                  previous_segments, commit_ahead=commit_ahead)
             previous_segments = segments
 
             # Frisch veroeffentlichte Grenzen einmalig aufs Audio-Ereignis
             # verfeinern (typisch 0-1 je Hop, ~100ms - dauert ein Hop mal
             # laenger, faellt nur ein Rasterpunkt aus, das Raster bleibt).
-            freeze_edge = audible_pos + BTC_FREEZE_AHEAD
+            # Unterhalb der Commit-Grenze ist nichts mehr zu verfeinern -
+            # diese Eintraege sind bereits als Events ausgeliefert.
             for idx in range(1, len(timeline)):
                 pos, name = timeline[idx]
-                if pos <= freeze_edge:
+                if pos <= frontier:
                     continue
                 if any(rn == name and abs(rp - pos) <= ONSET_HYSTERESIS
                        for rp, rn in refined_bounds):
@@ -847,26 +864,24 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             key = keys.key
             key_dict = key.as_dict(keys.accidental) if key else None
 
-            # [Redesign 6.1] Eintraege, die die Commit-Grenze passiert haben,
-            # genau einmal mit eingefrorenen Attributen committen. Die
-            # Zeitleiste selbst bleibt dahinter weiter revidierbar.
-            frontier = audible_pos + BTC_COMMIT_AHEAD
+            # Eintraege, die die Commit-Grenze passiert haben, genau einmal
+            # mit eingefrorenen Attributen committen. Die Zeitleiste selbst
+            # bleibt jenseits der Grenze weiter revidierbar.
             ledger.advance(timeline, basslinie, key_dict, frontier)
             ledger.prune(audible_pos)
 
             if broadcaster:
-                # Bisherige Felder unveraendert ("v"/Safe-Voicings sendet noch
-                # None, siehe Docstring); neu sind "frontier" und "committed" -
-                # der Publish-once-Kanal. index.html ignoriert beide.
+                # "frontier"/"committed" ist der Publish-once-Kanal, aus dem
+                # index.html liest. "chords" ist die interne, weiter
+                # revidierbare Hypothese - Debug-Kanal fuer /timeline-poc
+                # (Geister-Chips, Revisions-Zaehler).
                 broadcaster.publish({
                     "t": round(audible_pos, 3),
-                    "chords": [{"c": name, "at": round(pos, 3), "b": bassnote,
-                                "v": None}
-                               for (pos, name), bassnote in zip(timeline, basslinie)],
-                    "lead": round(lead, 2),
-                    "key": key_dict,
                     "frontier": round(frontier, 3),
                     "committed": ledger.events,
+                    "chords": [{"c": name, "at": round(pos, 3), "b": bassnote}
+                               for (pos, name), bassnote in zip(timeline, basslinie)],
+                    "key": key_dict,
                     "muted": loop.muted,
                     "control_guitar": loop.control_guitar,
                 })
@@ -904,44 +919,44 @@ def _label_at(segments, t):
     return name
 
 
-def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=None):
-    """BTC ist fuehrend: der unerhoerte Teil der Zeitleiste wird jedem Hop aus
-    der frischen Modellausgabe neu aufgebaut.
+def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=None,
+                          commit_ahead=BTC_COMMIT_AHEAD):
+    """BTC ist fuehrend: der noch nicht committete Teil der Zeitleiste wird
+    jedem Hop aus der frischen Modellausgabe neu aufgebaut.
 
-    Regeln:
-      - Gehoertes (Onset <= audible_pos) ist unantastbar - wie bisher.
+    Die Zeitleiste ist die interne Hypothese; was die Commit-Grenze passiert,
+    liefert der EventLedger genau einmal als Event aus. Alle Regeln hier
+    dienen deshalb der QUALITAET der Commits (was die Grenze passiert, ist
+    endgueltig), nicht mehr der Ruhe einer live mitlesenden Anzeige:
+
+      - Committetes (Onset <= audible_pos + commit_ahead) ist unantastbar,
+        Gehoertes sowieso. Eine Revision darunter erreichte niemanden mehr.
       - Segmente jenseits `horizon` warten: am Fensterrand fehlt der
         bidirektionalen Attention der Zukunftskontext, dort flackern Labels.
-      - Ein Segment, das an der Hoergrenze bereits laeuft, aendert das Etikett
-        des Gehoerten nicht mehr; erst sein Nachfolger schreibt wieder.
-        AUSNAHME: Sagt das Modell zwei Laeufe in Folge, dass an der Hoergrenze
-        laengst ein ANDERER Akkord laeuft als der veroeffentlichte, bekommt die
-        Zeitleiste eine Grenze an der Einfrierzone. Ohne diese Ausnahme bleibt
-        eine in die Einfrierzone revidierte Grenze fuer immer verschluckt:
-        spielt das Stueck danach lange denselben Akkord (D - A - D, und das
-        zweite D kommt zu spaet oder uebermalt das A rueckwirkend), liefert
-        kein spaeterer Lauf je wieder eine neue Grenze - die Anzeige zeigte
-        das alte Etikett, bis das Stueck real wechselt.
+      - Ein Segment, das an der Commit-Grenze bereits laeuft, aendert das
+        Committete nicht mehr; erst sein Nachfolger schreibt wieder.
+        AUSNAHME: Sagt das Modell zwei Laeufe in Folge, dass dort laengst ein
+        ANDERER Akkord laeuft als der committete, bekommt die Zeitleiste eine
+        Grenze AN der Commit-Grenze - sie wird im selben Hop committet. Ohne
+        diese Ausnahme bleibt eine zu spaet erkannte Grenze fuer immer
+        verschluckt: spielt das Stueck danach lange denselben Akkord
+        (D - A - D, und das zweite D kommt zu spaet oder uebermalt das A
+        rueckwirkend), liefert kein spaeterer Lauf je wieder eine neue
+        Grenze - die Events zeigten das alte Etikett, bis das Stueck real
+        wechselt.
       - Onset-Hysterese: Das CQT-Frameraster wandert pro Hop um eine NICHT
-        ganze Framezahl (0.25s sind ~2.7 Frames), dieselbe Akkordgrenze landet
-        also jedes Mal ein paar Millisekunden woanders. Ein bereits
-        veroeffentlichtes Segment gleichen Namens in aehnlicher Lage behaelt
-        deshalb seinen Onset - sonst springen die Chips der Vorlaufansicht
-        viermal pro Sekunde (der Browser schluesselt sie nach Position+Name).
-      - Einfrierzone: Auch noch nicht Gehoertes naeher als BTC_FREEZE_AHEAD an
-        der hoerbaren Position bleibt stehen - diese Chips liest der Musiker
-        gerade. Revisionen passieren nur weiter draussen.
+        ganze Framezahl (0.25s sind ~2.7 Frames), dieselbe Akkordgrenze
+        landet also jedes Mal ein paar Millisekunden woanders. Ein bereits
+        eingetragenes Segment gleichen Namens in aehnlicher Lage behaelt
+        deshalb seinen Onset - der committete Onset soll nicht von der
+        zufaelligen Hop-Phase im Commit-Moment abhaengen.
       - Debounce, symmetrisch: Eine NEUE Grenze, die im vorigen Modelllauf
-        (`previous`, ungeschnitten) nicht vorkam, wartet einen Hop. Und ein
-        veroeffentlichter Chip VERSCHWINDET erst, wenn ihn auch der vorige
-        Lauf nicht mehr sah - sonst blinkte er bei jeder Ein-Hop-Laune des
-        Modells einen Viertelsekundenschlag weg und wieder her.
-        Gemessen (Live-Simulation sting/peg, Chip-Schluessel wie im Browser):
-        zusammen druecken die Regeln die Unruhe von 1.1 Chip-Wechseln je Hop
-        auf 0.04-0.08, in der Nahzone (<2s vor der JETZT-Linie) von 49-64
-        Ereignissen je 90s auf 6-7.
+        (`previous`, ungeschnitten) nicht vorkam, wartet einen Hop; ein
+        Eintrag VERSCHWINDET erst, wenn ihn auch der vorige Lauf nicht mehr
+        sah. Ein-Hop-Launen des Modells sollen es nie bis in ein Event
+        schaffen.
     """
-    base = audible_pos + BTC_FREEZE_AHEAD
+    base = audible_pos + commit_ahead
     published = []                      # bisher veroeffentlicht, noch formbar
     while timeline and timeline[-1][0] > base:
         published.append(timeline.pop())
@@ -953,16 +968,16 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
             break
         end = segments[i + 1][0] if i + 1 < len(segments) else float("inf")
         if end <= base:
-            continue                    # vollstaendig hinter der Einfrierzone
+            continue                    # vollstaendig hinter der Commit-Grenze
         if pos <= base:
             if not timeline:            # Anlauf: noch nichts veroeffentlicht
                 timeline.append((pos, name))
                 last = name
             elif (name != last and previous is not None
                     and _label_at(previous, base) == name):
-                # Revision in die Einfrierzone (siehe Docstring): Gehoertes
-                # bleibt stehen, aber ab der Einfrierzone gilt das neue
-                # Etikett - sonst kaeme es nie mehr auf die Anzeige.
+                # Zu spaet erkannte Grenze (siehe Docstring): Committetes
+                # bleibt stehen, aber ab der Commit-Grenze gilt das neue
+                # Etikett - sonst kaeme es nie mehr in ein Event.
                 timeline.append((base, name))
                 last = name
             continue
@@ -992,8 +1007,9 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
     # Hop stehen - erst zwei einige Laeufe duerfen einen Chip abraeumen.
     if previous is not None:
         for alt_pos, alt_name in published:
-            # `>=`: auch die Korrektur-Grenze AN der Einfrierzone besetzt den
-            # Platz - sonst blitzte der gerade revidierte Chip einen Hop auf.
+            # `>=`: auch die Korrektur-Grenze AN der Commit-Grenze besetzt
+            # den Platz - sonst kehrte der gerade ersetzte Eintrag einen Hop
+            # spaeter zurueck.
             if any(-ONSET_HYSTERESIS <= pos - alt_pos
                    <= ONSET_HYSTERESIS + _REFINED_LOOKBACK
                    for pos, _ in timeline if pos >= base):
@@ -1292,7 +1308,8 @@ class EventLedger:
     passierte Grenze schiebt. Einzige sanktionierte Ausnahme ist die monotone
     Bass-Regel: Ein leer committeter Bass darf genau einmal auf gesetzt
     nachruecken (markiert als "b_up"), nie zurueck und nie auf eine andere
-    Note. index.html ignoriert die neuen Felder, /timeline-poc liest sie.
+    Note. index.html liest ausschliesslich diesen Kanal; /timeline-poc
+    zeigt zusaetzlich die interne Hypothese (Debug).
     """
 
     def __init__(self):
@@ -1438,8 +1455,12 @@ def main():
     p_run = sub.add_parser("run", help="Live loopback with chord display")
     # Grenzen fachlich, nicht technisch: unter ~1s Delay bleibt kein Vorlauf
     # uebrig, ueber 30s laeuft der Ringpuffer aus dem Ruder.
-    p_run.add_argument("--delay", type=_bounded(float, 0.5, 30.0, "s"), default=4.0,
-                       help="Delay in seconds (0.5..30, default 4)")
+    # Default 5s: Der Puffer ist der Qualitaetsregler der Analyse - beim
+    # Commit eines Onsets hat das Modell delay - 2s Vorlauf - 1s Edge-Guard
+    # Kontext gesehen. 5s geben 2s Verstehzeit; die Referenz-Messung dazu:
+    # docs/exploration/zeitleiste-redesign.md, Abschnitt 3.
+    p_run.add_argument("--delay", type=_bounded(float, 0.5, 30.0, "s"), default=5.0,
+                       help="Delay in seconds (0.5..30, default 5)")
     p_run.add_argument("--input", default=None,
                        help="Input device (index/name); switches to direct mode")
     p_run.add_argument("--output", default=None,

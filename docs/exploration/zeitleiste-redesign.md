@@ -1,8 +1,9 @@
 # Zeitleisten-Redesign: Commit-Grenze im Server, dummer Client
 
-Stand: 2026-08-27 · Status: **Migrationsschritte 1+2 umgesetzt**
-(Commit-Kanal im Server, PoC-Seite als Renderer mit Revisions-Zaehler);
-Schritte 3+4 offen.
+Stand: 2026-08-27 · Status: **Alle vier Migrationsschritte umgesetzt.**
+index.html liest den Publish-once-Kanal, `--delay 5` ist Default, die
+Anzeige-Daempfer sind zurueckgebaut (die Commit-Grenze hat die Einfrierzone
+ersetzt). /timeline-poc bleibt als interne Debug-Oberflaeche bestehen.
 
 Baut auf der Analyse
 [zeitleiste-stabilitaet-analyse.md](zeitleiste-stabilitaet-analyse.md) und dem
@@ -110,24 +111,32 @@ beste aktuelle Hypothese, fuers Lesen die stabile Fassung.
 
 ![Timing: JETZT, Commit-Grenze, Horizont und Aufnahmefront auf der Stream-Zeitachse](../bilder/zeitleiste-timing.svg)
 
-Die Qualitaet der committeten Events haengt an genau einer Groesse — wie viel
-Kontext das Modell **nach** einem Onset gesehen hat, wenn dieser committet
-wird:
+Die Qualitaet der committeten Events haengt daran, wie viel Kontext das
+Modell **nach** einem Onset gesehen hat, wenn dieser committet wird — und der
+sichtbare Vorlauf daran, wie weit die Commit-Grenze vor NOW liegt. Beides
+speist sich aus demselben Puffer; seit dem Umbau teilt er sich **haelftig**
+(`_commit_ahead()` in cli.py):
 
-    Verstehzeit = --delay − Vorlauf − Edge-Guard
+    Vorlauf = Verstehzeit = (--delay − Edge-Guard) / 2
 
-| `--delay` | Vorlauf | Edge-Guard | Verstehzeit nach Onset |
-|---|---|---|---|
-| 3 s | 2 s | 1 s | 0 s — Commit direkt am Modellrand |
-| 4 s (Default) | 2 s | 1 s | 1 s |
-| **5 s (Vorschlag)** | 2 s | 1 s | **2 s** |
+| `--delay` | Vorlauf (Laufband) | Verstehzeit nach Onset |
+|---|---|---|
+| 3 s | 1 s | 1 s |
+| **5 s (Default)** | **2 s** | **2 s — der gemessene Arbeitspunkt** |
+| 6 s | 2,5 s | 2,5 s |
+| 8 s | 3,5 s | 3,5 s |
 
-Der Puffer von 5 s ist kein Beinbruch — JamPilot spielt ohnehin verzoegert,
-und `--delay` existiert bereits (0,5–30 s,
-[cli.py:1333](../jampilot/cli.py#L1333)). Neu ist nur die Deutung: **der
-Nutzer steuert mit dem Puffer die Analysequalitaet.** Wer dem Modell mehr Zeit
-gibt, bekommt verlaesslichere Events; wer knapper hoeren will, akzeptiert
-frueher eingefrorene Hypothesen. Das gehoert so benannt in die Einstellungen
+Urspruenglich war der Vorlauf fix (2 s) und jede weitere Puffersekunde floss
+komplett in die Verstehzeit. Die Messung in Abschnitt 5 zeigt aber, dass
+deren Nutzen ab ~2 s abflacht (1,8 → 1,2 → 0,9 pt) — zusaetzliche Sekunden
+sind als sichtbarer Vorlauf besser angelegt. Mit der haelftigen Teilung tut
+`--delay 6` genau das, was man intuitiv erwartet: mehr Laufband UND bessere
+Events. Der Client braucht dafuer nichts zu wissen — er liest den Vorlauf aus
+`frontier − t`.
+
+Der Puffer von 5 s ist kein Beinbruch — JamPilot spielt ohnehin verzoegert.
+Die Deutung ist neu: **der Nutzer steuert mit dem Puffer Vorlauf und
+Analysequalitaet zugleich.** Das gehoert so benannt in die Einstellungen
 (z. B. „Analysepuffer"), statt als technischer Latenzwert versteckt zu sein.
 
 
@@ -268,19 +277,23 @@ Offen zu entscheiden, jeweils klein:
   genau diesen Stuecken.
 
 
-## 6. Migrationspfad
+## 6. Migrationspfad (alle Schritte umgesetzt, 2026-08-27)
 
-1. **Zweiter Broadcast-Kanal** (`frontier` + `new_events`) neben dem heutigen
-   Vollzustand, hinter einem Flag. `index.html` bleibt unberuehrt.
-2. **PoC-Seite auf den neuen Kanal umstellen** — sie schrumpft auf einen
-   dummen Renderer und testet damit das echte Zielsystem statt einer
-   Client-Nachbildung. Dazu der Messzaehler fuer verworfene Revisionen.
-3. **Playtest + Messung** (siehe oben): Vorlauf und `--delay`-Default
-   festlegen; Default ggf. auf 5 s.
-4. **`index.html` umstellen,** Daempfer zurueckbauen, alten Kanal entfernen.
-
-Nach Schritt 2 ist das Risiko minimal: Beide Kanaele laufen parallel, jeder
-Unterschied ist direkt vergleichbar.
+1. ✅ **Zweiter Broadcast-Kanal** (`frontier` + `committed`) neben dem
+   Vollzustand; `index.html` blieb zunaechst unberuehrt.
+2. ✅ **PoC-Seite auf den neuen Kanal umgestellt** — dummer Renderer plus
+   Revisions-Zaehler und Vertragspruefung (Live-Laeufe: 0 Verletzungen).
+3. ✅ **Playtest + Messung:** `--delay 5` ist Default (Verstehzeit 2 s);
+   Bass-Regel per Ground-Truth- und Live-Messung entschieden.
+4. ✅ **`index.html` umgestellt:** liest ausschliesslich `committed` +
+   `frontier`; Chips haben Event-Identitaet (kein Delete/Recreate, nur das
+   einmalige Bass-Nachruecken zeichnet einen Chip nach). Die Einfrierzone
+   (`BTC_FREEZE_AHEAD`) ist entfernt — die Commit-Grenze schuetzt Merge und
+   Nachverfeinerung; Bestaetigungs-Debounce und Onset-Hysterese bleiben als
+   **Commit-Qualitaets-Waechter** (Ein-Hop-Launen und Rasterwandern sollen
+   es nie in ein Event schaffen). Der `chords`-Vollzustand bleibt als
+   Debug-Kanal fuer /timeline-poc im Feed; die Felder `lead` und `v`
+   (Safe-Voicings, stillgelegt) sind aus dem Protokoll entfernt.
 
 
 ## Nicht-Ziele
