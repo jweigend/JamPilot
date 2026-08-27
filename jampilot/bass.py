@@ -51,7 +51,7 @@ from .chroma import NOTE_NAMES
 
 # Die staerkste Tonklasse muss die zweitstaerkste um diesen Faktor schlagen.
 # Sonst liegt unten kein klarer Ton (Uebergang, Glissando, Rauschen) - und dann
-# wird nichts angezeigt statt geraten. Dieselbe Haltung wie im ChordSmoother.
+# wird nichts angezeigt statt geraten.
 MIN_DOMINANCE = 1.25
 
 # Darunter klingt im Tiefband nichts.
@@ -90,13 +90,13 @@ def dominant(bass_frames: np.ndarray | None) -> int | None:
 class BassTrack:
     """Rollendes Tiefband-Chroma in Stream-Koordinaten.
 
-    Dasselbe Prinzip wie FrameHistory: Die Frames fallen ohnehin an; hier werden
+    Die Frames fallen ohnehin an; hier werden
     sie aufgehoben, damit sich die Bassnote jedem Segment der Zeitleiste
     zuordnen laesst - auch einem, das noch niemand gehoert hat. Der Vorlauf gilt
     fuer den Bass genauso wie fuer den Akkord.
     """
 
-    EDGE = 6   # wie FrameHistory: die Randframes verfaelscht das CQT-Padding
+    EDGE = 6   # die Randframes verfaelscht das CQT-Padding
 
     def __init__(self, seconds: float, frame_seconds: float | None = None,
                  edge: int | None = None):

@@ -446,7 +446,7 @@ jampilot/
   btc.py           the chord recogniser: BTC transformer (NumPy port) + boundary refinement
   data/            model weights (btc_large_voca.npz) and the web page (index.html)
   chroma.py        FFT → chroma vector (12 pitch classes), CQT frame chroma
-  chords.py        chord templates, matching, smoothing, onset search (legacy path)
+  chords.py        chord templates + matching (kept for the self-test)
   bass.py          the measured bass note → inversions / slash chords
   tonality.py      key detection → spelling (♯ or ♭)
   delay_stream.py  duplex stream with the delay ring buffer (sounddevice/PortAudio)

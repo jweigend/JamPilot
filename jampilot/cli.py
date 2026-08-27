@@ -98,16 +98,6 @@ BTC_DEBOUNCE_MATCH = 0.3
 # jeden Hop neu verfeinert. Muss btc.REFINE_BACK entsprechen.
 _REFINED_LOOKBACK = 0.40
 
-# Kuerzer als das spielt niemand einen Akkord. Ein Segment darunter ist kein
-# Wechsel, sondern ein Fehlgriff der Erkennung - und wird zurueckgenommen.
-MIN_CHORD_SECONDS = 0.25
-
-# Wie weit die Onset-Suche zurueckreichen darf. Muss deutlich ueber der
-# Erkennungslatenz liegen (median ~0.8s, bei mehrdeutigen Wechseln aber auch
-# ueber 1.5s): reicht die Suche nicht bis zum Einsatz zurueck, wird er auf den
-# Suchanfang geklemmt - und das ist immer ZU SPAET, nie zu frueh.
-MAX_ONSET_SEARCH = 4.0
-
 # Wie lange der Ringpuffer stillstehen darf, bevor der Stream als tot gilt.
 # Ein Callback kommt alle ~43ms (2048 Frames bei 48kHz); selbst ein schwer
 # klemmender Rechner haelt keine 3s durch. Grosszuegig gewaehlt, weil ein
@@ -430,9 +420,7 @@ def _load_wav_mono(path: str) -> tuple[np.ndarray, int]:
 
 
 def cmd_analyze(args):
-    # [POC-BTC] BTC-Transformer fuehrend. Der bisherige Template-Matching-Pfad
-    # liegt unveraendert in _cmd_analyze_template; Slash-Bass ist wieder aktiv
-    # (Tiefband aus der BTC-CQT), Safe-Voicings/Key-Prior bleiben stillgelegt.
+    # BTC-Transformer fuehrend; Slash-Bass aus dem Tiefband der BTC-CQT.
     from . import bass as bassmodul
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
                       fold_bass_chroma, fold_chroma, label_mode_votes,
@@ -481,74 +469,6 @@ def cmd_analyze(args):
         # N = nichts erklingt -> "-" wie bisher; "?" (X) geht durch.
         shown = bassmodul.slash("-" if name == "N" else name, note)
         print(f"  {zeit:6.1f}s  {spell(shown, accidental)}")
-
-
-def _cmd_analyze_template(args):
-    """[POC-BTC] stillgelegt: Offline-Analyse ueber Template-Matching.
-
-    Vollstaendig funktionsfaehig, aber nicht mehr verdrahtet - cmd_analyze
-    laeuft ueber das BTC-Modell. Hier liegen die Faehigkeiten, die BTC nicht
-    hat (gemessener Slash-Bass), fuer die spaetere Reaktivierung.
-    """
-    from . import bass as bassmodul
-    from .chroma import analyze_window, rms
-    from .chords import SILENCE_RMS, match_chord
-    from .tonality import SHARP, KeyEstimator, spell
-
-    samples, samplerate = _load_wav_mono(args.file)
-    window = int(ANALYSIS_WINDOW * samplerate)
-    hop = int(0.5 * samplerate)
-
-    print(f"{args.file}: {len(samples) / samplerate:.1f}s @ {samplerate} Hz\n")
-    if len(samples) < window:
-        print(f"  File is shorter than the analysis window ({ANALYSIS_WINDOW}s).")
-        return
-
-    # Offline liegt die ganze Datei vor: die Tonart darf ueber das gesamte
-    # Material bestimmt werden (kein Verfall), statt nur ueber ihr Ende. Deshalb
-    # erst alles erkennen, dann die Tonart, dann ausgeben - die Schreibweise der
-    # ersten Zeile haengt schliesslich von Akkorden ab, die spaeter kommen.
-    keys = KeyEstimator(hop / samplerate, half_life=None)
-    erkannt = []
-    # +1, sonst faellt das letzte vollstaendige Fenster raus - und eine Datei
-    # von genau Fensterlaenge wuerde ueberhaupt nicht analysiert.
-    for start in range(0, len(samples) - window + 1, hop):
-        chunk = samples[start : start + window]
-        if rms(chunk) < SILENCE_RMS:
-            name = "-"
-        else:
-            analysis = analyze_window(chunk, samplerate)
-            # Zwei Fragen, zwei Signale: der Akkord aus der vollen Harmonie, die
-            # Bassnote aus dem Tiefband. Zusammen ergeben sie C/E statt nur C.
-            #
-            # Beide muessen ueber DENSELBEN Zeitraum reden: Das Chroma wird nur
-            # aus der juengeren Fensterhaelfte gepoolt (chroma._pool), also darf
-            # auch der Bass nur von dort kommen. Sonst klebt an jedem Wechsel der
-            # Bass des VORIGEN Akkords am neuen, und die Anzeige erfindet
-            # Umkehrungen, die nie gespielt wurden ("Bb/F", "C/Bb").
-            bass_frames = analysis.bass_frames
-            juengere = (bass_frames[:, bass_frames.shape[1] // 2 :]
-                        if bass_frames is not None else None)
-            name = bassmodul.slash(
-                match_chord(analysis.chroma, cqt=analysis.cqt).name,
-                bassmodul.name(bassmodul.dominant(juengere)))
-            keys.add(analysis.chroma)
-        # Gepoolt wird die juengere Fensterhaelfte -> Zeitstempel mittig.
-        erkannt.append(((start + 0.75 * window) / samplerate, name))
-
-    key = keys.key
-    # Offline gilt die Tonart der GANZEN Datei, und ausgegeben wird erst am
-    # Ende: Hier gibt es nichts, was flackern koennte, also auch keinen Grund
-    # fuer die traege Schreibweise des Live-Betriebs (KeyEstimator.accidental).
-    accidental = key.accidental if key else SHARP
-    print(f"  Key: {key.label} ({'b' if accidental != SHARP else '#'})\n" if key
-          else "  Key: undetermined (too little music) - chords spelled with sharps\n")
-
-    last = None
-    for zeit, name in erkannt:
-        if name != last:
-            print(f"  {zeit:6.1f}s  {spell(name, accidental)}")
-            last = name
 
 
 def cmd_run(args):
@@ -631,10 +551,13 @@ def cmd_run(args):
         print("No display available - running headless (Ctrl+C quits).")
 
     def vorheizen():
-        """numbas JIT uebersetzen lassen, bevor der erste Ton analysiert wird."""
-        from .chroma import warmup
+        """librosas CQT-Filter fuer die BTC-Merkmale bauen lassen, bevor der
+        erste Ton analysiert wird - der erste Hop soll nicht der langsamste
+        sein."""
+        from .btc import features_from_audio
 
-        warmup(args.samplerate, ANALYSIS_WINDOW)
+        features_from_audio(np.zeros(2 * args.samplerate, dtype=np.float32),
+                            args.samplerate)
 
     try:
         if mit_fenster:
@@ -679,26 +602,18 @@ def cmd_run(args):
 def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     """Analyse und Anzeige, bis Strg+C kommt oder `stop` gesetzt wird.
 
-    [POC-BTC] BTC-Transformer fuehrend: Jeder Hop laesst das Modell ueber die
-    juengsten BTC_LIVE_WINDOW Sekunden laufen; der noch nicht hoerbare Teil der
+    BTC-Transformer fuehrend: Jeder Hop laesst das Modell ueber die juengsten
+    BTC_LIVE_WINDOW Sekunden laufen; der noch nicht committete Teil der
     Zeitleiste wird komplett aus der frischen Modellausgabe neu aufgebaut.
-    Gehoertes bleibt unantastbar, der juengste Fensterrand (BTC_EDGE_GUARD,
-    dort fehlt der bidirektionalen Attention der Zukunftskontext) wartet bis
-    zum naechsten Hop. Der Template-Pfad liegt in _display_loop_template.
+    Committetes und Gehoertes bleiben unantastbar, der juengste Fensterrand
+    (BTC_EDGE_GUARD, dort fehlt der bidirektionalen Attention der
+    Zukunftskontext) wartet bis zum naechsten Hop. Slash-Bass kommt aus dem
+    Tiefband der BTC-CQT (bass.py), die Kontrollgitarre spielt das volle
+    BTC-Vokabular. Der fruehere Template-Matching-Pfad wurde nach dem
+    1.1.0-Release entfernt - er liegt vollstaendig im Git-Verlauf (v0.1.0).
 
-    Wieder aktiv seit dem bestaetigten Musiktest: der gemessene Slash-Bass
-    (bass.py, Tiefband jetzt aus der BTC-CQT gefaltet) und die Kontrollgitarre
-    mit dem vollen BTC-Vokabular. Weiter bewusst stillgelegt:
-      - Safe-Voicings / Powerchord-Rueckzug (harmony.safe_pitch_classes):
-        es gibt keine Kandidatenliste mehr. Feld "v" sendet None.
-      - Key-Prior (harmony.interpret_chord): Labels kommen fertig vom Modell.
-        Die Tonart selbst laeuft weiter - fuer Schreibweise, Badge und
-        Nashville-Stufen, seit dem Zwei-Skalen-Umbau (REPORT_key_window.md)
-        mit 120-s-Histogramm plus Modulations- und Stille-Detektor.
-      - ChordSmoother und Onset-Suche (find_onset_frame): Glaettung und
-      	Grenzen kommen aus dem Modell (93-ms-Raster + Mindestdauer).
-
-    `stop` (threading.Event) und `engine` wie im Template-Pfad.
+    `stop` (threading.Event) haelt die Schleife an, `engine` bekommt den
+    aktuellen Vorlauf fuer die GUI-Statusanzeige.
     """
     from . import bass as bassmodul
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
@@ -1028,275 +943,6 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
                 i += 1
 
 
-def _display_loop_template(loop, args, broadcaster=None, stop=None, engine=None):
-    """[POC-BTC] stillgelegt: Analyse ueber Template-Matching + Onset-Suche.
-
-    Vollstaendig funktionsfaehig, aber nicht mehr verdrahtet - engine.py ruft
-    _display_loop (BTC). Hier liegen die stillgelegten Faehigkeiten fuer die
-    spaetere Reaktivierung: gemessener Slash-Bass, Safe-Voicings, Key-Prior,
-    ChordSmoother, 23-ms-Onset-Suche.
-
-    `stop` (threading.Event) und `engine` gibt es, seit der Betrieb abschaltbar
-    ist: Laeuft die Schleife im Hintergrundthread des Kontrollfensters, kann sie
-    nicht auf KeyboardInterrupt warten - der landet im Hauptthread bei Qt. Ohne
-    `stop` verhaelt sich alles wie vorher (reiner CLI-Betrieb).
-    """
-    from . import bass as bassmodul
-    from .chroma import FrameHistory, analyze_window, rms
-    from .chords import SILENCE_RMS, ChordSmoother, match_chord
-    from .harmony import interpret_chord, safe_pitch_classes
-    from .tonality import KeyEstimator, spell
-
-    sr = args.samplerate
-    window_frames = int(round(ANALYSIS_WINDOW * sr))
-    hop_frames = int(round(ANALYSIS_HOP * sr))
-    smoother = ChordSmoother(window=3)
-    # Frame-Chroma laenger aufheben als ein Fenster - siehe _locate_onset.
-    history = FrameHistory(MAX_ONSET_SEARCH + ANALYSIS_WINDOW + 1.0)
-    # Die Tonart entscheidet ueber die Schreibweise (# oder b). Sie braucht
-    # laengeres Material als ein Akkord und meldet sich die ersten ~12s Musik
-    # gar nicht - bis dahin gelten Kreuze.
-    keys = KeyEstimator(ANALYSIS_HOP)
-    # Die Bassnote wird gemessen, nicht aus dem Akkord abgeleitet - erst dadurch
-    # werden Umkehrungen sichtbar (C/E). Die Spur muss die ganze Zeitleiste
-    # abdecken: von 2s hinter der hoerbaren Position bis zur Analysefront.
-    bass_track = bassmodul.BassTrack(args.delay + ANALYSIS_WINDOW + 4.0)
-
-    # Die Zeitleiste: (Onset-Position im Stream, Akkord). Die Onsets werden im
-    # Frame-Chroma gemessen, nicht aus dem Erkennungszeitpunkt zurueckgerechnet
-    # - eine Erkennung sagt WAS klingt, das Fenster sagt SEIT WANN.
-    timeline: list[tuple[float, str]] = []
-    # Juengste konservative Tonmenge je stabiler Akkord-ID. Die Timeline darf
-    # String-basiert bleiben; Anzeige und Kontrollgitarre bekommen parallel die
-    # Töne, die alle nahen Audio-Lesarten gemeinsam tragen.
-    safe_by_chord: dict[str, tuple[int, ...]] = {}
-    current: str | None = None
-    lead = args.delay - 1.0  # Startschaetzung, unten aus echten Onsets gemessen
-
-    print(f"Running: output delayed by {loop.delay_seconds:.1f}s. Ctrl+C quits.")
-    if lead < 1.0:
-        print("Note: --delay is tight; choose >= 3s for a useful lead.")
-    print()
-
-    debug_path = os.environ.get("JAMPILOT_DEBUG")
-    debug = open(debug_path, "w") if debug_path else None
-    if debug:
-        debug.write(f"# latency in={loop._stream.latency[0]:.3f} "
-                    f"out={loop._stream.latency[1]:.3f}\n")
-        debug.write("# wall\twindow_end\traw\tchord\tonset\taudible_pos\n")
-
-    grid = None  # naechster Analysepunkt als Stream-Position (Frames)
-    # Wachhund fuer ein Geraet, das verschwindet: USB-Kabel raus, Mischpult aus,
-    # Karte im Suspend. PortAudio ruft den Callback dann einfach nicht mehr -
-    # ohne Fehler, ohne Ende des Streams. Von aussen sieht das aus wie "laeuft":
-    # Der Schalter steht auf An, die Umleitung steht, die Anzeige friert ein.
-    # Genau das ist der Zustand, in dem der Nutzer den Rechner fuer kaputt haelt.
-    # Also messen wir mit, ob ueberhaupt noch Frames eingehen.
-    stillstand_bei, stillstand_seit = -1, time.monotonic()
-    try:
-        while not (stop is not None and stop.is_set()):
-            captured = loop.captured_frames
-            if captured != stillstand_bei:
-                stillstand_bei, stillstand_seit = captured, time.monotonic()
-            elif time.monotonic() - stillstand_seit > STREAM_STALL_TIMEOUT:
-                raise StreamStalled(
-                    f"No audio from the device for {STREAM_STALL_TIMEOUT:.0f}s "
-                    f"- unplugged or switched off? JamPilot has stopped and "
-                    f"restored your system sound; start it again once the "
-                    f"device is back."
-                )
-            if captured < window_frames:
-                time.sleep(ANALYSIS_HOP)
-                continue
-            if grid is None:
-                grid = captured // hop_frames * hop_frames
-            if captured < grid:
-                time.sleep(min(0.02, (grid - captured) / sr))
-                continue
-
-            # Fenster enden immer auf dem Hop-Raster. Dauert eine Analyse
-            # laenger als ein Hop, faellt ein Rasterpunkt aus - das Raster
-            # selbst bleibt exakt, und genau daran haengt die Genauigkeit.
-            window_end = captured // hop_frames * hop_frames
-            grid = window_end + hop_frames
-            audio = loop.audio_ending_at(window_end, window_frames)
-            if audio is None:
-                continue  # Analyse zu weit hinten - Rasterpunkt verwerfen
-            window_start = (window_end - window_frames) / sr
-
-            # Gepoolt wird die juengere Fensterhaelfte - Stille-Gate ebenso,
-            # sonst liefern ausklingende Toene am Songende Phantomakkorde.
-            raw = "-"
-            if rms(audio[len(audio) // 2 :]) < SILENCE_RMS:
-                smoother.reset()
-                chord = "-"
-            else:
-                analysis = analyze_window(audio, sr)
-                result = match_chord(analysis.chroma, cqt=analysis.cqt)
-                raw = result.name
-                history.add(analysis.frames, window_start)
-                # Die bis hierhin stabile Tonart darf knappe Audio-Hypothesen
-                # ordnen. Erst danach fliesst das aktuelle Fenster in die
-                # Tonartschaetzung ein, damit kein Zirkelschluss entsteht.
-                result = interpret_chord(result, keys.key)
-                if result.is_chord:
-                    safe_by_chord[result.name] = safe_pitch_classes(result)
-                keys.add(analysis.chroma)
-                # Die Bassnote laeuft NEBEN der Akkorderkennung, nicht in ihr:
-                # zwei Fragen, zwei Signale. Der Akkord braucht die volle
-                # Harmonie, der Bass nur das Tiefband - und dessen Frames fallen
-                # in derselben Analyse ohnehin an (siehe bass.py).
-                bass_track.add(analysis.bass_frames, window_start)
-                chord = smoother.update(result)
-                if chord == "N":
-                    chord = "?"
-
-            audible_pos = loop.audible_position()
-
-            onset = None
-            if chord != "?" and chord != current:
-                found = _locate_onset(chord, current, history, window_end / sr,
-                                      timeline[-1][0] if timeline else None)
-                onset = _commit(timeline, found, chord, audible_pos)
-                current = timeline[-1][1] if timeline else chord
-                if onset is not None and chord != "-":
-                    # Echter Vorlauf: so weit im Voraus wissen wir von einem
-                    # Wechsel. Faellt aus den Messwerten, nicht aus Konstanten.
-                    lead = 0.7 * lead + 0.3 * max(onset - audible_pos, 0.0)
-                    if engine is not None:
-                        engine.lead = lead      # das Fenster zeigt ihn an
-
-            # Vergangenes behalten wir kurz - die Anzeige blendet Akkorde
-            # hinter der JETZT-Linie noch aus.
-            while len(timeline) > 1 and timeline[1][0] <= audible_pos - 2.0:
-                timeline.pop(0)
-            # Vollstaendiger Snapshot statt einzelner Trigger: Wird ein noch
-            # nicht gehoertes Segment zurueckgenommen, verschwindet damit auch
-            # sein Kontrollanschlag vor der Ausgabe.
-            loop.set_control_timeline([
-                (pos, name, safe_by_chord.get(name)) for pos, name in timeline
-            ])
-            audible = "-"
-            for pos, name in timeline:
-                if pos > audible_pos:
-                    break
-                audible = name
-
-            if debug:
-                debug.write(f"{time.time():.3f}\t{window_end / sr:.3f}\t{raw}\t"
-                            f"{chord}\t{'' if onset is None else f'{onset:.3f}'}\t"
-                            f"{audible_pos:.3f}\n")
-                debug.flush()
-
-            key = keys.key
-            # Zu jedem Segment die Bassnote, die WAEHREND seiner Dauer gemessen
-            # wurde - auch fuer Segmente, die noch niemand gehoert hat. Der
-            # Vorlauf gilt fuer den Bass genauso wie fuer den Akkord.
-            basslinie = _bass_per_segment(timeline, bass_track, window_end / sr)
-            bass_jetzt = None
-            for (pos, _), gemessen in zip(timeline, basslinie):
-                if pos > audible_pos:
-                    break
-                bass_jetzt = gemessen      # der letzte, der schon erklungen ist
-
-            if broadcaster:
-                # Der Browser bekommt die Zeitleiste in Stream-Sekunden plus
-                # die gerade hoerbare Position. Er leitet daraus Akkordanzeige
-                # UND Laufband aus derselben Uhr ab - deshalb koennen sie nicht
-                # auseinanderlaufen.
-                #
-                # Die Akkorde gehen kanonisch raus (immer mit Kreuz); wie sie
-                # geschrieben werden, entscheidet der Browser aus `key` und der
-                # dort eingestellten Vorliebe. So wirkt eine Umstellung sofort
-                # und rueckwirkend, ohne Runde ueber den Server - und Laptop und
-                # Handy duerfen verschieden eingestellt sein.
-                # Die Bassnote faehrt pro Segment mit; ob sie gezeigt wird,
-                # entscheidet der Browser (Modus "Bass") - wie bei der
-                # Schreibweise ist das eine Anzeige-, keine Serverfrage.
-                broadcaster.publish({
-                    "t": round(audible_pos, 3),
-                    "chords": [{"c": name, "at": round(pos, 3), "b": bassnote,
-                                "v": list(safe_by_chord.get(name, ())) or None}
-                               for (pos, name), bassnote in zip(timeline, basslinie)],
-                    "lead": round(lead, 2),
-                    # Die Schreibweise kommt aus dem Schaetzer, nicht aus `key`:
-                    # sie zieht traeger nach (siehe KeyEstimator.accidental).
-                    "key": key.as_dict(keys.accidental) if key else None,
-                    # Faehrt in jedem Zustand mit, nicht nur beim Umschalten: Ein
-                    # Browser, der sich spaeter verbindet, muss die Stummschaltung
-                    # sehen - sonst zeigt er munter Akkorde an, waehrend nichts zu
-                    # hoeren ist, und der Fehler sitzt scheinbar im Audio.
-                    "muted": loop.muted,
-                    "control_guitar": loop.control_guitar,
-                })
-
-            # Im Terminal gibt es keinen Dialog - hier gilt immer die erkannte
-            # Tonart, und solange keine feststeht, das Kreuz.
-            accidental = keys.accidental
-            # Der hoerbare Akkord mit gemessenem Bass: C/E statt C.
-            jetzt = bassmodul.slash(audible, bass_jetzt)
-            sys.stdout.write(
-                f"\r  In {max(lead, 0.0):3.1f}s: "
-                f"{spell(current or '-', accidental):<6s} "
-                f"| Now playing: {spell(jetzt, accidental):<8s} "
-                f"| Bass: {spell(bass_jetzt or '-', accidental):<3s} "
-                f"| Key: {key.label_in(accidental) if key else '...':<9s}"
-            )
-            sys.stdout.flush()
-    except KeyboardInterrupt:
-        print("\nStopped.")
-    finally:
-        if debug:
-            debug.close()
-    if loop.xruns:
-        print(f"Stream warnings: {loop.xruns} (last: {loop.last_status})")
-    aussetzer = loop.capture_dropouts
-    if aussetzer and any(aussetzer):
-        print(f"Capture dropouts: {aussetzer[0]} under, {aussetzer[1]} over "
-              f"(the two device clocks drifting apart)")
-
-
-def _locate_onset(chord, previous, history, window_end, last_onset):
-    """[POC-BTC] stillgelegt - nur noch vom Template-Pfad benutzt.
-
-    Stream-Position, an der `chord` einsetzt.
-
-    Gesucht wird nicht im Analysefenster, sondern in der Frame-Historie ab dem
-    letzten bekannten Wechsel. Sonst begrenzt die Fensterlaenge, wie weit die
-    Suche zurueckreicht - und ein Wechsel, dessen Erkennung laenger gedauert
-    hat, wird auf den Fensteranfang geklemmt und damit zu spaet gemeldet.
-    """
-    from .chroma import FRAME_SECONDS
-    from .chords import find_onset_frame
-
-    if chord == "-":
-        # Stille schlaegt an, sobald die juengere Fensterhaelfte leise ist -
-        # der Einsatz liegt also grob in deren Mitte.
-        return window_end - 0.25 * ANALYSIS_WINDOW
-
-    # Nicht weiter zurueck als bis zum letzten Wechsel: davor stand ein anderer
-    # Akkord, dessen Frames die Suche nur verwaessern wuerden.
-    start = window_end - MAX_ONSET_SEARCH
-    if last_onset is not None:
-        start = max(start, last_onset)
-
-    fallback = window_end - 0.4 * ANALYSIS_WINDOW
-    span = history.since(start)
-    if span is None:
-        return fallback                       # FFT-Fallback / noch zu wenig Material
-
-    frames, span_start = span
-    previous_chord = previous if previous not in (None, "-", "?") else None
-    index = find_onset_frame(frames, previous_chord, chord)
-    if index is None:
-        return fallback
-
-    # Frame k ist der erste des neuen Akkords, seine Mitte liegt bei
-    # k * FRAME_SECONDS - die Grenze also ein halbes Frame davor.
-    onset = span_start + max(index - 0.5, 0.0) * FRAME_SECONDS
-    return min(onset, window_end)   # gefunden werden kann nur Vergangenes
-
-
 class EventLedger:
     """[Redesign 6.1] Publish-once-Kanal neben dem heutigen Vollzustand.
 
@@ -1382,38 +1028,6 @@ def _bass_per_segment(timeline, track, front: float) -> list[str | None]:
         pooled = track.pooled_between(onset, ende)
         noten.append(bassmodul.name(bassmodul.slash_note(pooled, chord)))
     return noten
-
-
-def _commit(timeline, onset, chord, audible_pos):
-    """[POC-BTC] stillgelegt - nur noch vom Template-Pfad benutzt.
-
-    Traegt `chord` in die Zeitleiste ein. Gibt den Onset zurueck, oder None,
-    wenn kein neues Segment entstand.
-
-    Ein Segment unter MIN_CHORD_SECONDS ist kein Akkord, sondern ein Fehlgriff
-    der Erkennung. Dank des Vorlaufs sehen wir den Fehlgriff Sekunden bevor er
-    hoerbar wird - also nehmen wir ihn einfach zurueck, statt ihn als 50-ms-Blitz
-    durchzureichen. Der nachrueckende Akkord erbt den frueheren Onset: *wann*
-    gewechselt wurde, stand bereits fest; nur *was* gespielt wird, korrigiert
-    sich. Deshalb konvergiert das - jede weitere Erkennung raeumt die vorige
-    Fehlentscheidung ab, ohne den Zeitpunkt zu verschieben.
-    """
-    while (timeline
-           and timeline[-1][0] > audible_pos          # noch nicht gehoert
-           and onset - timeline[-1][0] < MIN_CHORD_SECONDS):
-        onset = min(onset, timeline[-1][0])
-        timeline.pop()
-
-    if timeline:
-        if timeline[-1][1] == chord:
-            return None            # der Akkord lief durch, der Blip war Rauschen
-        # Nur erreichbar, wenn das Vorsegment schon hoerbar war: dann laesst es
-        # sich nicht mehr zuruecknehmen, aber der Wechsel darf trotzdem nicht
-        # kuerzer als MIN_CHORD danach liegen.
-        onset = max(onset, timeline[-1][0] + MIN_CHORD_SECONDS)
-
-    timeline.append((onset, chord))
-    return onset
 
 
 def main():

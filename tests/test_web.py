@@ -48,12 +48,14 @@ class TestChordBroadcaster:
         # Zwischenstaende zu verwerfen ist nur deshalb verlustfrei.
         broadcaster = ChordBroadcaster()
         q, _ = broadcaster.subscribe()
-        broadcaster.publish({"t": 1.0, "chords": [{"c": "C", "at": 0.5}], "lead": 3})
-        broadcaster.publish({"t": 2.0, "chords": [{"c": "C", "at": 0.5},
-                                                  {"c": "G", "at": 4.0}], "lead": 3})
+        broadcaster.publish({"t": 1.0, "frontier": 3.0,
+                             "committed": [{"c": "C", "at": 0.5}]})
+        broadcaster.publish({"t": 2.0, "frontier": 4.0,
+                             "committed": [{"c": "C", "at": 0.5},
+                                           {"c": "G", "at": 4.0}]})
         (zustand,) = _leeren(q)
         assert zustand["t"] == 2.0
-        assert len(zustand["chords"]) == 2      # Historie steckt im Snapshot
+        assert len(zustand["committed"]) == 2   # Historie steckt im Snapshot
 
     def test_neuer_client_bekommt_sofort_den_letzten_zustand(self):
         broadcaster = ChordBroadcaster()
@@ -82,11 +84,11 @@ class TestChordBroadcaster:
         broadcaster = ChordBroadcaster()
         q, _ = broadcaster.subscribe()
         broadcaster.publish({
-            "t": 12.0, "lead": 3.0, "chords": [{"c": "A#", "at": 10.0}],
+            "t": 12.0, "frontier": 14.0, "committed": [{"c": "A#", "at": 10.0}],
             "key": {"tonic": "F", "minor": False, "acc": "flat", "label": "F-Dur"},
         })
         (zustand,) = _leeren(q)
-        assert zustand["chords"][0]["c"] == "A#", "Akkorde gehen kanonisch raus"
+        assert zustand["committed"][0]["c"] == "A#", "Akkorde gehen kanonisch raus"
         assert zustand["key"]["acc"] == "flat", "die Schreibweise faehrt mit"
 
 
@@ -127,12 +129,6 @@ class TestSeite:
         assert 'fetch("/control-guitar" + location.search, { method: "POST" })' in PAGE
         assert "control_guitar" in PAGE
         assert "kontrollgitarreSetzen" in PAGE
-
-    def test_gitarrengriff_filtert_unsichere_toene(self):
-        assert "keepSafe" in PAGE
-        assert "secure.has(sounding)" in PAGE
-        assert "safe: c.v || null" in PAGE
-        assert "safeGuitarName" in PAGE
 
     def test_gitarrenmodus_hat_griffbild_und_grifflogik(self):
         # Das Griffbild-Element, die Grifflogik (E-/A-Form) und das SVG-Rendern
@@ -395,7 +391,8 @@ class TestToken:
 class TestStummImBroadcaster:
     def test_republish_aendert_nur_das_gewuenschte_feld(self):
         b = ChordBroadcaster()
-        b.publish({"t": 12.0, "chords": [{"c": "C", "at": 11.0}], "muted": False})
+        b.publish({"t": 12.0, "committed": [{"c": "C", "at": 11.0}],
+                   "muted": False})
         q, letzter = b.subscribe()          # der letzte Zustand kommt als Rueckgabe,
         assert json.loads(letzter)["muted"] is False   # nicht ueber die Queue
 
@@ -404,7 +401,7 @@ class TestStummImBroadcaster:
         zustand = json.loads(q.get_nowait())
         assert zustand["muted"] is True
         assert zustand["t"] == 12.0                    # Zeit unangetastet
-        assert zustand["chords"] == [{"c": "C", "at": 11.0}]   # Akkorde auch
+        assert zustand["committed"] == [{"c": "C", "at": 11.0}]   # Akkorde auch
 
     def test_republish_erreicht_alle_geraete(self):
         # Laptop und Handy haengen gleichzeitig dran. Wer auf dem einen pausiert,

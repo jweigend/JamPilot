@@ -130,56 +130,6 @@ _TEMPLATES = _build_templates()
 _TEMPLATE_BY_NAME = {name: vec for name, vec, _, _, _ in _TEMPLATES}
 
 
-def find_onset_frame(frames: np.ndarray, prev_name: str | None, new_name: str) -> int | None:
-    """Frame-Index im Fenster, ab dem `new_name` klingt - oder None.
-
-    Wann ein Akkord einsetzt, laesst sich nicht aus dem Zeitpunkt der Erkennung
-    ableiten: die Erkennung braucht erst genug neues Material, um die Pooling-
-    Mehrheit zu kippen, und das dauert je nach Signal unterschiedlich lang. Der
-    Wechsel wird deshalb im Fenster *gesucht*: gesucht ist der Schnitt k, der
-    die Frames am besten in "davor = prev" / "ab hier = new" teilt. Damit liegt
-    die Aufloesung beim Frame-Raster (~23 ms) statt beim Analysetakt (~500 ms).
-    """
-    new_template = _TEMPLATE_BY_NAME.get(new_name)
-    if new_template is None or frames is None or frames.shape[1] < 4:
-        return None
-
-    unit = frames / (np.linalg.norm(frames, axis=0, keepdims=True) + 1e-9)
-    score_new = new_template @ unit
-
-    # Der Schnitt braucht ZWEI Belege, und die Latte ist der schwaechere davon:
-    # der neue Akkord muss den alten schlagen UND ueberhaupt klingen.
-    #
-    # Die zweite Bedingung fehlte, und daran zerbrach jeder Break vor dem
-    # Wechsel. Ein rein relatives Kriterium fragt nur "passt neu besser als
-    # alt". Sobald die Band absetzt, faellt der alte Score zusammen - der
-    # Gewinn wird positiv, OBWOHL der neue Akkord noch gar nicht da ist, und
-    # der Schnitt rutscht an den Anfang des Breaks. Gemessen ueber den vollen
-    # Pfad: ohne Break +30 ms, mit 0.5s Break -240 ms, mit 2s Break bis
-    # -693 ms. Genau die Stellen, an denen die Anzeige den Zielakkord schon
-    # im Break zeigte und man nicht mehr dazu spielen konnte.
-    #
-    # Die absolute Latte kann nicht aus der Lautstaerke kommen: librosa
-    # normiert jeden Chroma-Frame (norm=inf), im Frame-Chroma steht keine
-    # Lautstaerke mehr - ein Break-Frame aus Beckenrauschen kommt auf voller
-    # Amplitude an. Sie kommt deshalb aus der Aehnlichkeit selbst, gegen
-    # dieselbe Schwelle, an der auch match_chord "kein Akkord" sagt.
-    prev_template = _TEMPLATE_BY_NAME.get(prev_name) if prev_name else None
-    # Ohne Vorgaenger (Programmstart, nach Stille) bleibt die Schwelle allein
-    # stehen. Traegt der Akkord schon das ganze Fenster, wird k=0 - der Einsatz
-    # lag vor dem Fenster, frueher koennen wir ihn nicht gesehen haben. Das ist
-    # die ehrliche Antwort; ein Schnitt gegen den eigenen Mittelwert wuerde
-    # hier einen Wechsel erfinden.
-    latte = np.full(frames.shape[1], MATCH_THRESHOLD)
-    if prev_template is not None:
-        latte = np.maximum(latte, prev_template @ unit)
-    gain = score_new - latte
-
-    # k maximiert sum(gain[k:]): ab dort traegt der neue Akkord das Fenster.
-    suffix_sums = np.concatenate([np.cumsum(gain[::-1])[::-1], [0.0]])
-    return int(np.argmax(suffix_sums))
-
-
 def match_chord(chroma: np.ndarray, cqt: bool = False) -> ChordResult:
     """Findet den Akkord-Template mit der hoechsten Cosinus-Aehnlichkeit.
 
@@ -215,35 +165,3 @@ def match_chord(chroma: np.ndarray, cqt: bool = False) -> ChordResult:
         return ChordResult("N", best.score, candidates=plausible)
     return ChordResult(best.name, best.score, root=best.root,
                        quality=best.quality, candidates=plausible)
-
-
-class ChordSmoother:
-    """Mehrheitsentscheid ueber die letzten N Erkennungen gegen Flackern.
-
-    Liefert "?" bis das Fenster gefuellt ist - unterdrueckt Fehlgriffe auf
-    Attack-Transienten direkt nach Start oder Stille.
-    """
-
-    def __init__(self, window: int = 3):
-        self.window = window
-        self._history: list[str] = []
-
-    def reset(self):
-        self._history.clear()
-
-    def update(self, result: ChordResult) -> str:
-        self._history.append(result.name)
-        if len(self._history) > self.window:
-            self._history.pop(0)
-        if len(self._history) < self.window:
-            return "?"
-
-        best = max(self._history, key=self._history.count)
-        # Ohne echte Mehrheit nicht raten. Ein `max(set(...))` lieferte hier je
-        # nach Hash-Seed einen beliebigen der Kandidaten - und ein solcher
-        # Phantomakkord erzeugt in der Zeitleiste ein Segment mit erfundenem
-        # Onset, das die nachfolgenden echten Onsets mitverschiebt. "?" heisst
-        # "unsicher": der Aufrufer behaelt den letzten stabilen Akkord bei.
-        if self._history.count(best) * 2 <= self.window:
-            return "?"
-        return best
