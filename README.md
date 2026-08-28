@@ -1,4 +1,4 @@
-# JamPilot — jam along with anything, in real time
+# <img src="docs/bilder/icon.png" height="64" alt="" align="absmiddle"> JamPilot — jam along with anything, in real time
 
 **Play any song on your computer. JamPilot shows you — and your whole band —
 the chords, seconds before you hear them.**
