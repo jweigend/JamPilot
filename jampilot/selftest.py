@@ -176,6 +176,37 @@ def _fenster_pruefen() -> bool | None:
     return ok
 
 
+def _webseite_pruefen() -> bool:
+    """Sind die Paketdaten der Weboberflaeche da? Der Import beantwortet es.
+
+    web.py liest seine HTML-Dateien EINMAL BEIM IMPORT, ausdruecklich damit ein
+    defektes Bundle sofort auffaellt statt beim ersten Request. Das stimmt aber
+    nur, wenn ueberhaupt jemand importiert - und genau daran fehlte es: Der
+    Selbsttest fasste web.py nicht an, `devices` auch nicht, und so ging ein
+    Bundle durch alle Pruefungen, dem eine Datendatei fehlte. Bemerkt hat es
+    erst `run` auf dem Rechner eines Nutzers.
+
+    Glimpflich immerhin: Der Import steht in cmd_run VOR engine.start(), der
+    Ton war also noch nicht umgeleitet. Was der Nutzer sah, sagte etwas
+    anderes - die Zeile "System audio -> ... (restored on exit)" kuendigt an,
+    was gleich passiert, und stand schon da. Ein Absturz unmittelbar danach
+    liest sich wie ein halb umgebauter Rechner.
+
+    Kein Zufall, sondern eine Fehlersorte mit Ansage: Die Spec zaehlte die
+    Datendateien namentlich auf, und `data/timeline_poc.html` kam spaeter dazu.
+    Sie sammelt jetzt das ganze Verzeichnis ein - und diese Zeile hier merkt es,
+    falls das je wieder auseinanderlaeuft.
+
+    Gestartet wird nichts: kein Port, kein Thread. Nur der Import.
+    """
+    try:
+        from . import web
+    except (FileNotFoundError, OSError) as exc:
+        print(f"\n  {exc}")
+        return False
+    return bool(web.PAGE)
+
+
 def run() -> bool:
     rng = np.random.default_rng(42)
     print(f"Selftest: {len(TEST_CASES)} root-position chords, "
@@ -256,6 +287,12 @@ def run() -> bool:
     else:
         print("\n  Control window: FAILED to build")
 
+    seite = _webseite_pruefen()
+    if seite:
+        print("  Web display: page data loads")
+    else:
+        print("  Web display: FAILED - a data file is missing from this build")
+
     return (scores["cqt_clean"] == total and scores["cqt_real"] >= total - 1
             and inv["clean"] == inv_total and inv["noisy"] >= inv_total - 1
-            and fenster is not False)
+            and fenster is not False and seite)
