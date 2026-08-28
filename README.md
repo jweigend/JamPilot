@@ -68,9 +68,11 @@ Two things worth knowing before you start, because you would find them out anywa
   and they are what gets the chord onto your screen *before* your ears get the
   music. You do not notice it while playing: what you hear and what you see
   are in sync, alone or with the whole room on the same speakers.
-- **Chords, not tabs.** JamPilot names the harmony — `Bm`, `C`, `D`, and the bass
-  note under it if you want (`C/E`). It does not give you riffs, fingerings or
-  solos. It hears a full working vocabulary — triads, sevenths, `sus`, `dim`,
+- **Harmony, not transcription.** JamPilot names the harmony — `Bm`, `C`, `D`,
+  and the bass note under it if you want (`C/E`) — and shows where to play it:
+  chord shapes on the fretboard, positions on the bass neck, voicings on the
+  keys. It does not transcribe riffs, melodies or solos note by note. It hears
+  a full working vocabulary — triads, sevenths, `sus`, `dim`,
   `aug`, `6` — with pop, rock, blues, folk as its home turf. Extensions beyond
   the seventh (`9`, `13`, altered notes) are folded into their core chord, so on
   a Real Book standard it will simplify what it hears. Why recognition works the
@@ -292,7 +294,8 @@ Windows, install from source — `./run.sh` / `run.cmd` is the whole setup
 
 Honesty section — the things JamPilot does *not* do (yet):
 
-- **Chords, not melody or tabs.** No riffs, no solos, no rhythm notation.
+- **Harmony, not transcription.** Chord shapes, bass positions and keyboard
+  voicings, yes — but no note-by-note riffs, melodies, solos or rhythm notation.
 - **Complex jazz harmony gets simplified.** Extensions beyond the seventh are
   folded into their core chord ([why](HOW-IT-WORKS.md)).
 - **Recognition is very good, not perfect** — pop, rock, blues and folk are its
