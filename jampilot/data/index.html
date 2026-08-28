@@ -246,9 +246,13 @@
   #fbname { color: #c8cdd4; font-size: max(2.5vmin, 15px); font-weight: 650;
             letter-spacing: .03em; white-space: nowrap; }
   #fbname .suffix { color: #6ea8ff; font-size: 72%; }
+  /* Der Wechsel des grossen Akkords: nur ein kurzer Groessen-Pop. Frueher
+     blendete er zusaetzlich von 40 % Deckkraft auf - auf Schwarz sah der
+     Name dann fast eine halbe Sekunde lang GRAU aus, ausgerechnet im
+     Moment des Lesens; bei schnellen Wechseln fast die halbe Standzeit. */
   @keyframes pop {
-    0% { transform: scale(.94); opacity: .4; }
-    100% { transform: scale(1); opacity: 1; }
+    0% { transform: scale(.94); }
+    100% { transform: scale(1); }
   }
 
   /* Ohne Akkord stand hier frueher ein Gedankenstrich in 52vh Groesse - das sah
@@ -806,8 +810,15 @@ function setCurrent(seg) {
   }
 
   if (el.dataset.shown === html) return;
+  // Pop nur bei echtem Wechsel des Gezeigten (Akkord bzw. Basston) - nicht,
+  // wenn bloss die Stufe eintrifft, die Schreibweise kippt oder der Bass
+  // nachrueckt: dann aktualisiert der Kopf still.
+  const gezeigt = bass ? "bass:" + bass : "chord:" + akkord;
+  const wechsel = el.dataset.gezeigt !== gezeigt;
   el.dataset.shown = html;
+  el.dataset.gezeigt = gezeigt;
   el.innerHTML = html;
+  if (!wechsel) return;
   el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
   // Der Blitz auf der JETZT-Linie macht sichtbar, dass beide dieselbe Uhr
   // benutzen: er faellt mit dem Wechsel des grossen Akkords zusammen.

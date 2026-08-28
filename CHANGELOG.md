@@ -24,6 +24,15 @@ Refinement and correction hold the gap at the source as well.
 Measured with `tests/reference/messung_event_abstand.py`. Not yet played
 in the rehearsal room.
 
+### Display: the big chord no longer turns grey on every change
+
+The change animation faded the chord name in from 40 % opacity — on black
+that read as a grey chord for almost half a second, right when you want to
+read it, and on fast changes for nearly half its lifetime. It also fired
+whenever anything in the header changed (the scale degree arriving, the
+spelling flipping, the bass moving up). Now the pop is a size-only nudge,
+and only on an actual change of the chord (or, in bass mode, the bass note).
+
 ## 1.1.0 — 2026-08-27
 
 The theme of this release: **a timeline you can trust.** Every number below
