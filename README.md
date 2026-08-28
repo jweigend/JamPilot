@@ -66,9 +66,8 @@ Two things worth knowing before you start, because you would find them out anywa
 - **You hear the song a few seconds late.** That is not a glitch, it is the deal:
   those seconds are what the analysis spends on the part you have not heard yet,
   and they are what gets the chord onto your screen *before* your ears get the
-  music. The price is that JamPilot is for playing along with your machine — not
-  for jamming with someone else in the room, and not for staying in sync with a
-  video you are also watching.
+  music. You do not notice it while playing: what you hear and what you see
+  are in sync, alone or with the whole room on the same speakers.
 - **Chords, not tabs.** JamPilot names the harmony — `Bm`, `C`, `D`, and the bass
   note under it if you want (`C/E`). It does not give you riffs, fingerings or
   solos. It hears a full working vocabulary — triads, sevenths, `sus`, `dim`,
@@ -293,9 +292,6 @@ Windows, install from source — `./run.sh` / `run.cmd` is the whole setup
 
 Honesty section — the things JamPilot does *not* do (yet):
 
-- **Not for jamming with other people in the room.** Everyone would hear the
-  original *and* play to a display that runs seconds behind it. JamPilot is for
-  playing along with what your computer plays.
 - **Chords, not melody or tabs.** No riffs, no solos, no rhythm notation.
 - **Complex jazz harmony gets simplified.** Extensions beyond the seventh are
   folded into their core chord ([why](HOW-IT-WORKS.md)).
