@@ -15,6 +15,7 @@ Was das Bundle NICHT mitbringen kann, weil es Systemteile sind:
 Beides bleibt eine Voraussetzung auf dem Zielrechner, siehe README.
 """
 
+import glob
 import os
 import sys
 
@@ -59,13 +60,24 @@ for paket in ("librosa", "numba", "llvmlite", "soundfile", "sounddevice",
 datas = [(quelle, ziel) for quelle, ziel in datas
          if not quelle.endswith((".nbc", ".nbi"))]
 
-# [POC-BTC] Die Modellgewichte des BTC-Erkenners (11 MB) liegen als Paketdaten
-# neben dem Code; der statische Scanner sieht nur Importe, keine Datendateien.
-# Genauso die Web-Anzeige (index.html), die web.py beim Import laedt.
-datas += [(os.path.join(projekt, "jampilot", "data", "btc_large_voca.npz"),
-           os.path.join("jampilot", "data")),
-          (os.path.join(projekt, "jampilot", "data", "index.html"),
-           os.path.join("jampilot", "data"))]
+# Die Paketdaten: Modellgewichte des BTC-Erkenners (11 MB) und die Seiten der
+# Weboberflaeche. Der statische Scanner sieht nur Importe, keine Datendateien -
+# sie muessen also hier stehen.
+#
+# ALLES aus dem Verzeichnis, keine Namensliste. Hier standen einmal zwei Dateien
+# einzeln aufgezaehlt, und als data/timeline_poc.html dazukam, fehlte sie im
+# Bundle. Aufgefallen ist es nicht beim Bauen, sondern beim Starten auf einem
+# fremden Rechner. Eine Aufzaehlung, die jemand pflegen muss, ist genau so lange
+# richtig, bis es jemand vergisst; pyproject.toml sagt fuer den pip-Weg aus
+# demselben Grund `data/*`.
+#
+# Der zweite Teil der Lehre steht in selftest._webseite_pruefen(): Der
+# Selbsttest importiert web.py jetzt, damit eine fehlende Datendatei den Bau
+# stoppt statt den Nutzer.
+datas += [(quelle, os.path.join("jampilot", "data"))
+          for quelle in sorted(glob.glob(
+              os.path.join(projekt, "jampilot", "data", "*")))
+          if os.path.isfile(quelle)]
 
 excludes = [
     # Nur, was NACHWEISLICH nicht importiert wird. Jeder weitere Ausschluss
