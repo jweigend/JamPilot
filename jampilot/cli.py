@@ -98,6 +98,16 @@ BTC_DEBOUNCE_MATCH = 0.3
 # jeden Hop neu verfeinert. Muss btc.REFINE_BACK entsprechen.
 _REFINED_LOOKBACK = 0.40
 
+# Mindestabstand zweier Events im Publish-once-Kanal. Das Modell haelt
+# btc.MIN_SEGMENT_SECONDS zwischen seinen Grenzen, aber der Live-Pfad konnte
+# sie danach wieder zusammenschieben: die Grenzverfeinerung (Floor 0.05 s) und
+# die Korrektur-Grenze AN der Commit-Grenze, die ein eben committetes Event
+# um zwei Hundertstel verfehlte. Gemessen (Referenzset, --delay 5): ein
+# Viertel aller Events lag dichter als ein Modellsegment - unlesbare Chips,
+# die sich gegenseitig anschneiden. Der EventLedger garantiert den Abstand
+# strukturell; Merge und Verfeinerung halten ihn zusaetzlich an der Quelle.
+MIN_EVENT_GAP = 0.25
+
 # Wie lange der Ringpuffer stillstehen darf, bevor der Stream als tot gilt.
 # Ein Callback kommt alle ~43ms (2048 Frames bei 48kHz); selbst ein schwer
 # klemmender Rechner haelt keine 3s durch. Grosszuegig gewaehlt, weil ein
@@ -721,7 +731,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                     continue
                 pos = window_start + refine_boundary(
                     audio, sr, pos - window_start, timeline[idx - 1][1], name)
-                pos = max(pos, timeline[idx - 1][0] + 0.05)
+                # Zum Vorgaenger mindestens ein Event-Abstand, zum Nachfolger
+                # bleibt die Reihenfolge gewahrt (der Nachfolger holt sich
+                # seinen Abstand bei seiner eigenen Verfeinerung).
+                pos = max(pos, timeline[idx - 1][0] + MIN_EVENT_GAP)
                 if idx + 1 < len(timeline):
                     pos = min(pos, timeline[idx + 1][0] - 0.05)
                 timeline[idx] = (pos, name)
@@ -892,8 +905,12 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
                     and _label_at(previous, base) == name):
                 # Zu spaet erkannte Grenze (siehe Docstring): Committetes
                 # bleibt stehen, aber ab der Commit-Grenze gilt das neue
-                # Etikett - sonst kaeme es nie mehr in ein Event.
-                timeline.append((base, name))
+                # Etikett - sonst kaeme es nie mehr in ein Event. Liegt das
+                # Committete selbst erst einen Wimpernschlag zurueck, rueckt
+                # die Korrektur auf MIN_EVENT_GAP nach (und wird damit einen
+                # Hop spaeter committet), statt ein zweites Event auf dasselbe
+                # Zehntel zu setzen.
+                timeline.append((max(base, timeline[-1][0] + MIN_EVENT_GAP), name))
                 last = name
             continue
         if name == last:
@@ -956,11 +973,23 @@ class EventLedger:
     nachruecken (markiert als "b_up"), nie zurueck und nie auf eine andere
     Note. index.html liest ausschliesslich diesen Kanal; /timeline-poc
     zeigt zusaetzlich die interne Hypothese (Debug).
+
+    Zweite Garantie: Events liegen nie dichter als MIN_EVENT_GAP und
+    wiederholen nie die Aussage ihres Vorgaengers (gleicher Akkord, gleicher
+    Bass). Kollidieren zwei Eintraege im SELBEN Hop, gewinnt der spaetere -
+    er ist das juengere Urteil des Modells. Kollidiert ein Eintrag mit einem
+    schon veroeffentlichten Event, rueckt er auf den Mindestabstand nach:
+    Das Etikett kommt an, nur sein Onset steht bis zu MIN_EVENT_GAP spaeter
+    als gemessen - besser als ein unlesbarer Doppel-Chip oder ein
+    verlorener Wechsel.
     """
 
     def __init__(self):
         self._until = float("-inf")
         self.events: list[dict] = []
+        # Nachgerueckte Events: Event-Onset -> Zeitleisten-Onset, damit die
+        # Bass-Persistenz weiter unter dem gemessenen Onset gefunden wird.
+        self._origin: dict[float, float] = {}
         # Bass-Persistenz je Segment-Onset: (zuletzt gemessene Note, Hops in
         # Folge mit genau dieser Note). Schwellen-Flattern von slash_note
         # erreicht so nie ein Event.
@@ -982,11 +1011,34 @@ class EventLedger:
         for k in [k for k in self._streaks if k not in live]:
             del self._streaks[k]
 
+        fresh: list[dict] = []          # in DIESEM Hop committet
         for (pos, name), _ in zip(timeline, basslinie):
-            if self._until < pos <= frontier:
-                self.events.append({"at": round(pos, 3), "c": name,
-                                    "b": self._stable_bass(round(pos, 3)),
-                                    "key": key_dict})
+            if not (self._until < pos <= frontier):
+                continue
+            k = round(pos, 3)
+            at, bass = k, self._stable_bass(k)
+            while self.events:
+                last = self.events[-1]
+                if last["c"] == name and last["b"] == bass:
+                    break                       # dieselbe Aussage: kein Event
+                if at - last["at"] >= MIN_EVENT_GAP:
+                    break
+                if fresh and last is fresh[-1]:
+                    self.events.pop()           # gleicher Hop: der spaetere gewinnt
+                    fresh.pop()
+                    self._origin.pop(last["at"], None)
+                    continue
+                at = round(last["at"] + MIN_EVENT_GAP, 3)   # nachruecken
+                break
+            else:
+                last = None
+            if last is not None and last["c"] == name and last["b"] == bass:
+                continue
+            event = {"at": at, "c": name, "b": bass, "key": key_dict}
+            if at != k:
+                self._origin[at] = k
+            self.events.append(event)
+            fresh.append(event)
         self._until = max(self._until, frontier)
 
         # Monotone Bass-Regel, zweite Haelfte: Ein leer committeter Bass darf
@@ -994,7 +1046,7 @@ class EventLedger:
         # einmal gesetzter Bass wird nie wieder angefasst.
         for e in self.events:
             if e["b"] is None:
-                stable = self._stable_bass(e["at"])
+                stable = self._stable_bass(self._origin.get(e["at"], e["at"]))
                 if stable is not None:
                     e["b"] = stable
                     e["b_up"] = True
@@ -1003,7 +1055,7 @@ class EventLedger:
         # Wie die Zeitleiste: Vergangenes kurz behalten - und das letzte
         # Event vor der JETZT-Linie bleibt immer stehen (aktueller Akkord).
         while len(self.events) > 1 and self.events[1]["at"] <= audible_pos - 2.0:
-            self.events.pop(0)
+            self._origin.pop(self.events.pop(0)["at"], None)
 
 
 def _bass_per_segment(timeline, track, front: float) -> list[str | None]:

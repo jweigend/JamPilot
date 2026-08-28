@@ -382,6 +382,59 @@ class TestEventLedger:
         assert [e["at"] for e in led.events] == [2.0, 6.0]
 
 
+class TestEventAbstand:
+    """Events liegen nie dichter als MIN_EVENT_GAP und wiederholen sich nicht."""
+
+    def test_im_selben_hop_gewinnt_der_spaetere(self):
+        led = cli.EventLedger()
+        # F 6.98 und die Korrektur G 7.0 passieren die Grenze im selben Hop:
+        # das F war ein Flackern, das G ist das juengere Urteil.
+        led.advance([(1.0, "C"), (6.98, "F"), (7.0, "G")], [None] * 3, None,
+                    frontier=7.0)
+        assert [(e["at"], e["c"]) for e in led.events] == [(1.0, "C"), (7.0, "G")]
+
+    def test_gegen_veroeffentlichtes_rueckt_das_neue_nach(self):
+        led = cli.EventLedger()
+        led.advance([(1.0, "C"), (6.98, "F")], [None] * 2, None, frontier=6.98)
+        # F ist draussen - unantastbar. Das G kommt trotzdem an, nur auf
+        # Mindestabstand nachgerueckt statt 0.02 s hinter dem F.
+        led.advance([(1.0, "C"), (6.98, "F"), (7.0, "G")], [None] * 3, None,
+                    frontier=7.25)
+        assert [(e["at"], e["c"]) for e in led.events] == [
+            (1.0, "C"), (6.98, "F"), (round(6.98 + cli.MIN_EVENT_GAP, 3), "G")]
+
+    def test_kaskade_laesst_nur_das_letzte_des_buendels(self):
+        led = cli.EventLedger()
+        led.advance([(1.0, "C"), (6.9, "C7"), (7.0, "F"), (7.1, "Fmaj7")],
+                    [None] * 4, None, frontier=7.25)
+        assert [(e["at"], e["c"]) for e in led.events] == [(1.0, "C"), (7.1, "Fmaj7")]
+
+    def test_gleiche_aussage_wird_kein_zweites_event(self):
+        led = cli.EventLedger()
+        led.advance([(1.0, "C"), (2.0, "C"), (3.0, "G")], [None] * 3, None,
+                    frontier=4.0)
+        assert [(e["at"], e["c"]) for e in led.events] == [(1.0, "C"), (3.0, "G")]
+
+    def test_gleicher_akkord_mit_anderem_bass_bleibt_ein_event(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C"), (2.0, "C")]
+        for _ in range(cli.BASS_COMMIT_HOPS):
+            led.advance(zeitleiste, [None, "E"], None, frontier=0.5)
+        led.advance(zeitleiste, [None, "E"], None, frontier=3.0)
+        assert [(e["at"], e["c"], e["b"]) for e in led.events] == [
+            (1.0, "C", None), (2.0, "C", "E")]
+
+    def test_nachgerueckter_bass_findet_seine_messung(self):
+        led = cli.EventLedger()
+        led.advance([(1.0, "C"), (6.98, "F")], [None] * 2, None, frontier=6.98)
+        zeitleiste = [(1.0, "C"), (6.98, "F"), (7.0, "G")]
+        led.advance(zeitleiste, [None, None, None], None, frontier=7.25)
+        for _ in range(cli.BASS_COMMIT_HOPS):
+            led.advance(zeitleiste, [None, None, "B"], None, frontier=7.25)
+        g = led.events[-1]
+        assert g["c"] == "G" and g["b"] == "B" and g["b_up"] is True
+
+
 class TestBassRegel:
     """Monotone Bass-Regel: Persistenz vor Commit, einmal nachruecken, nie zurueck."""
 

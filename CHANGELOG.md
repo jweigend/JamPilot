@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Timeline: events keep a minimum spacing
+
+The publish-once channel could commit chords a few hundredths of a second
+apart — five chips in one second, cutting each other off into unreadable
+fragments. The model itself never produces segments shorter than 0.25 s;
+the density arose afterwards in the live path (boundary refinement with a
+0.05 s floor, and the late-boundary correction landing 0.02 s behind an
+event that had just been committed). Now the `EventLedger` guarantees a
+minimum gap of 0.25 s: within one hop the later entry wins (it is the
+model's more recent judgement), against an already published event the
+newcomer moves up to the minimum gap instead of colliding — and an entry
+that merely repeats its predecessor (same chord, same bass) is no event.
+Refinement and correction hold the gap at the source as well.
+
+| Track (reference set, `--delay 5`) | Events closer than 0.25 s | Root accuracy vs. ground truth |
+|---|---|---|
+| Let It Be | 44 of 184 → **0 of 165** | 84.2 % → 83.4 % |
+| Something | 44 of 151 → **0 of 139** | 74.8 % → 75.0 % |
+
+Measured with `tests/reference/messung_event_abstand.py`. Not yet played
+in the rehearsal room.
+
 ## 1.1.0 — 2026-08-27
 
 The theme of this release: **a timeline you can trust.** Every number below

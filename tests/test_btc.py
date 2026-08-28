@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from jampilot import btc
+from jampilot import cli
 from jampilot.cli import _merge_model_segments
 
 FIXTURE = Path(__file__).parent / "data" / "btc_golden_window.npz"
@@ -231,6 +232,18 @@ class TestMergeModelSegments:
                               audible_pos=5.25, horizon=10.25,
                               previous=[(0.0, "D")])
         assert timeline == [(0.0, "D"), (2.0, "A"), (7.0, "D")]
+
+    def test_korrektur_haelt_abstand_zum_eben_committeten(self):
+        # Das Modell flackert genau an einer Grenze: F bei 6.98 ist eben
+        # committet, jetzt sagt es dort (zweimal in Folge) G. Die Korrektur
+        # darf nicht 0.02 s hinter das F fallen - sie rueckt auf
+        # MIN_EVENT_GAP nach und wird einen Hop spaeter committet.
+        timeline = [(0.0, "C"), (6.98, "F")]
+        segs = [(0.0, "C"), (6.98, "G")]
+        _merge_model_segments(timeline, segs,
+                              audible_pos=5.0, horizon=10.0, previous=segs)
+        assert timeline == [(0.0, "C"), (6.98, "F"),
+                            (pytest.approx(6.98 + cli.MIN_EVENT_GAP), "G")]
 
     def test_revision_ersetzt_ohne_luecke(self):
         # Bestaetigte Umbenennung: der Platz wird ersetzt, nicht erst geleert.
