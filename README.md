@@ -353,9 +353,6 @@ clock, so nothing drifts.
   display already owns what is per-player — instrument, diagram, key pin,
   spelling, degrees; what is per-machine still lives in the CLI and the
   control window.
-- An incremental CQT in the live path — the 10 s analysis window is currently
-  recomputed from scratch every 250 ms, and that is the biggest lever for old
-  hardware.
 - An honest look at music outside the model's training terrain (see
   [HOW-IT-WORKS.md](HOW-IT-WORKS.md) on why a learned recogniser has a home
   style).

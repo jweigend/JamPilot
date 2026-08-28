@@ -104,6 +104,46 @@ class TestSegmente:
         assert segs[1][1] == "C"
 
 
+class TestFilterbankMemo:
+    """Die memoisierte librosa-Filterbank veraendert kein Ergebnis."""
+
+    def _signal(self, seconds, freqs):
+        sr = btc.BTC_SR
+        t = np.arange(int(seconds * sr)) / sr
+        return sum(np.sin(2 * np.pi * f * t) for f in freqs).astype(np.float32)
+
+    def test_gecachte_filterbank_bleibt_unverfaelscht(self):
+        # vqt skaliert die Filterbasis in place; gaebe der Cache das Original
+        # statt einer Kopie heraus, waere der zweite Aufruf verfaelscht.
+        import librosa
+
+        btc._speed_up_librosa_cqt()
+        y = self._signal(3.0, (130.8, 164.8, 196.0))
+        args = dict(sr=btc.BTC_SR, n_bins=btc.BTC_N_BINS,
+                    bins_per_octave=btc.BTC_BINS_PER_OCTAVE, hop_length=btc.BTC_HOP)
+        a = librosa.cqt(y, **args)
+        b = librosa.cqt(y, **args)           # Basis kommt jetzt aus dem Cache
+        assert np.array_equal(a, b)
+
+    def test_features_mit_und_ohne_memo_bitgleich(self):
+        import librosa.core.constantq as constantq
+
+        y = self._signal(4.0, (110.0, 277.2))
+        with_memo = btc.features_from_audio(y, btc.BTC_SR)
+        # getattr/setattr: in einer Klasse wuerde `constantq.__vqt...`
+        # namensverstuemmelt.
+        cached = getattr(constantq, "__vqt_filter_fft")
+        original = getattr(cached, "_jampilot_original", None)
+        if original is None:
+            pytest.skip("librosa ohne private Filterbank-API: kein Memo aktiv")
+        setattr(constantq, "__vqt_filter_fft", original)
+        try:
+            without = btc.features_from_audio(y, btc.BTC_SR)
+        finally:
+            setattr(constantq, "__vqt_filter_fft", cached)
+        assert np.array_equal(with_memo, without)
+
+
 class TestMergeModelSegments:
     def test_gehoertes_bleibt_unantastbar(self):
         timeline = [(0.0, "C"), (2.0, "G")]

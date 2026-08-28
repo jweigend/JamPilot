@@ -24,6 +24,18 @@ Refinement and correction hold the gap at the source as well.
 Measured with `tests/reference/messung_event_abstand.py`. Not yet played
 in the rehearsal room.
 
+### Feature extraction: librosa filterbank memoised
+
+librosa rebuilt the CQT filterbank on every call — ~50 ms of fixed cost per
+hop, independent of signal length. It is now built once per process:
+feature extraction per hop 70 → 21 ms (48 kHz, 10 s window), output
+bit-identical, covered by tests. An incremental CQT that caches frames
+across hops (`feature/incremental-cqt`, a further 21 → 12 ms) was measured
+end-to-end and deliberately left out: identical features, but the
+hop-stable frame grid yields ~7 % more committed events on the reference
+set — the wandering grid of the full recomputation acts as a dither the
+debounce relies on.
+
 ### Display: the big chord no longer turns grey on every change
 
 The change animation faded the chord name in from 40 % opacity — on black

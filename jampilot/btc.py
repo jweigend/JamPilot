@@ -252,6 +252,62 @@ class BTCModel:
         return labels[:t]
 
 
+# librosa baut die CQT-Filterbank bei JEDEM cqt()-Aufruf komplett neu - im
+# Profil ~55 ms je Aufruf, unabhaengig von der Signallaenge, und damit DER
+# Fixkostenblock des Live-Pfads (die eigentliche Transformation eines kurzen
+# Slices kostet nur wenige ms). Der private Builder __vqt_filter_fft ist eine
+# pure Funktion seiner kleinen Parameter; wir memoisieren ihn prozessweit.
+# vqt skaliert die gelieferte Basis IN PLACE (fft_basis[:] *= ...), deshalb
+# gibt der Wrapper immer eine Kopie heraus. Fehlt die private API in einer
+# kuenftigen librosa-Version, unterbleibt das Cachen schlicht - die Ergebnisse
+# aendern sich in keinem Fall.
+#
+# Gemessen (48 kHz, 10-s-Fenster, Entwicklungsrechner): features_from_audio
+# 69.8 -> 20.9 ms je Hop, Ausgabe bitidentisch. Die inkrementelle CQT auf
+# feature/incremental-cqt (weitere 21 -> 12 ms) bleibt bewusst draussen: die
+# Features sind gleich, aber ihr hop-stabiles Frameraster liefert im
+# Live-Pfad ~7 % mehr Events (Referenzset, 2026-08-28) - das je Hop
+# wandernde Raster der Vollrechnung wirkt als Dither, den der Debounce
+# nutzt. Auf aktueller Hardware ist der Rest-Gewinn den Preis nicht wert.
+_cqt_filter_cache: dict = {}
+
+
+def _speed_up_librosa_cqt() -> None:
+    import librosa.core.constantq as constantq
+
+    if getattr(constantq, "_jampilot_filter_cache", False):
+        return
+    original = getattr(constantq, "__vqt_filter_fft", None)
+    if original is None:                      # private API weg -> kein Cache
+        constantq._jampilot_filter_cache = True
+        return
+
+    def cached(sr, freqs, filter_scale, norm, sparsity, hop_length=None,
+               window="hann", gamma=0.0, dtype=np.complex64, alpha=None):
+        try:
+            key = (float(sr), np.asarray(freqs).tobytes(), filter_scale,
+                   norm, sparsity, hop_length,
+                   window.tobytes() if isinstance(window, np.ndarray) else str(window),
+                   gamma, np.dtype(dtype).str,
+                   None if alpha is None else np.asarray(alpha).tobytes())
+        except (TypeError, ValueError):
+            key = None
+        if key is None:
+            return original(sr, freqs, filter_scale, norm, sparsity,
+                            hop_length=hop_length, window=window,
+                            gamma=gamma, dtype=dtype, alpha=alpha)
+        if key not in _cqt_filter_cache:
+            _cqt_filter_cache[key] = original(
+                sr, freqs, filter_scale, norm, sparsity, hop_length=hop_length,
+                window=window, gamma=gamma, dtype=dtype, alpha=alpha)
+        fft_basis, n_fft, lengths = _cqt_filter_cache[key]
+        return fft_basis.copy(), n_fft, lengths.copy()
+
+    cached._jampilot_original = original
+    constantq.__vqt_filter_fft = cached
+    constantq._jampilot_filter_cache = True
+
+
 def features_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
     """Audio -> Log-CQT-Frames (T, 144), wie audio_dataset.py des Originals.
 
@@ -260,6 +316,7 @@ def features_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
     """
     import librosa
 
+    _speed_up_librosa_cqt()
     y = np.asarray(samples, dtype=np.float32)
     if samplerate != BTC_SR:
         y = librosa.resample(y, orig_sr=samplerate, target_sr=BTC_SR)
@@ -327,6 +384,7 @@ def refine_boundary(samples: np.ndarray, samplerate: int, boundary: float,
     """
     import librosa
 
+    _speed_up_librosa_cqt()               # chroma_cqt baut sonst je Aufruf neu
     prev_template = _tone_template(prev_name)
     new_template = _tone_template(new_name)
     if prev_template is None or new_template is None:

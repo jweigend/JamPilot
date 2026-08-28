@@ -185,9 +185,13 @@ angezeigt wird, *passt* zu dem, was klingt.
 
 ## 4. Wo es weitergeht
 
-- **Rechenlast:** Die CQT über das Live-Fenster wird derzeit jeden Hop komplett
-  neu gerechnet — sie inkrementell zu führen ist der größte Hebel für alte
-  Hardware.
+- **Rechenlast:** Der Fixkostenblock der Feature-Extraktion war librosas
+  Filterbank, die bei jedem CQT-Aufruf neu gebaut wurde — memoisiert kostet
+  die Extraktion je Hop 21 statt 70 ms, bitidentisch. Eine inkrementelle CQT
+  (Frames über die Hops cachen) brächte weitere 21 → 12 ms, bleibt aber
+  draußen: gleiche Features, aber ihr hop-stabiles Raster erzeugt im
+  Live-Pfad ~7 % mehr Events — das wandernde Raster der Vollrechnung wirkt
+  als Dither, den der Debounce nutzt.
 - **Stilraum:** Für Musik außerhalb des Trainingsterrains ist zuerst ein
   ehrliches Hörprotokoll nötig (wo genau kippt es?), bevor an Lösungen zu
   denken ist.

@@ -180,9 +180,13 @@ an improvisation aid: everything shown there *fits* what is sounding.
 
 ## 4. Where it goes from here
 
-- **Compute load:** the CQT over the live window is currently recomputed from
-  scratch every hop — making it incremental is the biggest lever for old
-  hardware.
+- **Compute load:** the fixed cost of feature extraction was librosa's
+  filterbank, rebuilt on every CQT call — memoised, extraction costs 21 ms
+  per hop instead of 70, bit-identical. An incremental CQT (caching frames
+  across hops) would bring a further 21 → 12 ms but stays out: same
+  features, yet its hop-stable grid produces ~7 % more events in the live
+  path — the wandering grid of the full recomputation acts as a dither the
+  debounce relies on.
 - **Stylistic reach:** for music outside the training terrain, the first step
   is an honest listening protocol (where exactly does it tip over?) before
   thinking about solutions.
