@@ -34,12 +34,12 @@ System audio ──► ring buffer (N s) ──► speakers (delayed, unchanged)
 
 You stop chasing the song. You see what is coming and play it.
 
-![The web display in guitar mode: the audible chord large in the centre with its scale degree above, the fretboard diagram top-left, the coming chord in the lane below running towards the NOW line](docs/bilder/guitar.png)
+![The web display: the audible chord G large in the centre with its scale degree 5 above, the coming chords F and C in the lane below running towards the NOW line](docs/bilder/hero.png)
 
-*The chord you hear right now is the big one — `Gm`, the `1` of the key. `F`,
-the `♭7`, is about to arrive (`in 0.3s`). Top left, the key JamPilot has worked
-out (G minor, spelled in flats) and — this is guitar mode — the shape to play
-it; top right, a QR code to put the same display on your phone.*
+*The chord you hear right now is the big one — `G`, the `5` of the key. `F`
+is about to arrive, `C` follows in 0.8 seconds — enough time to get your hand
+there. Top left, the key JamPilot has worked out (C major); top right, a QR
+code to put the same display on your phone.*
 
 The delay is not a defect to be minimised. **It is the feature**: it buys the
 analysis a few seconds of the future, and it buys the player time to react. The
@@ -139,9 +139,10 @@ the chord. The gear menu switches the display:
 | **Guitar** | the audible chord, with a **fretboard diagram** top-left | `C` |
 | **Keyboard** | the audible chord, with a **piano diagram** top-left | `C` |
 
-*Guitar mode is the shot at the top of this page: `Gm` is sounding, and its
-barre-chord shape at the 3rd fret is drawn top-left while `F` approaches in
-the lane.*
+![Guitar mode: the fretboard diagram for Gm as a barre chord at the 3rd fret top-left, the big chord in the centre, F coming up in the lane below](docs/bilder/guitar.png)
+
+*Guitar mode: `Gm` is sounding — its barre-chord shape at the 3rd fret is drawn
+top-left — while `F` approaches in the lane.*
 
 ![Keyboard mode: A♭maj7 as pressed keys on two octaves, its ♭2 degree in G minor above the chord, Gm7 next in the lane](docs/bilder/keys.png)
 
@@ -192,9 +193,9 @@ or hide the numbers, per device.
 
 ![The Scale degrees section of the gear menu: Shown, Inverted, Hidden](docs/bilder/nashville.png)
 
-*Three ways to read the numbers, per device. In the shot at the top of the page,
-`Gm` is the `1` of G minor and `F` carries its `♭7` — a small warning that the
-root sits outside the key's major scale.*
+*Three ways to read the numbers, per device. In the guitar shot above, `Gm` is
+the `1` of G minor and `F` carries its `♭7` — a small warning that the root
+sits outside the key's major scale.*
 
 ## Get it running
 
