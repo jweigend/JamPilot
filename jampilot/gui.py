@@ -23,12 +23,17 @@ gar nicht erst machen kann.
 import sys
 import threading
 import webbrowser
+from pathlib import Path
 
 from PySide6.QtCore import (Property, QEasingCurve, QPropertyAnimation, QSize, Qt,
                             QTimer, Signal)
-from PySide6.QtGui import QColor, QPainter, QPalette
+from PySide6.QtGui import QColor, QIcon, QPainter, QPalette
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QFrame, QHBoxLayout,
                                QLabel, QPushButton, QVBoxLayout, QWidget)
+
+# Das Programmsymbol (Bildmarke: Plektrum mit Note und Balken) liegt bei den
+# Paketdaten, neben der Webseite - dieselbe Datei liefert web.py als Favicon aus.
+ICON_DATEI = Path(__file__).with_name("data") / "icon.png"
 
 BG = "#111316"
 KARTE = "#181b1f"
@@ -157,6 +162,7 @@ class Fenster(QWidget):
         self.startet = False             # Warmup laeuft, der Betrieb noch nicht
 
         self.setWindowTitle("JamPilot")
+        self.setWindowIcon(QIcon(str(ICON_DATEI)))
         self.setMinimumWidth(380)
         self.setStyleSheet(f"background:{BG};")
 
@@ -420,6 +426,10 @@ def run(engine, url: str | None, autostart: bool = False, vorbereiten=None) -> i
     """
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("JamPilot")
+    app.setWindowIcon(QIcon(str(ICON_DATEI)))
+    # Unter Wayland nimmt die Fensterleiste das Symbol nicht vom Fenster, sondern
+    # vom Starter: Der Name hier muss zur .desktop-Datei passen (desktop.py).
+    app.setDesktopFileName("jampilot")
     palette = app.palette()
     palette.setColor(QPalette.Window, QColor(BG))
     app.setPalette(palette)

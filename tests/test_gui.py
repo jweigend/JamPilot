@@ -53,6 +53,15 @@ def fenster(app):
     return gui.Fenster(e, "http://192.168.1.42:8765/"), e
 
 
+class TestSymbol:
+    def test_das_fenster_traegt_das_programmsymbol(self, fenster):
+        # Ein leeres QIcon ist kein Fehler fuer Qt - nur ein Fenster ohne Symbol
+        # in der Leiste. Also pruefen, dass die Datei gefunden und geladen wurde.
+        f, _ = fenster
+        assert not f.windowIcon().isNull()
+        assert f.windowIcon().availableSizes()
+
+
 class TestZustandAnzeigen:
     def test_zeigt_gestoppt(self, fenster):
         f, _ = fenster

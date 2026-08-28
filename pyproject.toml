@@ -25,9 +25,10 @@ packages = ["jampilot"]
 version = {attr = "jampilot.__version__"}
 
 # [POC-BTC] Gewichte des BTC-Erkenners gehoeren mit ins Paket -
-# ebenso die Web-Anzeige (data/index.html), die web.py beim Import laedt.
+# ebenso die Web-Anzeige (data/index.html), die web.py beim Import laedt, und
+# das Programmsymbol (Fenster, Favicon, Starter; .ico/.icns fuer die Bundles).
 [tool.setuptools.package-data]
-jampilot = ["data/*.npz", "data/*.html"]
+jampilot = ["data/*.npz", "data/*.html", "data/icon.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

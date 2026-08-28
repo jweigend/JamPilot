@@ -387,6 +387,18 @@ class TestToken:
         with urllib.request.urlopen(base + "/", timeout=5) as antwort:
             assert antwort.status == 200
 
+    def test_symbol_ist_offen_und_verlinkt(self, server):
+        # Browser holen /favicon.ico ungefragt; die Seite selbst zeigt auf
+        # /icon.png (Tab und "Zum Home-Bildschirm" auf dem Handy). Beides ohne
+        # Token: Ein Bild verraet nichts.
+        base, _ = server
+        for pfad in ("/icon.png", "/favicon.ico"):
+            with urllib.request.urlopen(base + pfad, timeout=5) as antwort:
+                assert antwort.headers["Content-Type"] == "image/png", pfad
+                assert antwort.read()[:8] == b"\x89PNG\r\n\x1a\n", pfad
+        assert 'rel="icon" type="image/png" href="/icon.png"' in PAGE
+        assert 'rel="apple-touch-icon" href="/icon.png"' in PAGE
+
 
 class TestStummImBroadcaster:
     def test_republish_aendert_nur_das_gewuenschte_feld(self):

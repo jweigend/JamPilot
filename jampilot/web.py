@@ -129,6 +129,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(PAGE.encode(), "text/html; charset=utf-8")
         elif path == "/timeline-poc":
             self._send(TIMELINE_POC_PAGE.encode(), "text/html; charset=utf-8")
+        elif path in ("/icon.png", "/favicon.ico"):
+            # Das Symbol im Browser-Tab und - auf dem Handy am Notenstaender -
+            # als "Zum Home-Bildschirm". Ohne Token: Es verraet nichts.
+            self._send(ICON, "image/png")
         elif path == "/qr.svg":
             # Der QR-Code traegt die URL SAMT Token. Offen ausgeliefert waere
             # er die Hintertuer, ueber die sich jeder im LAN das Token holt.
@@ -241,3 +245,5 @@ def start(port: int = DEFAULT_PORT) -> WebDisplay:
 PAGE = (Path(__file__).with_name("data") / "index.html").read_text(encoding="utf-8")
 TIMELINE_POC_PAGE = (Path(__file__).with_name("data") / "timeline_poc.html").read_text(
     encoding="utf-8")
+# Das Programmsymbol als Favicon - dieselbe Datei, die das Kontrollfenster traegt.
+ICON = (Path(__file__).with_name("data") / "icon.png").read_bytes()

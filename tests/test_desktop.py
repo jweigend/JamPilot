@@ -33,6 +33,9 @@ class TestEintrag:
         assert "Type=Application" in text
         assert "Terminal=false" in text      # JamPilot bringt sein Fenster selbst
         assert "Name=JamPilot" in text
+        # Ein Name aus dem Icon-Thema, kein Pfad: Ins onefile-Bundle zeigt
+        # keiner, es packt sich bei jedem Start woanders aus.
+        assert "Icon=jampilot" in text
 
     def test_pfad_mit_leerzeichen_wird_gequotet(self):
         """~/Downloads/JamPilot 0.1/jampilot ist der Normalfall, nicht die Ausnahme.
@@ -67,9 +70,10 @@ class TestInstall:
         ausliefert.
         """
         monkeypatch.setattr(desktop, "programm", lambda: Path("/opt/jampilot/jampilot"))
-        desktop.install(nach=str(tmp_path))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+        desktop.install(nach=str(tmp_path / "dist"))
 
-        assert [p.name for p in tmp_path.iterdir()] == ["JamPilot.desktop"]
+        assert [p.name for p in (tmp_path / "dist").iterdir()] == ["JamPilot.desktop"]
 
     def test_ins_menue_ohne_ziel(self, tmp_path, monkeypatch):
         monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
@@ -79,6 +83,22 @@ class TestInstall:
 
         assert ziel == tmp_path / "applications" / "jampilot.desktop"
         assert ziel.exists()
+
+    def test_symbol_kommt_ins_icon_thema(self, tmp_path, monkeypatch):
+        """`Icon=jampilot` ist nur ein Name - die Datei dazu muss install() legen.
+
+        Auch bei `--to dist`: neben die Binary gehoert sie nicht (siehe
+        test_kein_muell_neben_der_binary), gefunden wird sie nur im Thema.
+        """
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        monkeypatch.setattr(desktop, "programm", lambda: Path("/opt/jampilot/jampilot"))
+        desktop.install(nach=str(tmp_path / "dist"))
+
+        symbol = tmp_path / "icons" / "hicolor" / "256x256" / "apps" / "jampilot.png"
+        assert symbol.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+        desktop.install(nach=str(tmp_path / "dist"), entfernen=True)
+        assert not symbol.exists()
 
     def test_remove_nimmt_ihn_wieder_weg(self, tmp_path, monkeypatch):
         monkeypatch.setattr(desktop, "programm", lambda: Path("/opt/jampilot/jampilot"))

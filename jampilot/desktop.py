@@ -28,16 +28,35 @@ from pathlib import Path
 
 NAME = "JamPilot"
 DATEI = "jampilot.desktop"
+SYMBOL = "jampilot"                  # Name im Icon-Thema, siehe symbol()
+SYMBOL_QUELLE = Path(__file__).with_name("data") / "icon.png"
+
+
+def _xdg_data_home() -> Path:
+    """XDG_DATA_HOME beachten und nicht ~/.local/share festnageln.
+
+    Wer es umsetzt, hat einen Grund - und der Dateimanager sucht dann auch nur
+    dort.
+    """
+    return Path(os.environ.get("XDG_DATA_HOME")
+                or os.path.join(Path.home(), ".local", "share"))
 
 
 def menue() -> Path:
-    """Das Verzeichnis, in dem Anwendungsstarter des Nutzers liegen.
+    """Das Verzeichnis, in dem Anwendungsstarter des Nutzers liegen."""
+    return _xdg_data_home() / "applications"
 
-    XDG_DATA_HOME beachten und nicht ~/.local/share festnageln: Wer es umsetzt,
-    hat einen Grund - und der Dateimanager sucht dann auch nur dort.
+
+def symbol() -> Path:
+    """Wohin das Programmsymbol kommt, damit `Icon=jampilot` es findet.
+
+    Der Starter sagt nur einen NAMEN, keinen Pfad - und den loest der Desktop
+    ueber das Icon-Thema auf. Ein Pfad ginge auch, aber ins onefile-Bundle
+    zeigt keiner: Die Binary packt sich bei jedem Start woanders nach /tmp aus.
+    hicolor ist das Thema, in das jedes andere zurueckfaellt; 256 px reicht fuer
+    Menue, Fensterleiste und Dock.
     """
-    basis = os.environ.get("XDG_DATA_HOME") or os.path.join(Path.home(), ".local", "share")
-    return Path(basis) / "applications"
+    return _xdg_data_home() / "icons" / "hicolor" / "256x256" / "apps" / f"{SYMBOL}.png"
 
 
 def programm() -> Path:
@@ -90,9 +109,9 @@ def eintrag(pfad: Path) -> str:
         f"Name={NAME}",
         "Comment=The chords of your system audio, seconds before you hear them",
         f"Exec={_exec_wert(pfad)}",
-        # Ein eigenes Symbol gibt es (noch) nicht. Ein Name aus dem Icon-Thema
-        # ist besser als keiner: Ein Starter ohne Symbol sieht kaputt aus.
-        "Icon=audio-x-generic",
+        # Ein Name aus dem Icon-Thema; install() legt die Datei dorthin, wo der
+        # Desktop danach sucht (symbol()).
+        f"Icon={SYMBOL}",
         "Terminal=false",
         "Categories=AudioVideo;Audio;Music;",
         "StartupNotify=true",
@@ -143,6 +162,8 @@ def install(nach: str | None = None, entfernen: bool = False) -> Path:
             print(f"Removed {ziel}")
         else:
             print(f"Nothing to remove ({ziel} does not exist).")
+        if symbol().exists():
+            symbol().unlink()
         return ziel
 
     ziel.parent.mkdir(parents=True, exist_ok=True)
@@ -150,6 +171,11 @@ def install(nach: str | None = None, entfernen: bool = False) -> Path:
     # Ausfuehrbar, damit der Dateimanager ihn auch IM ORDNER doppelklicken laesst
     # und nicht als Textdatei oeffnet.
     ziel.chmod(0o755)
+    # Das Symbol kommt IMMER ins Icon-Thema des Nutzers, auch bei `--to dist`:
+    # Der Starter dort ist ohnehin an diesen Rechner gebunden (absoluter Exec-
+    # Pfad), und neben die Binary gehoert nichts, was man nicht ausliefert.
+    symbol().parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(SYMBOL_QUELLE, symbol())
     _nachbereiten(ziel, ins_menue=not nach)
 
     print(f"Launcher written: {ziel}")

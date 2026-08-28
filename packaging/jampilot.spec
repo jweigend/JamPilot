@@ -104,6 +104,14 @@ datas += [(quelle, os.path.join("jampilot", "data"))
               os.path.join(projekt, "jampilot", "data", "*")))
           if os.path.isfile(quelle)]
 
+# Das Programmsymbol in den Formaten, die die Plattformen verlangen: .ico fuer
+# die Windows-Exe (Explorer, Taskleiste), .icns fuer das macOS-Buendel (Finder,
+# Dock). Linux kennt kein eingebettetes Symbol - dort traegt es der Starter
+# (desktop.py). Alle drei sind aus derselben Bildmarke gerechnet
+# (docs/bilder/icon-mark.png) und liegen in jampilot/data, weil das Fenster und
+# das Favicon die PNG-Fassung zur Laufzeit ebenfalls von dort nehmen.
+symbol = os.path.join(projekt, "jampilot", "data", "icon")
+
 excludes = [
     # Nur, was NACHWEISLICH nicht importiert wird. Jeder weitere Ausschluss
     # wurde ausprobiert und endete im Absturz: sklearn, pooch, joblib,
@@ -168,6 +176,7 @@ exe = EXE(
     strip=False,
     upx=False,          # UPX zerlegt die signierten dylibs unter macOS
     console=True,       # bleibt ein CLI-Programm: `jampilot analyze`, `selftest` ...
+    icon=symbol + ".ico" if ist_windows else None,
 )
 
 # Der Ordner heisst JamPilot, nicht jampilot: Ihn sieht der Nutzer im Explorer,
@@ -197,7 +206,7 @@ if sys.platform == "darwin":
     app = BUNDLE(                                                   # noqa: F821
         exe,
         name="JamPilot.app",
-        icon=None,
+        icon=symbol + ".icns",
         bundle_identifier="de.jweigend.jampilot",
         info_plist={
             "CFBundleName": "JamPilot",
