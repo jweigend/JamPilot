@@ -29,23 +29,28 @@ yet. So the chord is on your screen **seconds before it reaches your ears**.
 ```
 System audio ──► ring buffer (N s) ──► speakers (delayed, unchanged)
       │
-      └──► chord analysis ──► chord display (N s of lead)
+      └──► chord analysis ──► chord display (~N/2 s of lead)
 ```
 
 You stop chasing the song. You see what is coming and play it.
 
-![The web display: the audible chord large in the centre, the coming chords running towards the NOW line](docs/bilder/web-anzeige.png)
+![The web display in guitar mode: the audible chord large in the centre with its scale degree above, the fretboard diagram top-left, the coming chord in the lane below running towards the NOW line](docs/bilder/guitar.png)
 
-*The chord you hear right now is the big one — `Bm`. `C` arrives in 1.3 seconds,
-`D` in 3.2 — enough time to get your hand there. Top left, the key JamPilot has
-worked out (G major); top right, a QR code to put the same display on your phone.*
+*The chord you hear right now is the big one — `Gm`, the `1` of the key. `F`,
+the `♭7`, is about to arrive (`in 0.3s`). Top left, the key JamPilot has worked
+out (G minor, spelled in flats) and — this is guitar mode — the shape to play
+it; top right, a QR code to put the same display on your phone.*
 
 The delay is not a defect to be minimised. **It is the feature**: it buys the
-analysis a few seconds of the future, and it buys the player time to react. Four
-seconds is a good default — long enough to see a change coming, short enough that
-you still feel like you are playing *with* the record.
+analysis a few seconds of the future, and it buys the player time to react. The
+buffer splits in half: one half is the **lead** you see on the lane, the other
+half is time for the model to settle on a chord before it is committed to the
+screen. Five seconds is the default — about two seconds of lead, long enough to
+see a change coming, short enough that you still feel like you are playing
+*with* the record. More delay buys both: you see further ahead *and* the chords
+arrive better settled ([the numbers](CHANGELOG.md)).
 
-Written entirely in Python and platform-independent — fully tested on Linux, also
+Written in Python and platform-independent — fully tested on Linux, also
 running on macOS and Windows ([see the table](#platforms)). It all happens on
 your own machine — no account, no cloud, nothing uploaded anywhere. Open source,
 MIT-licensed.
@@ -95,8 +100,9 @@ glance, while both your hands are busy:
 - **The QR code** — scan it with a phone on the same Wi-Fi and you get the same
   display on your music stand. The computer does the listening; every other
   device is just a screen.
-- Click or tap for fullscreen, `Space` to mute. The **gear** switches spelling
-  (♯/♭) and the instrument mode (chords, bass, guitar or keyboard) — both are
+- Click or tap for fullscreen, `Space` to mute. The **gear** switches the
+  instrument mode (chords, bass, guitar or keyboard), the diagram on or off,
+  spelling (♯/♭), scale degrees — and lets you pin the key. All of it is
   per-device, so your phone and your laptop may disagree.
 
 ![Zoom on the QR code in the corner of the display: Connect your phone](docs/bilder/connect-your-phone.png)
@@ -113,9 +119,8 @@ JamPilot reroutes your system sound while it runs. So the big switch at the top,
 **Audio through JamPilot**, is the panic button — off, and your system sound is
 normal again, immediately. Below it, **Sound** mutes only the delayed output,
 and underneath you see the state, the delay, and the **lead actually being
-measured** — 3.9 seconds in the shot above, which is how far ahead of your ears
-the display is running. Closing the window quits JamPilot, and that restores
-your audio.
+measured** — how far ahead of your ears the display is running. Closing the
+window quits JamPilot, and that restores your audio.
 
 ## Your instrument: chords, bass, guitar or keyboard
 
@@ -127,25 +132,25 @@ the chord. The gear menu switches the display:
 | Mode | Large on screen | Lane |
 |---|---|---|
 | **Chords** (default) | the audible chord | `C` |
-| **Bass** | the **measured bass note**, with a four-string neck diagram top-left | `C/E` |
+| **Bass** | the chord with its **measured bass note** (`C/E`), and a four-string neck diagram top-left | `C/E` |
 | **Guitar** | the audible chord, with a **fretboard diagram** top-left | `C` |
 | **Keyboard** | the audible chord, with a **piano diagram** top-left | `C` |
 
-![The guitar display: the fretboard diagram for the current chord top-left, the big chord in the centre, the coming chords in the lane below](docs/bilder/gitarrenmodus.png)
+*Guitar mode is the shot at the top of this page: `Gm` is sounding, and its
+barre-chord shape at the 3rd fret is drawn top-left while `F` approaches in
+the lane.*
 
-*Guitar mode: `F` is sounding — its barre-chord shape at the 1st fret is drawn
-top-left — while `Gm` and `C7` approach in the lane.*
+![Keyboard mode: A♭maj7 as pressed keys on two octaves, its ♭2 degree in G minor above the chord, Gm7 next in the lane](docs/bilder/keys.png)
 
-![Keyboard mode: Dm7 as pressed keys on two octaves, the measured bass marked in orange as the left hand](docs/bilder/keyboard-mode.png)
+*Keyboard mode: `A♭maj7` as pressed keys, in a voicing chosen so your right hand
+stays in place — the `♭2` of G minor, with `Gm7`, the `1`, next in the lane.*
 
-*Keyboard mode: `Dm7` as pressed keys, in a voicing chosen so your right hand
-stays in place — the measured bass marked in orange as the left hand.*
+![Bass mode: Cm sounding, a four-string neck top-left showing the move from C to A♭, A♭ next in the lane](docs/bilder/bass.png)
 
-![Bass mode: the measured bass note large in the centre, a four-string neck showing the move from G to E](docs/bilder/bass-mode.png)
-
-*Bass mode: the **measured** bass note is the big one, and the four-string neck
-top-left shows where you are and where the next note sits (`G → E`). When `C/E`
-reaches the NOW line, the band plays C — and your finger sits on E.*
+*Bass mode: the **measured** bass note is what counts. Here it is `C`, the root
+of `Cm`, so the name stays plain — were it `E♭`, you would read `Cm/E♭`. The
+four-string neck top-left shows where you are and where the next note sits
+(`C → A♭`): when `A♭` reaches the NOW line, your finger is already there.*
 
 In **Guitar** mode the display adds the one thing a chord name leaves out:
 *where* to put your hand. And because the same harmony lives in several
@@ -165,19 +170,28 @@ and the safe shapes work is in [UNDER-THE-HOOD.md](UNDER-THE-HOOD.md) and
 (in F major you get B♭, not A♯). The gear menu can also force sharps or flats,
 per device.
 
+**Know the key already?** Pin it in the gear menu — root and major/minor — and
+spelling and scale degrees follow it at once instead of waiting for the
+detection to make up its mind. Detection needs a stretch of music to be sure;
+a pinned key is sure from the first bar.
+
+![The Key section of the gear menu: Automatic with the detected key, or pin a root and major/minor](docs/bilder/keypin.png)
+
 **Scale degrees — Nashville numbers:** the timeline shows each chord's degree
 in the detected key as a small number above the name: `1` is the key's root
 chord, `5` its fifth, and a `♭` marks a root borrowed from outside the key's
 major scale. A progression reads the same in every key — `1–6–4–5` stays
 `1–6–4–5` whether the song is in C or in E♭ — which is exactly how session
 musicians call tunes. The quality is not repeated: it already sits in the
-chord name right below the number. On by default; the gear menu hides the
-numbers, per device.
+chord name right below the number. On by default; the gear menu can also
+flip it — degree big, chord name small, for reading a tune purely by numbers —
+or hide the numbers, per device.
 
-![Scale degrees in the timeline: a small 2 above Gm, a ♭7 above the borrowed E♭, a 5 above C7](docs/bilder/scale-degrees.png)
+![The Scale degrees section of the gear menu: Shown, Inverted, Hidden](docs/bilder/nashville.png)
 
-*The lane in F major: `Gm` is the `2`, `C7` the `5` — and the borrowed `E♭`
-carries its `♭7` as a small warning that the song steps outside the key.*
+*Three ways to read the numbers, per device. In the shot at the top of the page,
+`Gm` is the `1` of G minor and `F` carries its `♭7` — a small warning that the
+root sits outside the key's major scale.*
 
 ## Get it running
 
@@ -188,7 +202,7 @@ git clone https://github.com/jweigend/JamPilot.git && cd JamPilot
 ./run.sh                     # sets everything up on the first call, then starts
 ```
 
-The first call takes about a minute (it builds the environment); every call
+The first call takes a few minutes (it builds the environment); every call
 after that starts in under a second — and the script repairs a broken or
 outdated environment by itself instead of failing at you.
 
@@ -209,8 +223,9 @@ run.cmd                      :: sets everything up on the first call, then start
 Use `run.cmd`, not `run.ps1` directly — it gets past the default PowerShell
 execution policy for that one call without changing your system.
 
-`run` options: `--delay` (seconds), `--output` (target sink/device), `--input` +
-`--no-route` (direct mode without automatic routing), `--samplerate` (default
+`run` options: `--delay` (seconds, default 5), `--output` (target sink/device),
+`--input` + `--no-route` (direct mode without automatic routing), `--route
+auto|mute|cable` (Windows: how the source is silenced), `--samplerate` (default
 48000), `--port` (web display, default 8765), `--no-web`, `--no-window`.
 
 Then just play something — a YouTube video, Spotify, anything that makes sound —
@@ -222,7 +237,7 @@ It checks for it and says so. On Windows there is nothing to install at all.
 
 ### Platforms
 
-JamPilot is written **entirely in Python and is platform-independent**: the
+JamPilot is written **in Python and is platform-independent**: the
 capture, the delay buffer, the chord analysis, the control window and the web
 display are the *same* code everywhere. The only part that differs per operating
 system is how the system sound is tapped silently.
@@ -318,18 +333,22 @@ clock, so nothing drifts.
   (auch [auf Deutsch](HOW-IT-WORKS.de.md))
 - **The engineering** — audio routing, timing, packaging, and the failed
   attempts that shaped the design: [UNDER-THE-HOOD.md](UNDER-THE-HOOD.md)
+- **What changed in each release**, with the measurements behind it:
+  [CHANGELOG.md](CHANGELOG.md)
 
 ## Tests
 
 ```bash
 ./run.sh selftest                 # the pipeline, no sound card needed
-.venv/bin/python -m pytest        # the suite (419 tests)
+.venv/bin/python -m pytest        # the suite
 ```
 
 ## Roadmap
 
-- More controls in the web display: lead slider, on/off, device selection (right
-  now only the spelling lives there; the rest of the control is in the CLI).
+- More controls in the web display: delay, on/off, device selection. The
+  display already owns what is per-player — instrument, diagram, key pin,
+  spelling, degrees; what is per-machine still lives in the CLI and the
+  control window.
 - An incremental CQT in the live path — the 10 s analysis window is currently
   recomputed from scratch every 250 ms, and that is the biggest lever for old
   hardware.
