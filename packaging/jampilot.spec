@@ -1,26 +1,51 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller-Spec: JamPilot als EINE ausfuehrbare Datei.
+"""PyInstaller-Spec: JamPilot als eigenstaendiges Programm.
 
-    pyinstaller packaging/jampilot.spec --noconfirm     ->  dist/jampilot
+    pyinstaller packaging/jampilot.spec --noconfirm
+
+    Linux/macOS  ->  dist/jampilot          EINE Datei (onefile)
+    Windows      ->  dist/JamPilot/         ein Ordner (onedir)
 
 GEBAUT WIRD IMMER AUF DEM ZIELSYSTEM. PyInstaller kann nicht cross-kompilieren:
 Es sammelt die nativen Bibliotheken ein, die auf DIESER Maschine liegen
 (libportaudio, libsndfile, libllvmlite, die BLAS von numpy/scipy). Ein
 Linux-Build auf einem Mac gibt es nicht. Also: Linux-Binary auf Linux, macOS
-getrennt fuer arm64 und x86_64 - siehe .github/workflows/build.yml.
+getrennt fuer arm64 und x86_64, Windows auf Windows - siehe
+.github/workflows/build.yml.
+
+WARUM WINDOWS EINEN ORDNER BEKOMMT UND KEINE EINZELNE DATEI. Das ist keine
+technische Einschraenkung, sondern eine Auslieferungsentscheidung, und sie ist
+in docs/exploration/windows-portierung.md vorgezeichnet: Eine unsignierte
+onefile-Exe dieser Groesse (gemessen 150 MB gepackt, 363 MB ausgepackt), die
+sich bei jedem Start selbst nach %TEMP% auspackt, IST technisch ein Packer - und
+wird von SmartScreen und Virenscannern auch so behandelt. Der Ordner umgeht
+diese Heuristik, startet nebenbei in ~0.45 s statt ~2.5 s, und im ZIP ist er
+genauso ein Download wie eine Datei. Verloren geht nur das Versprechen "eine
+Datei".
 
 Was das Bundle NICHT mitbringen kann, weil es Systemteile sind:
   * macOS: BlackHole (Audiotreiber, eigener Installer)
   * Linux: pactl / PipeWire-PulseAudio (ruft routing.py als externes Programm)
-Beides bleibt eine Voraussetzung auf dem Zielrechner, siehe README.
+Beides bleibt eine Voraussetzung auf dem Zielrechner, siehe README. Windows
+braucht seit der stummen Umleitung (wincapture.py) gar nichts mehr.
 """
 
 import os
+import re
 import sys
 
 from PyInstaller.utils.hooks import collect_all
 
 projekt = os.path.dirname(os.path.dirname(os.path.abspath(SPEC)))  # noqa: F821
+
+# Die Versionsnummer wird GELESEN, nicht hier gepflegt: Sie steht in
+# jampilot/__init__.py, und ein zweites Vorkommen waere eines, das irgendwann
+# etwas anderes sagt als das Programm selbst. Importieren geht nicht - die Spec
+# laeuft im PyInstaller-Prozess, ohne das Projekt auf dem Pfad.
+with open(os.path.join(projekt, "jampilot", "__init__.py"), encoding="utf-8") as f:
+    VERSION = re.search(r'^__version__ = "([^"]+)"', f.read(), re.M).group(1)
+
+ist_windows = sys.platform == "win32"
 
 datas, binaries, hiddenimports = [], [], []
 
@@ -110,23 +135,41 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-# onefile: alles in EINE Datei. Der Preis steht im README - die Datei entpackt
-# sich bei jedem Start nach /tmp, das kostet ~2,5 s. Fuer ein Werkzeug, das man
-# einmal pro Session startet und laufen laesst, ist das der richtige Tausch.
-# Wer den schnelleren Start braucht, haengt a.binaries/a.datas an ein COLLECT
-# statt an die EXE (onedir: ~0,45 s Start, aber ein Ordner statt einer Datei).
+# onefile (Linux/macOS): alles in EINE Datei. Der Preis steht im README - die
+# Datei entpackt sich bei jedem Start nach /tmp, das kostet ~2,5 s. Fuer ein
+# Werkzeug, das man einmal pro Session startet und laufen laesst, ist das der
+# richtige Tausch.
+#
+# onedir (Windows): dieselben Bestandteile, nur haengen sie am COLLECT statt an
+# der EXE. Begruendung im Kopf dieser Datei - SmartScreen, und nebenbei ~0,45 s
+# Start. Fuer den Rest der Spec aendert sich dadurch nichts.
+mitgeben = [] if ist_windows else [a.binaries, a.datas]
+
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
+    *mitgeben,
     [],
+    exclude_binaries=ist_windows,
     name="jampilot",
     debug=False,
     strip=False,
     upx=False,          # UPX zerlegt die signierten dylibs unter macOS
     console=True,       # bleibt ein CLI-Programm: `jampilot analyze`, `selftest` ...
 )
+
+# Der Ordner heisst JamPilot, nicht jampilot: Ihn sieht der Nutzer im Explorer,
+# und er ist es, der ausgepackt wird. Die Exe darin behaelt die
+# Kommandozeilen-Schreibweise, damit `jampilot devices` ueberall gleich aussieht.
+if ist_windows:
+    coll = COLLECT(                                                 # noqa: F821
+        exe,
+        a.binaries,
+        a.datas,
+        strip=False,
+        upx=False,
+        name="JamPilot",
+    )
 
 # macOS: zusaetzlich ein richtiges .app-Buendel.
 #
@@ -147,7 +190,7 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "JamPilot",
             "CFBundleDisplayName": "JamPilot",
-            "CFBundleShortVersionString": "0.1.0",
+            "CFBundleShortVersionString": VERSION,
             "NSHighResolutionCapable": True,
             # Ohne diesen Text kein Ton - und zwar stumm, nicht mit Fehler.
             "NSMicrophoneUsageDescription":

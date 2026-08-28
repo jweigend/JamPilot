@@ -44,9 +44,10 @@ eine Ausnahme.*
   Aufruf nativer Programme (`find_spec("numpy")` wird zu `find_spec(numpy)`),
   und ein Skript mit `param()`-Block versucht `--delay` als Parameternamen zu
   binden, statt es durchzureichen.
-- **Offen geblieben:** `--bundle`. Nicht weil es nicht ginge, sondern weil die
-  Frage am Ende dieses Dokuments (SmartScreen, Signatur) unbeantwortet ist.
-  `run.cmd --bundle` sagt genau das und bricht ab.
+- **Offen geblieben war:** `--bundle`. Nicht weil es nicht ginge, sondern weil
+  die Frage am Ende dieses Dokuments (SmartScreen, Signatur) unbeantwortet war.
+  `run.cmd --bundle` sagte genau das und brach ab. Inzwischen ist sie
+  beantwortet — siehe den letzten Nachtrag ganz unten.
 
 ---
 
@@ -392,3 +393,73 @@ sondern die Linux-Version mit anderem Null-Sink. macOS ist jetzt die einzige
 Plattform, auf der noch von Hand gewählt wird — dort fehlt das Gegenstück
 (`AudioObjectSetPropertyData` auf `kAudioHardwarePropertyDefaultOutputDevice`),
 und das ist die nächste Baustelle, nicht mehr diese.
+
+---
+
+## Nachtrag: `--bundle`, und wie die SmartScreen-Frage entschieden wurde
+
+*Der letzte offene Punkt aus dem ersten Nachtrag. Der Abschnitt „Der
+unangenehme Teil ist nicht der Code" oben stellt die Frage; hier steht die
+Antwort und was sie gekostet hat.*
+
+**Entschieden wurde: Ordner im ZIP, keine einzelne Exe.** Das war eine der
+beiden Möglichkeiten, die oben schon benannt sind, und sie hat sich aus einem
+Grund durchgesetzt, der dort nur nebenbei steht: Sie kostet nichts. Das
+Zertifikat kostet Geld und jedes Jahr wieder; die onefile-Exe kostet bei jedem
+Nutzer einen Dialog und bei manchem einen Fehlalarm; der Ordner kostet das
+Versprechen „eine Datei" — und das war innerhalb eines ZIP ohnehin nie eines.
+Dass er nebenbei in ~0,45 s statt ~2,5 s startet, war das Zünglein.
+
+Was die Entscheidung **nicht** leistet: Die SmartScreen-Meldung bleibt.
+Unsigniert ist unsigniert, und der erste Start sagt weiter „Der Computer wurde
+durch Windows geschützt". Was wegfällt, ist der Teil, der einen Packer
+*aussehen* lässt wie einen Packer — also der, bei dem Virenscanner mitreden.
+Ein Zertifikat bleibt der einzige Weg zur meldungsfreien Auslieferung, und es
+ist damit nicht vom Tisch, sondern nur nicht mehr die Voraussetzung dafür,
+überhaupt etwas ausliefern zu können.
+
+**Was gebaut werden musste** (weniger, als der Abschnitt „Bauen" oben vermutet):
+
+- `packaging/jampilot.spec` bekommt unter Windows ein `COLLECT` statt der
+  onefile-`EXE`. Sechs Zeilen; alles davor — die `collect_all`-Liste, die
+  Ausschlüsse, der Rauswurf der `.nbc`/`.nbi` — gilt unverändert.
+- `packaging/build.ps1` und `packaging/venv.ps1`, das PowerShell-Gegenstück zu
+  `build.sh` und `venv.sh`. `run.ps1` bindet `venv.ps1` jetzt ein, statt die
+  Logik ein zweites Mal zu führen. Die Vermutung oben, man schriebe das besser
+  einmal in Python um, hat sich nicht gehalten: Das Skript stellt genau die
+  Umgebung her, in der Python die Abhängigkeiten hätte — es kann sie nicht
+  voraussetzen.
+- Das ZIP baut nicht `Compress-Archive`, sondern `ZipFile.CreateFromDirectory`.
+  Für die ~1700 Dateien eines PyInstaller-Ordners ist das der Unterschied
+  zwischen Sekunden und Minuten.
+- Zwei Beigaben im Ordner, die es unter Linux so nicht braucht: ein
+  `README.txt` (wer ein ZIP herunterlädt, liest kein GitHub) und ein
+  `JamPilot.cmd`. Letzteres ist der Windows-Verwandte des `.desktop`-Starters,
+  aber aus einem anderen Grund: `jampilot.exe` *lässt* sich doppelklicken —
+  nur nimmt Windows das Konsolenfenster im selben Moment mit, in dem das
+  Programm endet. Bricht es mit einer Meldung ab („kein zweiter Ausgang"), ist
+  genau die Meldung weg, die dem Nutzer sagt, was zu tun ist. Das `.cmd` hält
+  das Fenster offen, wenn der Exitcode nicht null ist, und nur dann.
+
+**Die offene Frage aus „Bauen" ist beantwortet: die Bitgleichheit hält.** Der
+Abschnitt oben vermutet, der Zeitstempel im PE-Header könnte sie unmöglich
+machen, und stellt in Aussicht, das dann ehrlich hinzuschreiben. Nachgemessen
+(`run.cmd --bundle --check`, zwei vollständige Bauten aus demselben Stand,
+PyInstaller 6.21, Python 3.14.7): **identisch**, über alle ~1700 Dateien des
+Ordners. `PYTHONHASHSEED=0` genügt hier wie auf den anderen Plattformen.
+
+Verglichen werden dabei die **Inhalte des Ordners** — jede Datei einzeln, in
+fester Reihenfolge —, nicht das ZIP. Das ZIP kann gar nicht zweimal gleich
+werden: Es trägt zu jeder Datei deren Änderungszeit im Kopf, und die ist beim
+zweiten Bau eine andere. Zwei ZIPs aus bitgleichen Ordnern haben also
+verschiedene Prüfsummen. Das ist kein Widerspruch zur Reproduzierbarkeit,
+sondern ein Eigenschaft des Formats — wer die Prüfsumme eines Release
+weitergibt, gibt die des hochgeladenen ZIP weiter, nicht die eines Nachbaus.
+
+**Die Versionsnummer** steht ab jetzt in `jampilot/__init__.py` und nur dort;
+`pyproject.toml` (`tool.setuptools.dynamic`), die Info.plist des macOS-Bündels
+und der ZIP-Name lesen sie von dort. Der Anlass war ein Fund beim Bauen:
+`jampilot.spec` schrieb seit jeher ein fest eingetipptes **0.1.0** in die
+Info.plist, während das Programm längst bei 1.1.1 stand. Das ist die Sorte
+Fehler, die niemand bemerkt, weil niemand die beiden Stellen nebeneinander
+sieht — und deshalb darf es sie nicht zweimal geben.

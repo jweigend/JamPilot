@@ -222,6 +222,9 @@ On **Windows**:
 git clone https://github.com/jweigend/JamPilot.git
 cd JamPilot
 run.cmd                      :: sets everything up on the first call, then starts
+run.cmd --delay 6            :: any option of `jampilot run`
+run.cmd selftest             :: any other command
+run.cmd --bundle             :: standalone folder + release ZIP -> dist\
 ```
 
 Use `run.cmd`, not `run.ps1` directly — it gets past the default PowerShell
@@ -289,25 +292,36 @@ Worth knowing:
 - Apps in WASAPI *exclusive mode* (some DAWs) bypass the tap; `--route cable`
   captures them.
 
+- **SmartScreen on the prebuilt download.** *"Windows protected your PC"* on the
+  first start of the ZIP version: the program is not code signed. "More info",
+  then "Run anyway". Nothing to click if you run from source.
+
 More depth — per-app routing, the undocumented API for the default device, what
 exactly has been verified — in [UNDER-THE-HOOD.md](UNDER-THE-HOOD.md).
 
 ## Standalone binary
 
-A single executable, no Python and no venv on the target machine:
+No Python and no venv on the target machine:
 
 ```bash
 ./run.sh --bundle          # -> dist/jampilot + dist/JamPilot.desktop  (~183 MB)
 ```
 
-On Linux, double-click `dist/JamPilot.desktop` (not the raw binary), or put it
-in the menu with `./dist/jampilot install`. The build is reproducible and only
-rebuilds when sources changed — details in [UNDER-THE-HOOD.md](UNDER-THE-HOOD.md).
+```bat
+run.cmd --bundle           :: -> dist\JamPilot\ + a ZIP (150 MB, 363 MB unpacked)
+```
 
-Prebuilt binaries on the [Releases page](https://github.com/jweigend/JamPilot/releases)
-cover **Linux x86_64** and **macOS Apple Silicon**. On an Intel Mac or on
-Windows, install from source — `./run.sh` / `run.cmd` is the whole setup
-([why there is no Windows exe](UNDER-THE-HOOD.md#size-startup-reproducibility)).
+On Linux, double-click `dist/JamPilot.desktop` (not the raw binary), or put it
+in the menu with `./dist/jampilot install`. On Windows you get a **folder in a
+ZIP** rather than a single file — an unsigned self-unpacking executable of this
+size is what SmartScreen and virus scanners exist to flag, and the folder also
+starts in ~0.45 s instead of ~2.5 s. Double-click `JamPilot.cmd` inside it. The
+build is reproducible on all three and only rebuilds when sources changed —
+details in [UNDER-THE-HOOD.md](UNDER-THE-HOOD.md#size-startup-reproducibility).
+
+Prebuilt downloads on the [Releases page](https://github.com/jweigend/JamPilot/releases)
+cover **Linux x86_64**, **macOS Apple Silicon** and **Windows x86_64**. On an
+Intel Mac, install from source — `./run.sh` is the whole setup.
 
 ## Current limitations
 

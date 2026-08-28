@@ -1,5 +1,77 @@
 # Changelog
 
+## 1.2.0 — 2026-08-28
+
+The theme of this release: **Windows gets a download.** No new analysis, no
+change to what you see on stage — this is about the last platform that could
+only be installed from source, and about one thing that looked wrong there.
+
+### A standalone build for Windows
+
+`run.cmd --bundle` now produces `dist\JamPilot\` and a release ZIP next to it,
+the same way `./run.sh --bundle` has always produced a binary on Linux and
+macOS. It skips when nothing changed, `--force` builds anyway, `--check` builds
+twice and proves the result is reproducible, `--venv` builds from a fresh
+environment out of the lock file. `packaging/venv.ps1` carries the environment
+logic that `run.ps1` had inline, so there is one copy of it and not two.
+
+**It is a folder in a ZIP, not a single file** — the one place where Windows
+gets a different answer than the other platforms, and the reason the build was
+held back until now. A single unsigned executable of this size that unpacks
+itself into `%TEMP%` on every launch *is* a packer, technically, and heuristics
+treat it as one. The folder does not trip that, and it starts in ~0.45 s
+instead of ~2.5 s. It does **not** remove the SmartScreen warning: unsigned is
+unsigned until someone buys a certificate. What it removes is the part that
+also upsets virus scanners.
+
+| | Linux / macOS | Windows |
+|---|---|---|
+| Shape | one file | a folder in a ZIP |
+| Size | ~183 MB | 150 MB zipped, 363 MB unpacked |
+| Start | ~2.5 s | ~0.45 s |
+| Reproducible | yes (SHA-256 of the file) | yes (all ~1700 files compared) |
+
+The ZIP carries a `JamPilot.cmd` — **double-click that, not the `.exe`**. A
+console program takes its window down the instant it exits, so a JamPilot that
+stops with a message ("no second output endpoint") would show that message for
+a few milliseconds and then look like a program that did nothing. The `.cmd`
+keeps the window open when the exit code is not zero, and only then. A
+`README.txt` next to it covers the two dialogs Windows shows on a first start,
+including the firewall one that silently breaks the QR code if it is dismissed.
+
+Windows is now in `.github/workflows/build.yml` and builds on tag push together
+with Linux and macOS.
+
+**Reproducibility holds on Windows too** — that was an open question, not an
+assumption: the PE format carries a timestamp in its header, and whether
+PyInstaller normalises it was unknown. Measured over two full builds: identical
+across all ~1700 files. What is compared there is the contents of the folder,
+file by file; a ZIP stores modification times and therefore cannot be
+bit-stable, which is a property of the format rather than a hole in the claim.
+
+### The big chord was too heavy on Windows
+
+`#current` asked for `font-weight: 750`. Only fonts with a continuous weight
+axis can give you that — SF Pro Display on macOS can, Segoe UI on Windows
+cannot. CSS then searches upwards, finds no 800, and lands on **Segoe UI
+Black**: at 52 vh the chord came out blocky and far too fat. It was the only
+element on the page asking for more than 700, which is why it was the only one
+that looked wrong. Now 700, a real face everywhere, and Windows 11's
+`Segoe UI Variable Display` is preferred where it exists.
+
+### The version number had three homes, and one of them was wrong
+
+`jampilot/__init__.py` and `pyproject.toml` both said 1.1.1 and agreed — but
+the third copy did not: `packaging/jampilot.spec` wrote a hardcoded **0.1.0**
+into the macOS bundle's `Info.plist`, and had done since 0.1.0 was current. Two
+releases of `JamPilot.app` reported a version two minors behind the program
+inside them, and nothing could have caught it, because nothing compared them.
+
+The number now lives in `__init__.py` alone. `pyproject.toml` reads it from
+there (`tool.setuptools.dynamic`), the spec parses it out for the `Info.plist`,
+and `build.ps1` uses it for the name of the ZIP. A value that is written once
+cannot drift.
+
 ## 1.1.1 — 2026-08-28
 
 The theme of this release: **a timeline that holds still under fire.**

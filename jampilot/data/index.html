@@ -9,8 +9,12 @@
   html, body { height: 100%; overflow: hidden; }
   body {
     background: #000; color: #fff; user-select: none; cursor: default;
-    font-family: -apple-system, "SF Pro Display", "Segoe UI", Roboto,
-                 "Helvetica Neue", Arial, sans-serif;
+    /* "Segoe UI Variable Display" vor "Segoe UI": Windows 11 bringt einen
+       variablen Schnitt mit, der fuer GROSSE Groessen gezeichnet ist - genau
+       das, was der Hauptakkord ist. Auf Windows 10 fehlt er und die Liste
+       geht weiter, es kostet also nichts. */
+    font-family: -apple-system, "SF Pro Display", "Segoe UI Variable Display",
+                 "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
 
   #topbar {
@@ -161,7 +165,14 @@
     display: flex; align-items: center; justify-content: center;
   }
   #current {
-    font-weight: 750; line-height: .9; white-space: nowrap;
+    /* 700 und NICHT 750: Ein Zwischengewicht gibt es nur, wo die Schrift eine
+       stufenlose Gewichtsachse hat - unter macOS tut SF Pro Display das, unter
+       Windows tut Segoe UI es nicht. Dort sucht CSS bei Werten ueber 500 nach
+       OBEN: 750 findet keine 800, greift zur 900 und landet bei "Segoe UI
+       Black". In dieser Groesse (52vh) sah der Hauptakkord damit blockig und
+       viel zu fett aus - als einziges Element der Seite, weil nur hier ein
+       Gewicht ueber 700 stand. 700 ist ueberall ein echter Schnitt. */
+    font-weight: 700; line-height: .9; white-space: nowrap;
     font-size: min(42vw, 52vh);
     transition: opacity .25s;
     /* Spalte statt Fliesstext: darueber steht die Nashville-Stufe (bzw. im

@@ -1,6 +1,6 @@
 name: Build
 
-# Baut JamPilot als EINE ausfuehrbare Datei pro Plattform.
+# Baut JamPilot eigenstaendig, einmal pro Plattform.
 #
 # Warum eine Matrix und nicht ein Job? PyInstaller kann NICHT cross-kompilieren -
 # es buendelt die nativen Bibliotheken der Maschine, auf der es laeuft
@@ -11,10 +11,14 @@ name: Build
 # Intel-Runner, wird von GitHub ausgemustert, und der v0.1.0-Job stand ueber
 # zwei Stunden in der Warteschlange, ohne je zu starten. Intel-Macs
 # installieren aus dem Quelltext (./run.sh) - der letzte wurde 2020 verkauft.
-# Windows wird ebenfalls nicht gebuendelt, aus einem anderen Grund: Eine
-# unsignierte 200-MB-Onefile-Exe faellt SmartScreen zum Opfer; solange die
-# Signaturfrage offen ist, sagt `run.cmd --bundle` das ehrlich und bricht ab
-# (docs/exploration/windows-portierung.md).
+#
+# Windows IST seit 1.2.0 dabei, aber anders: Linux und macOS liefern EINE Datei,
+# Windows einen Ordner im ZIP. Das ist keine Unstimmigkeit, sondern die
+# Antwort auf die SmartScreen-Frage, die den Windows-Bau bis dahin aufgehalten
+# hat - eine unsignierte, sich selbst auspackende Exe dieser Groesse IST
+# technisch ein Packer. Begruendung im Kopf von packaging/jampilot.spec.
+# Deshalb hat Windows hier eigene Schritte: dasselbe Skript wie lokal, nur in
+# PowerShell.
 
 on:
   push:
@@ -32,8 +36,22 @@ jobs:
           # Ubuntu zu bauen macht die Binary auf aelteren unbrauchbar.
           - os: ubuntu-22.04
             name: jampilot-linux-x86_64
+            artefakte: dist/jampilot
           - os: macos-14
             name: jampilot-macos-arm64       # Apple Silicon
+            # Unter macOS zusaetzlich das .app-Buendel: Nur das laesst sich im
+            # Finder doppelklicken UND bekommt die Mikrofonfreigabe.
+            artefakte: |
+              dist/jampilot
+              dist/JamPilot.app
+          # Hier haengt das ZIP und nicht der Ordner: Der Ordner hat ~1700
+          # Dateien, und upload-artifact wuerde sie einzeln uebertragen und beim
+          # Herunterladen ein zweites Mal packen. Das ZIP ist ausserdem genau
+          # die Datei, die veroeffentlicht wird - was hier haengt, ist dasselbe,
+          # was ein Nutzer bekommt.
+          - os: windows-latest
+            name: jampilot-windows-x86_64
+            artefakte: dist/JamPilot-*.zip
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -63,10 +81,38 @@ jobs:
       # um die Bitgleichheit nachzuweisen. Genau das Skript, das auch lokal
       # laeuft - die CI soll nichts anderes bauen als du.
       - name: Bauen (+ Reproduzierbarkeit pruefen)
+        if: runner.os != 'Windows'
         run: PY=python packaging/build.sh --check
 
+      # Dasselbe unter Windows, mit dem PowerShell-Pendant. `shell: powershell`
+      # ist Windows PowerShell 5.1 - dieselbe Fassung, die auf einem frisch
+      # aufgesetzten Rechner steht und fuer die build.ps1 geschrieben ist.
+      - name: Bauen (Windows, + Reproduzierbarkeit pruefen)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $env:PY = "python"
+          .\packaging\build.ps1 --check
+
       - name: Geraete auflisten (laedt PortAudio wirklich?)
+        if: runner.os != 'Windows'
         run: ./dist/jampilot devices || true   # CI-Runner haben keine Soundkarte
+
+      - name: Geraete auflisten (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # Ein Runner hat keine Soundkarte - das darf den Bau nicht abbrechen.
+          # Interessant ist trotzdem, ob die Zeile ueberhaupt bis zu PortAudio
+          # kommt: Das laedt die DLL aus dem Bundle.
+          #
+          # 'Continue' muss sein: GitHub startet diesen Schritt mit 'Stop', und
+          # Windows PowerShell 5.1 macht aus JEDER stderr-Zeile eines nativen
+          # Programms einen ErrorRecord. Der Schritt braeche dann an einer
+          # PortAudio-Warnung ab, statt an einem Fehler.
+          $ErrorActionPreference = 'Continue'
+          .\dist\JamPilot\jampilot.exe devices
+          exit 0
 
       # Was die CI ueber die Oberflaeche sagen KANN - und was nicht.
       # Der Selbsttest oben baut das Kontrollfenster gegen die
@@ -85,13 +131,18 @@ jobs:
           echo "Info.plist ok"
 
       - name: Pruefsumme
+        if: runner.os != 'Windows'
         run: sha256sum dist/jampilot || shasum -a 256 dist/jampilot
+
+      # Die Pruefsumme des ZIP, nicht die einer Datei darin: Veroeffentlicht
+      # wird das ZIP, und der Nutzer kann nur nachrechnen, was er
+      # heruntergeladen hat.
+      - name: Pruefsumme (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: Get-FileHash -Algorithm SHA256 dist\JamPilot-*.zip | Format-List
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          # Unter macOS zusaetzlich das .app-Buendel: Nur das laesst sich im
-          # Finder doppelklicken UND bekommt die Mikrofonfreigabe.
-          path: |
-            dist/jampilot
-            dist/JamPilot.app
+          path: ${{ matrix.artefakte }}

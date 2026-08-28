@@ -208,11 +208,12 @@ output as the muted detour and the speakers as playback carries the signal
 end-to-end with no dropouts, and puts both back afterwards. Whether the mute
 behaves this way on every driver is exactly what the startup probe exists for.
 What has *not* been done is a long musical session, hence 🟡 in the README's
-platform table. Building the standalone binary is not wired up on Windows;
-`run.cmd --bundle` says so and points at
-[`docs/exploration/windows-portierung.md`](docs/exploration/windows-portierung.md),
-where the reason (unsigned 200 MB onefile, SmartScreen) is a product decision
-rather than a build step.
+platform table.
+
+Since 1.2.0 `run.cmd --bundle` builds a standalone version here too — as a
+folder in a ZIP rather than a single file. That is the answer to the
+SmartScreen question that had held the Windows build up; see
+[Size, startup, reproducibility](#size-startup-reproducibility).
 
 ## The launcher scripts
 
@@ -390,6 +391,27 @@ Between the `--onefile` unpacking and the warmup, the old order left a
 double-clicker staring at an empty screen for five seconds, which looks exactly
 like a program that failed to start (and invites a second double-click).
 
+### Double-clicking it (Windows)
+
+```bat
+run.cmd --bundle    :: -> dist\JamPilot\ + dist\JamPilot-1.2.0-windows-x86_64.zip
+```
+
+**Double-click `JamPilot.cmd`, not `jampilot.exe`.** Here the raw executable
+*does* start — the problem is the opposite one of Linux's. `jampilot.exe` is a
+console program, so Windows takes its console window down in the same instant
+the process ends. When JamPilot exits with a message (no second output
+endpoint, a device with one channel), that message is on screen for a few
+milliseconds and then gone, and what the user sees is a program that did
+nothing. `JamPilot.cmd` keeps the window open when the exit code is not zero,
+and only then. It passes every argument through, so `JamPilot.cmd devices`
+works as well.
+
+The ZIP also carries a `README.txt`: whoever downloads a ZIP is not reading
+GitHub, and the two things Windows will ask them on the first start —
+SmartScreen and the firewall dialog — are worth one paragraph each where they
+will actually be seen.
+
 ### Size, startup, reproducibility
 
 **~183 MB, ~2.5 s to start.** The size is librosa's doing — it drags in numba
@@ -401,9 +423,30 @@ unpacking itself into a temp directory on every launch. For a tool you start
 once per session and leave running, that is the right trade; if you want a
 0.45 s start, build `--onedir` instead and ship a folder.
 
+**Windows ships a folder instead: 150 MB zipped, 363 MB unpacked, ~0.45 s to
+start.** Same spec, same collected parts — they hang off a `COLLECT` instead of
+the `EXE`. The reason is not speed but delivery: a single unsigned executable of
+this size that unpacks itself into `%TEMP%` on every launch *is* a packer,
+technically, and every heuristic treats it as one. The folder does not trip
+that. It does **not** make the warning go away — unsigned is unsigned, and the
+first start still says *"Windows protected your PC"* until someone pays for a
+code signing certificate — but it removes the part that also upsets virus
+scanners. What is lost is the promise "one file"; inside a ZIP, a folder is the
+same single download either way.
+
 The build is **reproducible**: same commit, same lock file, same platform → the
 same bytes. `packaging/build.sh --check` proves it by building twice and
-comparing the SHA-256.
+comparing the SHA-256; `run.cmd --bundle --check` does the same on Windows.
+
+That last one was an open question rather than an assumption — the PE format
+carries a timestamp in its header, and whether PyInstaller normalises it was
+unknown. Measured: it does. Two full builds are identical across all ~1700
+files of the folder, with `PYTHONHASHSEED=0` doing the same work it does
+elsewhere. What `--check` compares there is the *contents of the folder*, file
+by file, not the ZIP: a ZIP stores each file's modification time in its header,
+so two ZIPs made from bit-identical folders still differ. That is a property of
+the format, not a hole in the claim — the checksum in a release note is the one
+of the uploaded file, not of a rebuild.
 
 `dist/jampilot selftest` is the test that matters here: it drives librosa,
 numba and both CQTs without needing a sound card, so it trips over any module
@@ -411,15 +454,11 @@ PyInstaller failed to collect. Run it after every change to the spec.
 
 **Builds do not cross-compile.** PyInstaller bundles the native libraries of
 the machine it runs on, so a Linux binary needs Linux, and macOS needs a Mac —
-separately per architecture. `.github/workflows/build.yml` builds Linux x86_64
-and macOS Apple Silicon on tag push. **Intel macOS is not built any more**:
-`macos-13` was GitHub's last free Intel runner, it is being retired, and its
-queue no longer moves — Intel Macs install from source, which `run.sh` makes
-cheap. **Windows is not bundled either**, for a different reason: an unsigned
-200 MB onefile exe is exactly what SmartScreen exists to frighten users away
-from. Until the signing question is answered, `run.cmd --bundle` says so and
-stops ([`docs/exploration/windows-portierung.md`](docs/exploration/windows-portierung.md));
-Windows users install from source via `run.cmd`.
+separately per architecture. `.github/workflows/build.yml` builds Linux x86_64,
+macOS Apple Silicon and Windows x86_64 on tag push. **Intel macOS is not built
+any more**: `macos-13` was GitHub's last free Intel runner, it is being
+retired, and its queue no longer moves — Intel Macs install from source, which
+`run.sh` makes cheap.
 
 What the binary still cannot bring with it, because these are system
 components:
@@ -435,12 +474,17 @@ components:
   for the null-sink routing. Without it, use `--no-route --input <device>`. The
   glibc of the build machine is the *minimum* on the target, so build on the
   oldest distribution you want to support.
+- **Windows** — nothing, which is the point of the driver-free route. What it
+  cannot suppress is the environment: SmartScreen on the first start, and the
+  firewall dialog the first time the display server binds. Both are in the
+  ZIP's `README.txt`, because the second one silently breaks the QR code if it
+  is clicked away.
 
 ## Project layout
 
 ```
 run.sh             the one entry point: sets up, starts, builds (--bundle)
-run.ps1            the same for Windows: sets up and starts (no --bundle)
+run.ps1            the same for Windows - same three jobs, same options
 run.cmd            the shell around run.ps1 - gets past the execution policy
 jampilot/
   btc.py           the chord recogniser: BTC transformer (NumPy port) + boundary refinement
@@ -463,7 +507,10 @@ jampilot/
 packaging/
   venv.sh          the environment, stamped: expensive once, free afterwards
   build.sh         the reproducible build (and it skips when nothing changed)
-  jampilot.spec    PyInstaller: one file on Linux, a real .app on macOS
+  venv.ps1         the same environment logic for Windows (run.ps1 uses it too)
+  build.ps1        the same build for Windows, plus the release ZIP
+  jampilot.spec    PyInstaller: one file on Linux, a real .app on macOS,
+                   a folder on Windows (SmartScreen - see the file's header)
 tests/             pytest suite (419 tests)
 docs/exploration/  design documents (in German)
 ```
