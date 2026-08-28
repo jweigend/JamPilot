@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.1.1 — 2026-08-28
+
+The theme of this release: **a timeline that holds still under fire.**
+1.1.0 made committed chords immutable; 1.1.1 makes sure they also keep
+their distance. Validated in the rehearsal room the same day.
 
 ### Timeline: events keep a minimum spacing
 
@@ -21,8 +25,8 @@ Refinement and correction hold the gap at the source as well.
 | Let It Be | 44 of 184 → **0 of 165** | 84.2 % → 83.4 % |
 | Something | 44 of 151 → **0 of 139** | 74.8 % → 75.0 % |
 
-Measured with `tests/reference/messung_event_abstand.py`. Not yet played
-in the rehearsal room.
+Measured with `tests/reference/messung_event_abstand.py`; confirmed in a
+rehearsal-room session — the display stays stable through fast changes.
 
 ### Feature extraction: librosa filterbank memoised
 
