@@ -303,8 +303,6 @@ Honesty section — the things JamPilot does *not* do (yet):
   loudly ([the numbers](HOW-IT-WORKS.md)).
 - **macOS routing is still manual** (BlackHole + two flags), and macOS/Windows
   have not had long musical sessions yet — see the platform table.
-- **One computer is the listener.** Phones and tablets are displays, not
-  microphones.
 
 ## How it works
 
