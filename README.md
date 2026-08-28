@@ -113,14 +113,17 @@ every music stand in the room. No app, no account: it is just a browser page.*
 **The control window** opens next to it — a small native window, and it is the
 **way back**:
 
-![The control window: state, the routing switch, the mute switch, delay and measured lead](docs/bilder/kontrollfenster.png)
+![The control window: state, the routing switch, the mute switch, delay and measured lead](docs/bilder/controllwindow.png)
 
 JamPilot reroutes your system sound while it runs. So the big switch at the top,
 **Audio through JamPilot**, is the panic button — off, and your system sound is
 normal again, immediately. Below it, **Sound** mutes only the delayed output,
 and underneath you see the state, the delay, and the **lead actually being
-measured** — how far ahead of your ears the display is running. Closing the
-window quits JamPilot, and that restores your audio.
+measured** — how far ahead of your ears the *analysis* is running (4.0 s in the
+shot: the 5 s buffer minus a one-second guard at the fresh edge). Half of that
+is the lead you see on the lane; the other half is where a chord settles before
+it is committed to the screen. Closing the window quits JamPilot, and that
+restores your audio.
 
 ## Your instrument: chords, bass, guitar or keyboard
 
