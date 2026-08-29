@@ -531,16 +531,33 @@ class TestCommitAhead:
 
 
 class TestLiveZeile:
-    """Die eine Zeile fuers Kontrollfenster - ein Satz, und er sagt, wenn kein
-    Ton ankommt."""
+    """Die eine Zeile fuers Kontrollfenster - ein Satz, mit dem naechsten Wechsel
+    als Countdown (nicht dem konstanten Analysevorsprung), und er sagt, wenn
+    kein Ton ankommt."""
 
     def test_akkord_naechster_und_tonart(self):
-        assert cli._live_zeile("C/E", "G", 3.04, "C major") == \
-            "Now playing C/E \u00b7 in 3.0 s: G \u00b7 Key C major"
+        assert cli._live_zeile("C/E", "G", 1.34, "C major") == \
+            "Now playing C/E \u00b7 next G in 1.3 s \u00b7 Key C major"
+
+    def test_ohne_bekannten_wechsel_nur_akkord_und_tonart(self):
+        assert cli._live_zeile("C", None, 0.0, "C major") == \
+            "Now playing C \u00b7 Key C major"
 
     def test_stille_wird_benannt(self):
         assert cli._live_zeile("-", "-", 3.0, None) == \
             "Now playing \u2013 \u00b7 no sound arriving? \u00b7 Key \u2026"
 
-    def test_negativer_vorlauf_wird_null(self):
-        assert "in 0.0 s" in cli._live_zeile("C", "C", -0.4, "C major")
+    def test_kommende_stille_heisst_strich(self):
+        assert "next \u2013 in 2.0 s" in cli._live_zeile("C", "-", 2.0, "C major")
+
+    def test_der_countdown_kommt_aus_der_zeitleiste(self):
+        """Der Analysethread nimmt den ersten Eintrag hinter der hoerbaren
+        Position - so, wie _display_loop ihn sucht."""
+        timeline = [(10.0, "C"), (12.5, "G"), (14.0, "Am")]
+        audible_pos = 11.2
+        naechster, in_s = None, 0.0
+        for pos, name in timeline:
+            if pos > audible_pos:
+                naechster, in_s = name, pos - audible_pos
+                break
+        assert (naechster, round(in_s, 1)) == ("G", 1.3)

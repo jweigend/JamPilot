@@ -257,7 +257,7 @@ class TestLiveZeile:
     def test_zeigt_now_playing_sobald_es_laeuft(self, fenster):
         f, e = fenster
         e.start()
-        e.jetzt = "Now playing C \u00b7 in 3.0 s: G \u00b7 Key C major"
+        e.jetzt = "Now playing C \u00b7 next G in 1.3 s \u00b7 Key C major"
         f.nachziehen()
         assert f.etappe.text() == e.jetzt
 
@@ -269,7 +269,7 @@ class TestLiveZeile:
         e.protokoll.melden("First window analysed - chords are live")
         f = gui.Fenster(e, "http://192.168.1.42:8765/")
         e.start()
-        e.jetzt = "Now playing C \u00b7 in 3.0 s: G \u00b7 Key C major"
+        e.jetzt = "Now playing C \u00b7 next G in 1.3 s \u00b7 Key C major"
         f.nachziehen()
         e.stop()
         e.jetzt = ""

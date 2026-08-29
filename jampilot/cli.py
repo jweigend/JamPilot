@@ -844,8 +844,16 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             accidental = keys.accidental
             jetzt = bassmodul.slash(audible, bass_jetzt)
             if engine is not None:
+                # Der NAECHSTE Wechsel und wann er kommt - nicht `lead`: Das
+                # ist der Analysevorsprung (Delay minus Edge-Guard) und damit
+                # konstant, "in 4.0 s" stand da dauerhaft und stimmte nie.
+                naechster, in_s = None, 0.0
+                for pos, name in timeline:
+                    if pos > audible_pos:
+                        naechster, in_s = spell(name, accidental), pos - audible_pos
+                        break
                 engine.jetzt = _live_zeile(
-                    spell(jetzt, accidental), spell(current, accidental), lead,
+                    spell(jetzt, accidental), naechster, in_s,
                     key.label_in(accidental) if key else None)
             sys.stdout.write(
                 f"\r  In {max(lead, 0.0):3.1f}s: "
@@ -868,7 +876,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
               f"(the two device clocks drifting apart)")
 
 
-def _live_zeile(jetzt: str, naechster: str, lead: float, tonart: str | None) -> str:
+def _live_zeile(jetzt: str, naechster: str | None, in_s: float,
+                tonart: str | None) -> str:
     """Die eine Zeile fuers Kontrollfenster, sobald die Analyse laeuft.
 
     Klein und in einem Satz - das Fenster ist die Notbremse, nicht die Buehne;
@@ -877,13 +886,16 @@ def _live_zeile(jetzt: str, naechster: str, lead: float, tonart: str | None) -> 
     Endpunkt, Kabel, exklusiver WASAPI-Modus), ist der haeufigste stille
     Fehler - dann steht hier dauerhaft "-", und das sagt die Zeile auch.
     """
+    teile = [f"Now playing {'\u2013' if jetzt == '-' else jetzt}"]
     if jetzt == "-":
-        mitte = "no sound arriving?"
-    else:
-        mitte = f"in {max(lead, 0.0):.1f} s: {naechster}"
-    gezeigt = "\u2013" if jetzt == "-" else jetzt
-    return (f"Now playing {gezeigt} \u00b7 {mitte} \u00b7 "
-            f"Key {tonart or '\u2026'}")
+        teile.append("no sound arriving?")
+    elif naechster is not None:
+        # `naechster` ist der erste Eintrag der Zeitleiste hinter der hoerbaren
+        # Position, `in_s` sein Abstand - ein echter Countdown, kein Vorsprung.
+        gezeigt = "\u2013" if naechster == "-" else naechster
+        teile.append(f"next {gezeigt} in {max(in_s, 0.0):.1f} s")
+    teile.append(f"Key {tonart or '\u2026'}")
+    return " \u00b7 ".join(teile)
 
 
 def _label_at(segments, t):
