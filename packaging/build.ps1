@@ -193,6 +193,9 @@ GETTING STARTED
   2. Double-click JamPilot.cmd.
   3. Play something - YouTube, Spotify, anything.
 
+The very first start takes up to a minute - JamPilot is building its caches
+and compiling. Nothing has crashed; every start after that takes seconds.
+
 There is nothing to install and nothing to configure. JamPilot borrows a
 second output endpoint of your PC (an unused HDMI or S/PDIF port will do),
 mutes it, and captures the system sound there; you keep listening to the

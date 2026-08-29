@@ -323,6 +323,12 @@ Prebuilt downloads on the [Releases page](https://github.com/jweigend/JamPilot/r
 cover **Linux x86_64**, **macOS Apple Silicon** and **Windows x86_64**. On an
 Intel Mac, install from source — `./run.sh` is the whole setup.
 
+**The very first start of a binary takes up to a minute** — on every platform,
+Windows included. Nothing has crashed: the program is unpacking itself,
+building its caches and compiling the numba kernels it does not ship
+precompiled. All of that is kept, and every start after the first takes
+seconds. Give it that minute before you close the window.
+
 ## Current limitations
 
 Honesty section — the things JamPilot does *not* do (yet):
