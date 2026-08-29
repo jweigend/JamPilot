@@ -8,6 +8,22 @@ the chords, seconds before you hear them.**
 
 [![Download JamPilot](https://a.fsdn.com/con/app/sf-download-button)](https://sourceforge.net/projects/jampilot/files/latest/download)
 
+**After the download** — nothing to install:
+
+- **Windows:** unzip, double-click `JamPilot.cmd`. Windows asks twice on the
+  first start: SmartScreen (*More info → Run anyway* — the program is not code
+  signed) and the firewall (*allow private networks*, or the QR code will not
+  work).
+- **Linux:** unpack, then once from a terminal `./jampilot install` — from then
+  on it is in your app menu.
+- **macOS (Apple Silicon):** unpack, double-click `JamPilot.app`; macOS blocks
+  unsigned apps, so *System Settings → Privacy & Security → Open Anyway*. Not
+  one-click yet: it also needs [BlackHole](#macos) and two flags.
+
+The very first start takes up to a minute (it compiles and caches); every start
+after that takes seconds. Programmers: the [Releases page](https://github.com/jweigend/JamPilot/releases)
+has the same files, and `./run.sh` builds from source.
+
 ![JamPilot: any audio source in, live chords with a lookahead timeline out — built with Python, all local](docs/bilder/teaser.png)
 
 **Ever wanted to just grab your instrument and play along with whatever is coming
