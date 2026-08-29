@@ -199,10 +199,35 @@ class TestLink:
 class TestStartprotokoll:
     """Das Fenster zeigt die laufende Etappe - eine Zeile, die wechselt."""
 
-    def test_ohne_protokoll_bleibt_die_zeile_versteckt(self, fenster):
+    def test_ohne_protokoll_bleibt_die_zeile_leer(self, fenster):
         f, _ = fenster                       # FakeEngine hat kein Protokoll
         f.nachziehen()
-        assert f.etappe.isHidden()
+        assert f.etappe.text() == ""
+
+    def test_das_fenster_oeffnet_sich_gross_genug_fuer_den_start(self, app):
+        """Die Karten wurden beim Start zusammengedrueckt: Das Fenster ging mit
+        dem Stopped-Inhalt auf, dann kamen Starthinweis und Etappenzeile dazu,
+        und ein geoeffnetes Fenster waechst nicht nach. Der Inhalt darf nach
+        dem show() also nicht mehr Platz brauchen, als das Fenster hat."""
+        from jampilot.engine import Startprotokoll
+
+        e = FakeEngine()
+        e.protokoll = Startprotokoll()
+        f = gui.Fenster(e, "http://192.168.1.42:8765/")
+        f.startet = True                     # wie run(): Starting VOR dem show()
+        f.nachziehen()
+        f.show()
+        app.processEvents()
+        hoehe_beim_oeffnen = f.height()
+
+        e.protokoll.melden("Window open")
+        with e.protokoll.etappe("Compiling the analysis (first start: up to "
+                                "a minute)"):
+            f.nachziehen()
+            app.processEvents()
+            assert f.sizeHint().height() <= hoehe_beim_oeffnen
+            assert f.height() == hoehe_beim_oeffnen
+        f.close()
 
     def test_zeigt_nur_die_juengste_etappe(self, app):
         from jampilot.engine import Startprotokoll
@@ -218,7 +243,6 @@ class TestStartprotokoll:
             f.nachziehen()
             assert f.etappe.text() == "Routing the system audio ..."
             assert "Compiling" not in f.etappe.text()   # kein Log
-        assert not f.etappe.isHidden()
 
     def test_der_starthinweis_nennt_die_erste_minute(self, fenster):
         f, _ = fenster

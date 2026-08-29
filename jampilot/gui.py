@@ -272,10 +272,21 @@ class Fenster(QWidget):
         # (first start: up to a minute) ...", und man sieht, dass es arbeitet
         # statt zu haengen. Gelesen wird per Timer aus engine.protokoll
         # (nachziehen); ein Zaehler spart das Neusetzen.
+        #
+        # Die Zeile ist IMMER da und reserviert zwei Zeilen Hoehe, auch leer.
+        # Sonst wuerde das Fenster mit dem kleinen Stopped-Inhalt aufgehen und
+        # der Inhalt danach wachsen - und ein Layout mit umbrechenden Labels
+        # zieht ein geoeffnetes Fenster nicht nach: Die Karten oben werden
+        # zusammengedrueckt, bis der Starthinweis bei "Running" verschwindet.
+        # Genau so sah es aus. Was das Fenster spaeter zeigen soll, muss beim
+        # show() schon Platz haben (siehe auch run()).
         self.etappe = QLabel("")
         self.etappe.setWordWrap(True)
+        schrift = self.etappe.font()
+        schrift.setPixelSize(11)
+        self.etappe.setFont(schrift)
         self.etappe.setStyleSheet(f"color:{GRAU}; font-size:11px;")
-        self.etappe.hide()
+        self.etappe.setMinimumHeight(2 * self.etappe.fontMetrics().lineSpacing())
         wurzel.addWidget(self.etappe)
         self._etappe_stand = -1
 
@@ -372,9 +383,7 @@ class Fenster(QWidget):
         protokoll = getattr(e, "protokoll", None)
         if protokoll is not None and protokoll.stand() != self._etappe_stand:
             self._etappe_stand = protokoll.stand()
-            aktuell = protokoll.aktuell()
-            self.etappe.setText(aktuell)
-            self.etappe.setVisible(bool(aktuell))
+            self.etappe.setText(protokoll.aktuell())
 
     def closeEvent(self, ereignis):
         """Fenster zu = Programm zu - und damit Ton zurueck.
@@ -461,6 +470,13 @@ def run(engine, url: str | None, autostart: bool = False, vorbereiten=None) -> i
     _wecker = beenden_bei_signal(app)     # muss leben, solange die Schleife laeuft
 
     fenster = Fenster(engine, url)
+    # "Starting" VOR dem show(): Das Fenster oeffnet sich in der Groesse seines
+    # Inhalts, und nachwachsen tut es nicht (siehe Fenster.__init__ bei
+    # self.etappe). Der Starthinweis ist der laengste Text, den es zeigt - er
+    # muss also schon dastehen, wenn die Groesse bestimmt wird.
+    if autostart and vorbereiten is not None:
+        fenster.startet = True
+        fenster.nachziehen()
     fenster.show()
     fenster.raise_()
     fenster.activateWindow()
@@ -486,9 +502,6 @@ def run(engine, url: str | None, autostart: bool = False, vorbereiten=None) -> i
         if vorbereiten is None:
             QTimer.singleShot(0, anwerfen)
         else:
-            fenster.startet = True
-            fenster.nachziehen()          # "Starting", bevor die Schleife laeuft
-
             def vorheizen():
                 try:
                     vorbereiten()
