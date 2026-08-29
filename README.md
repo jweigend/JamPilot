@@ -6,6 +6,8 @@ the chords, seconds before you hear them.**
 [**▶ Watch the 60-second demo**](https://www.youtube.com/watch?v=zSepTG2ZgY0) ·
 [Quick teaser (Short)](https://www.youtube.com/shorts/y1gzAMFe7cQ)
 
+[![Download JamPilot](https://a.fsdn.com/con/app/sf-download-button)](https://sourceforge.net/projects/jampilot/files/latest/download)
+
 ![JamPilot: any audio source in, live chords with a lookahead timeline out — built with Python, all local](docs/bilder/teaser.png)
 
 **Ever wanted to just grab your instrument and play along with whatever is coming
@@ -320,8 +322,9 @@ build is reproducible on all three and only rebuilds when sources changed —
 details in [UNDER-THE-HOOD.md](UNDER-THE-HOOD.md#size-startup-reproducibility).
 
 Prebuilt downloads on the [Releases page](https://github.com/jweigend/JamPilot/releases)
-cover **Linux x86_64**, **macOS Apple Silicon** and **Windows x86_64**. On an
-Intel Mac, install from source — `./run.sh` is the whole setup.
+and on [SourceForge](https://sourceforge.net/projects/jampilot/) cover
+**Linux x86_64**, **macOS Apple Silicon** and **Windows x86_64**. On an Intel
+Mac, install from source — `./run.sh` is the whole setup.
 
 **The very first start of a binary takes up to a minute** — on every platform,
 Windows included. Nothing has crashed: the program is unpacking itself,
