@@ -311,3 +311,11 @@ class TestStartprotokoll:
             with pytest.raises(RuntimeError):
                 e.start()
         assert e.protokoll.zeilen()[-1].endswith("failed: keine Soundkarte")
+
+
+class TestLiveZeile:
+    def test_stop_leert_die_live_zeile(self, engine):
+        engine.start()
+        engine.jetzt = "Now playing C"
+        engine.stop()
+        assert engine.jetzt == ""

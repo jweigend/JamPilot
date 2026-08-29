@@ -249,3 +249,29 @@ class TestStartprotokoll:
         f.startet = True
         f.nachziehen()
         assert "up to a minute" in f.hinweis.text()
+
+
+class TestLiveZeile:
+    """Laeuft die Analyse, wird die Etappenzeile zur Live-Zeile."""
+
+    def test_zeigt_now_playing_sobald_es_laeuft(self, fenster):
+        f, e = fenster
+        e.start()
+        e.jetzt = "Now playing C \u00b7 in 3.0 s: G \u00b7 Key C major"
+        f.nachziehen()
+        assert f.etappe.text() == e.jetzt
+
+    def test_nach_dem_stopp_wieder_die_etappe(self, app):
+        from jampilot.engine import Startprotokoll
+
+        e = FakeEngine()
+        e.protokoll = Startprotokoll()
+        e.protokoll.melden("First window analysed - chords are live")
+        f = gui.Fenster(e, "http://192.168.1.42:8765/")
+        e.start()
+        e.jetzt = "Now playing C \u00b7 in 3.0 s: G \u00b7 Key C major"
+        f.nachziehen()
+        e.stop()
+        e.jetzt = ""
+        f.nachziehen()
+        assert f.etappe.text() == "First window analysed - chords are live"

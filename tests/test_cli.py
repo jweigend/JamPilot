@@ -528,3 +528,19 @@ class TestCommitAhead:
     def test_winziger_puffer_wird_geklemmt(self):
         # Unter der Klemme gaebe es gar keine Commit-Grenze mehr vor NOW.
         assert cli._commit_ahead(1.5) == pytest.approx(0.5)
+
+
+class TestLiveZeile:
+    """Die eine Zeile fuers Kontrollfenster - ein Satz, und er sagt, wenn kein
+    Ton ankommt."""
+
+    def test_akkord_naechster_und_tonart(self):
+        assert cli._live_zeile("C/E", "G", 3.04, "C major") == \
+            "Now playing C/E \u00b7 in 3.0 s: G \u00b7 Key C major"
+
+    def test_stille_wird_benannt(self):
+        assert cli._live_zeile("-", "-", 3.0, None) == \
+            "Now playing \u2013 \u00b7 no sound arriving? \u00b7 Key \u2026"
+
+    def test_negativer_vorlauf_wird_null(self):
+        assert "in 0.0 s" in cli._live_zeile("C", "C", -0.4, "C major")

@@ -378,8 +378,16 @@ class Fenster(QWidget):
         else:
             self.info.setText("")
 
-        # getattr: Die Attrappe im Selbsttest hat kein Protokoll - und braucht
-        # auch keins.
+        # Dieselbe Zeile, zwei Leben: waehrend des Starts die Etappe, danach
+        # die Live-Zeile der Analyse ("Now playing C · in 3.0 s: G · Key C
+        # major"). getattr: Die Attrappe im Selbsttest hat weder das eine noch
+        # das andere - und braucht es nicht.
+        live = getattr(e, "jetzt", "") if e.running else ""
+        if live:
+            if self.etappe.text() != live:
+                self.etappe.setText(live)
+            self._etappe_stand = -1       # nach dem Stopp wieder die Etappen
+            return
         protokoll = getattr(e, "protokoll", None)
         if protokoll is not None and protokoll.stand() != self._etappe_stand:
             self._etappe_stand = protokoll.stand()

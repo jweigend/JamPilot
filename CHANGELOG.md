@@ -14,6 +14,13 @@ analysed - chords are live* — with the duration once a stage is done. The
 terminal gets the same stages as lines with timestamps, replacing the old
 `Initialising analysis... ok`; a stage that fails keeps its error in the line.
 
+Once the analysis runs, the same line turns into the terminal's status —
+*Now playing C/E · in 3.0 s: G · Key C major*. Small and grey on purpose: the
+window is the emergency brake, not the stage. What the line is for is proof
+that sound arrives — a route that stands but carries no audio (wrong endpoint,
+cable, exclusive-mode app) now reads *Now playing – · no sound arriving?*
+instead of showing nothing until you open the browser.
+
 ## 1.2.0 — 2026-08-28
 
 The theme of this release: **Windows gets a download.** No new analysis, no

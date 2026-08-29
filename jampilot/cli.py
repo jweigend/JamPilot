@@ -843,6 +843,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
 
             accidental = keys.accidental
             jetzt = bassmodul.slash(audible, bass_jetzt)
+            if engine is not None:
+                engine.jetzt = _live_zeile(
+                    spell(jetzt, accidental), spell(current, accidental), lead,
+                    key.label_in(accidental) if key else None)
             sys.stdout.write(
                 f"\r  In {max(lead, 0.0):3.1f}s: "
                 f"{spell(current, accidental):<6s} "
@@ -862,6 +866,24 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     if aussetzer and any(aussetzer):
         print(f"Capture dropouts: {aussetzer[0]} under, {aussetzer[1]} over "
               f"(the two device clocks drifting apart)")
+
+
+def _live_zeile(jetzt: str, naechster: str, lead: float, tonart: str | None) -> str:
+    """Die eine Zeile fuers Kontrollfenster, sobald die Analyse laeuft.
+
+    Klein und in einem Satz - das Fenster ist die Notbremse, nicht die Buehne;
+    gespielt wird nach der Webanzeige. Was die Zeile leistet: Sie beweist, dass
+    Ton ankommt. Eine Umleitung, die steht, aber kein Audio traegt (falscher
+    Endpunkt, Kabel, exklusiver WASAPI-Modus), ist der haeufigste stille
+    Fehler - dann steht hier dauerhaft "-", und das sagt die Zeile auch.
+    """
+    if jetzt == "-":
+        mitte = "no sound arriving?"
+    else:
+        mitte = f"in {max(lead, 0.0):.1f} s: {naechster}"
+    gezeigt = "\u2013" if jetzt == "-" else jetzt
+    return (f"Now playing {gezeigt} \u00b7 {mitte} \u00b7 "
+            f"Key {tonart or '\u2026'}")
 
 
 def _label_at(segments, t):

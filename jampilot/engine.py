@@ -168,6 +168,10 @@ class Engine:
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self.lead = 0.0
+        # Die Live-Zeile der Analyse ("Now playing C · in 3.0 s: G · Key C
+        # major"), geschrieben vom Analysethread, gelesen vom Fenster. Leer,
+        # solange noch kein Modelllauf durch ist - und nach dem Stopp.
+        self.jetzt = ""
         self.status = "stopped"     # stopped | starting | running | error
         self.fehler: str | None = None
 
@@ -311,6 +315,7 @@ class Engine:
             # anschliessend ein harmloses "Stopped", das niemandem sagt, warum.
             self.status = "error" if self.fehler else "stopped"
             self.lead = 0.0
+            self.jetzt = ""
         if self.broadcaster:
             self.broadcaster.republish(muted=False, control_guitar=False,
                                        running=False)
