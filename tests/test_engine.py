@@ -215,3 +215,99 @@ class TestStumm:
         engine.stop()
         # Sonst startet der naechste Lauf stumm, und niemand weiss warum.
         assert not engine.muted
+
+
+class TestStartprotokoll:
+    """Die Etappen des Starts: lesbar, mit Dauer, aus jedem Thread.
+
+    Der Grund fuer das Protokoll steht in engine.py - ein erster Start, der bis
+    zu einer Minute lang "Starting" sagt, sieht aus wie ein Absturz.
+    """
+
+    def test_etappe_bekommt_ihre_dauer(self):
+        from jampilot.engine import Startprotokoll
+
+        p = Startprotokoll()
+        with p.etappe("Compiling"):
+            assert p.zeilen()[-1].endswith("Compiling ...")   # laeuft noch
+            time.sleep(0.06)
+        zeile = p.zeilen()[-1]
+        assert "Compiling (" in zeile and zeile.endswith(" s)")
+        assert "..." not in zeile
+
+    def test_meldung_ohne_dauer_und_reihenfolge(self):
+        from jampilot.engine import Startprotokoll
+
+        p = Startprotokoll()
+        p.melden("Window open")
+        with p.etappe("Loading"):
+            pass
+        p.melden("Live")
+        texte = [z.split(" s  ", 1)[1] for z in p.zeilen()]
+        assert texte == ["Window open", "Loading", "Live"]
+
+    def test_fehler_bleibt_in_der_zeile_stehen(self):
+        from jampilot.engine import Startprotokoll
+
+        p = Startprotokoll()
+        with pytest.raises(RuntimeError):
+            with p.etappe("Opening the audio devices"):
+                raise RuntimeError("keine Soundkarte")
+        assert p.zeilen()[-1].endswith("failed: keine Soundkarte")
+
+    def test_aktuell_ist_die_juengste_zeile_ohne_zeit(self):
+        from jampilot.engine import Startprotokoll
+
+        p = Startprotokoll()
+        assert p.aktuell() == ""
+        p.melden("Window open")
+        with p.etappe("Compiling"):
+            assert p.aktuell() == "Compiling ..."
+        assert p.aktuell().startswith("Compiling")
+        assert " s  " not in p.aktuell()
+
+    def test_stand_zaehlt_jede_aenderung(self):
+        from jampilot.engine import Startprotokoll
+
+        p = Startprotokoll()
+        s0 = p.stand()
+        with p.etappe("x"):
+            s1 = p.stand()
+        assert s0 < s1 < p.stand()
+
+    def test_ausgabe_bekommt_fertige_zeilen(self):
+        from jampilot.engine import Startprotokoll
+
+        zeilen = []
+        p = Startprotokoll(ausgabe=zeilen.append)
+        p.melden("Window open")
+        with p.etappe("Loading"):
+            assert len(zeilen) == 1            # erst die fertige Zeile
+        assert len(zeilen) == 2 and "Loading" in zeilen[1]
+
+    def test_engine_schreibt_ihre_etappen_hinein(self, engine):
+        engine.start()
+        texte = "\n".join(engine.protokoll.zeilen())
+        assert "Opening the audio devices" in texte
+        assert "..." not in texte              # abgeschlossen
+
+    def test_umleitung_ist_eine_eigene_etappe(self, args):
+        args.no_route = False
+        with patch("jampilot.routing.available", return_value=True), \
+             patch("jampilot.routing.create"), \
+             patch("jampilot.delay_stream.DelayedLoopback"), \
+             patch("jampilot.cli._display_loop"):
+            e = Engine(args)
+            e.start()
+            e.stop()
+        texte = [z.split(" s  ", 1)[1] for z in e.protokoll.zeilen()]
+        assert texte[0].startswith("Routing the system audio")
+        assert texte[1].startswith("Opening the audio devices")
+
+    def test_fehler_beim_oeffnen_steht_im_protokoll(self, args):
+        with patch("jampilot.delay_stream.DelayedLoopback",
+                   side_effect=RuntimeError("keine Soundkarte")):
+            e = Engine(args)
+            with pytest.raises(RuntimeError):
+                e.start()
+        assert e.protokoll.zeilen()[-1].endswith("failed: keine Soundkarte")

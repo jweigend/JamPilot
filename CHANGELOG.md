@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### The control window says what the start is doing
+
+The very first start of a binary takes up to a minute — numba compiles the
+analysis kernels and writes its cache (measured: 23 s cold, 2 s warm). A window
+that says "Starting" for that long and nothing else looks like a program that
+hangs. It now carries one line that changes with the current stage — *Compiling
+the analysis (first start: up to a minute) …*, *Routing the system audio …*,
+*Opening the audio devices …*, *Loading the chord model*, *First window
+analysed - chords are live* — with the duration once a stage is done. The
+terminal gets the same stages as lines with timestamps, replacing the old
+`Initialising analysis... ok`; a stage that fails keeps its error in the line.
+
 ## 1.2.0 — 2026-08-28
 
 The theme of this release: **Windows gets a download.** No new analysis, no

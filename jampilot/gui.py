@@ -266,6 +266,19 @@ class Fenster(QWidget):
         self.hinweis.hide()
         wurzel.addWidget(self.hinweis)
 
+        # Was der Start gerade tut - EINE Zeile, die wechselt, kein Log. Beim
+        # allerersten Start eines Binaries steht das Fenster bis zu einer
+        # Minute auf "Starting"; hier steht dann "Compiling the analysis
+        # (first start: up to a minute) ...", und man sieht, dass es arbeitet
+        # statt zu haengen. Gelesen wird per Timer aus engine.protokoll
+        # (nachziehen); ein Zaehler spart das Neusetzen.
+        self.etappe = QLabel("")
+        self.etappe.setWordWrap(True)
+        self.etappe.setStyleSheet(f"color:{GRAU}; font-size:11px;")
+        self.etappe.hide()
+        wurzel.addWidget(self.etappe)
+        self._etappe_stand = -1
+
         # Der Analysethread darf keine Widgets anfassen. Also fragen WIR ihn.
         self._takt = QTimer(self)
         self._takt.timeout.connect(self.nachziehen)
@@ -320,11 +333,13 @@ class Fenster(QWidget):
             # Der sichtbare Beweis, dass der Doppelklick angekommen ist. Ohne ihn
             # steht hier waehrend des Warmups "Stopped" - und das ist zwar wahr
             # (noch ist nichts umgeleitet), sieht aber aus wie ein Programm, das
-            # nicht tut, was es soll.
+            # nicht tut, was es soll. Welche Etappe gerade laeuft, steht in
+            # der Zeile darunter (self.etappe).
             self.punkt.setStyleSheet(f"color:{AMBER}; font-size:15px;")
             self.zustand.setText("Starting")
-            self.hinweis.setText("Preparing the analysis — a few seconds, then "
-                                 "the sound starts running through JamPilot.")
+            self.hinweis.setText("Preparing the analysis — a few seconds, on the "
+                                 "very first start up to a minute. Then the "
+                                 "sound starts running through JamPilot.")
             self.hinweis.setStyleSheet(f"color:{GRAU}; font-size:11px;")
             self.hinweis.show()
         elif not e.running:
@@ -351,6 +366,15 @@ class Fenster(QWidget):
                               f"Lead {max(e.lead, 0.0):.1f} s")
         else:
             self.info.setText("")
+
+        # getattr: Die Attrappe im Selbsttest hat kein Protokoll - und braucht
+        # auch keins.
+        protokoll = getattr(e, "protokoll", None)
+        if protokoll is not None and protokoll.stand() != self._etappe_stand:
+            self._etappe_stand = protokoll.stand()
+            aktuell = protokoll.aktuell()
+            self.etappe.setText(aktuell)
+            self.etappe.setVisible(bool(aktuell))
 
     def closeEvent(self, ereignis):
         """Fenster zu = Programm zu - und damit Ton zurueck.
@@ -440,6 +464,9 @@ def run(engine, url: str | None, autostart: bool = False, vorbereiten=None) -> i
     fenster.show()
     fenster.raise_()
     fenster.activateWindow()
+    protokoll = getattr(engine, "protokoll", None)
+    if protokoll is not None:
+        protokoll.melden("Window open")
 
     if autostart:
         def anwerfen():

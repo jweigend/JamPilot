@@ -19,6 +19,10 @@ import wave
 
 import numpy as np
 
+# Die Uhr des Startprotokolls: so frueh, wie Python uns laesst. Was davor liegt
+# (das Entpacken der onefile-Binary, ~2,5 s), sieht kein Python-Code.
+_PROZESSSTART = time.monotonic()
+
 # Analysefenster: die harmonische Trennung (HPSS) braucht Kontext, und die
 # CQT-Bassaufloesung profitiert von Laenge. Gepoolt wird nur die juengere
 # Haelfte des Fensters, Akkordwechsel kommen also nach ~0.75s an - bei
@@ -523,6 +527,17 @@ def cmd_run(args):
         if pid is not None and pid != os.getpid():
             raise SystemExit(str(routing.InstanceRunning(pid)))
 
+    # Die Etappen des Starts - im Terminal als Zeilen, im Fenster als Liste.
+    # Der allererste Start eines Binaries dauert bis zu einer Minute (numba
+    # uebersetzt und legt seinen Cache an), und nichts davon darf wie ein
+    # Absturz aussehen. Die Uhr laeuft ab Programmstart (_PROZESSSTART), damit
+    # die Zeiten stimmen, die der Nutzer empfindet.
+    from .engine import Engine, Startprotokoll
+
+    protokoll = Startprotokoll(ausgabe=lambda zeile: print(f"  {zeile}", flush=True),
+                               t0=_PROZESSSTART)
+    protokoll.melden("Modules loaded")
+
     web_display = None
     if not args.no_web:
         from . import web
@@ -531,14 +546,13 @@ def cmd_run(args):
             web_display = web.start(args.port)
             print(f"Display: {web_display.url}  "
                   f"(QR code on the page; put your phone on the same Wi-Fi)")
+            protokoll.melden(f"Web display listening on {web_display.url}")
         except OSError as exc:
             print(f"Web display unavailable ({exc}) - continuing without it.")
 
     broadcaster = web_display.broadcaster if web_display else None
 
-    from .engine import Engine
-
-    engine = Engine(args, broadcaster)
+    engine = Engine(args, broadcaster, protokoll=protokoll)
     _beim_schliessen_der_konsole(engine)
 
     # Der Stummschalter der Webseite und der im Fenster muessen DIESELBE Sache
@@ -566,8 +580,13 @@ def cmd_run(args):
         sein."""
         from .btc import features_from_audio
 
-        features_from_audio(np.zeros(2 * args.samplerate, dtype=np.float32),
-                            args.samplerate)
+        # Die eine Etappe, die beim allerersten Start die Minute kostet: numbas
+        # JIT uebersetzt librosas CQT und legt den Cache an (gemessen: 23 s
+        # kalt, 2 s warm). Der Text sagt das, damit niemand in Sekunde 40 das
+        # Fenster schliesst.
+        with protokoll.etappe("Compiling the analysis (first start: up to a minute)"):
+            features_from_audio(np.zeros(2 * args.samplerate, dtype=np.float32),
+                                args.samplerate)
 
     try:
         if mit_fenster:
@@ -588,9 +607,7 @@ def cmd_run(args):
             # Qt MUSS im Hauptthread laufen (unter macOS zwingend), die Analyse
             # laeuft daher im Hintergrund - siehe engine.py.
             sys.exit(gui.run(engine, url, autostart=True, vorbereiten=vorheizen))
-        print("Initialising analysis...", end="", flush=True)
-        vorheizen()
-        print(" ok", flush=True)   # ohne flush landet das "ok" hinter einem Traceback
+        vorheizen()                # die Etappen stehen im Terminal (protokoll)
         engine.start()
         try:
             engine._thread.join()      # bis Strg+C - oder bis der Stream stirbt
@@ -626,6 +643,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     aktuellen Vorlauf fuer die GUI-Statusanzeige.
     """
     from . import bass as bassmodul
+    from .engine import Startprotokoll
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
                       fold_bass_chroma, fold_chroma, label_mode_votes,
                       live_segments_from_labels, refine_boundary)
@@ -635,7 +653,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     sr = args.samplerate
     window_frames = int(round(BTC_LIVE_WINDOW * sr))
     hop_frames = int(round(ANALYSIS_HOP * sr))
-    model = BTCModel()
+    # Ein stilles Protokoll, wenn keine Engine dahintersteht (analyze, Tests).
+    protokoll = engine.protokoll if engine is not None else Startprotokoll()
+    with protokoll.etappe("Loading the chord model"):
+        model = BTCModel()
     # Zwei Zeitskalen: langes Histogramm fuer die Ruhe (an der Tonika haengen
     # Stufen und Schreibweise), kurzes als Modulations-/Songwechsel-Detektor.
     # Messwerte: tests/realaudio/REPORT_key_window.md.
@@ -672,6 +693,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
         debug.write("# wall\twindow_end\tcurrent\taudible_pos\n")
 
     grid = None
+    erste_analyse_gemeldet = False
     stillstand_bei, stillstand_seit = -1, time.monotonic()
     try:
         while not (stop is not None and stop.is_set()):
@@ -705,6 +727,11 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
 
             features = features_from_audio(audio, sr)
             labels = model.predict(features)
+            if not erste_analyse_gemeldet:
+                # Ab hier laeuft es wirklich: Der erste Modelllauf ist durch,
+                # die naechsten Akkorde erscheinen im Takt der Hops.
+                protokoll.melden("First window analysed - chords are live")
+                erste_analyse_gemeldet = True
             bass_track.add(fold_bass_chroma(features), window_start)
             segments = live_segments_from_labels(labels, audio, sr,
                                                  offset=window_start,

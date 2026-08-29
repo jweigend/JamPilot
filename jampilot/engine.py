@@ -23,6 +23,8 @@ AUS heisst dabei wirklich AUS - Umleitung UND Stream:
 
 import sys
 import threading
+import time
+from contextlib import contextmanager
 
 
 def _standardgeraet():
@@ -37,6 +39,108 @@ def _standardgeraet():
     return "default" if sys.platform.startswith("linux") else None
 
 
+class Startprotokoll:
+    """Die Etappen des Starts - mitlesbar im Fenster und im Terminal.
+
+    Warum es das gibt: Der allererste Start eines Binaries dauert bis zu einer
+    Minute (numba uebersetzt seine Kerne und legt den Cache an; gemessen 23 s
+    auf einem aktuellen Rechner, 2 s mit warmem Cache). Ein Fenster, das so
+    lange "Starting" sagt und sonst nichts, sieht aus wie ein Programm, das
+    haengt - und wird geschlossen, kurz bevor es fertig waere. Hier steht
+    deshalb, WAS gerade passiert und wie lange die Etappen davor gebraucht
+    haben.
+
+    Threadsicher, ohne Qt: Warmup, Engine.start() und die Analyse laufen in
+    verschiedenen Threads und schreiben alle hier hinein; das Fenster liest per
+    Timer (`stand()` sagt ihm billig, ob sich etwas geaendert hat) und zeigt
+    nur die juengste Zeile (`aktuell()`). `ausgabe` bekommt jede fertige Zeile
+    zusaetzlich - im Terminal ist das print, und dort darf es ein Log sein.
+    """
+
+    def __init__(self, ausgabe=None, t0: float | None = None):
+        self._t0 = time.monotonic() if t0 is None else t0
+        self._lock = threading.Lock()
+        self._eintraege: list[dict] = []
+        self._stand = 0
+        self.ausgabe = ausgabe
+
+    # --- schreiben -----------------------------------------------------------
+    def melden(self, text: str) -> None:
+        """Ein Ereignis ohne Dauer ("Window open")."""
+        self._anfuegen({"text": text, "beginn": self._jetzt(), "dauer": 0.0,
+                        "fehler": None})
+
+    @contextmanager
+    def etappe(self, text: str):
+        """Eine Etappe mit Dauer - die Zeile entsteht beim Eintritt (mit "...")
+        und bekommt beim Verlassen ihre Dauer, oder den Fehler."""
+        eintrag = {"text": text, "beginn": self._jetzt(), "dauer": None,
+                   "fehler": None}
+        self._anfuegen(eintrag)
+        try:
+            yield
+        except BaseException as exc:
+            self._abschliessen(eintrag, fehler=str(exc) or type(exc).__name__)
+            raise
+        else:
+            self._abschliessen(eintrag)
+
+    # --- lesen ---------------------------------------------------------------
+    def stand(self) -> int:
+        """Zaehler, der sich mit jeder Aenderung erhoeht - fuers Polling."""
+        with self._lock:
+            return self._stand
+
+    def zeilen(self) -> list[str]:
+        with self._lock:
+            return [self._zeile(e) for e in self._eintraege]
+
+    def aktuell(self) -> str:
+        """Die juengste Etappe ohne Zeitstempel - die EINE Zeile fuers Fenster.
+
+        Das Fenster ist kein Log: Es zeigt, was gerade passiert, und die Zeile
+        wechselt, wenn die naechste Etappe beginnt. Was alles davor war, steht
+        im Terminal.
+        """
+        with self._lock:
+            if not self._eintraege:
+                return ""
+            return self._zeile(self._eintraege[-1], mit_zeit=False)
+
+    # --- intern --------------------------------------------------------------
+    def _jetzt(self) -> float:
+        return time.monotonic() - self._t0
+
+    def _anfuegen(self, eintrag: dict) -> None:
+        with self._lock:
+            self._eintraege.append(eintrag)
+            self._stand += 1
+        if eintrag["dauer"] is not None:
+            self._ausgeben(eintrag)
+
+    def _abschliessen(self, eintrag: dict, fehler: str | None = None) -> None:
+        with self._lock:
+            eintrag["dauer"] = self._jetzt() - eintrag["beginn"]
+            eintrag["fehler"] = fehler
+            self._stand += 1
+        self._ausgeben(eintrag)
+
+    def _ausgeben(self, eintrag: dict) -> None:
+        if self.ausgabe is not None:
+            self.ausgabe(self._zeile(eintrag))
+
+    @staticmethod
+    def _zeile(e: dict, mit_zeit: bool = True) -> str:
+        kopf = f"{e['beginn']:5.1f} s  {e['text']}" if mit_zeit else e["text"]
+        if e["fehler"]:
+            return f"{kopf} - failed: {e['fehler']}"
+        if e["dauer"] is None:
+            return f"{kopf} ..."
+        if e["dauer"] < 0.05:
+            return kopf
+        return f"{kopf} ({e['dauer']:.1f} s)"
+
+
 class Engine:
     """Umleitung, Audiostream und Analyse - startbar und stoppbar zur Laufzeit.
 
@@ -48,9 +152,12 @@ class Engine:
                                 Analyse laufen weiter (siehe delay_stream).
     """
 
-    def __init__(self, args, broadcaster=None, on_change=None):
+    def __init__(self, args, broadcaster=None, on_change=None, protokoll=None):
         self.args = args
         self.broadcaster = broadcaster
+        # Die Etappen des Starts, fuer Fenster und Terminal. Wer keines
+        # mitgibt, bekommt ein stilles - die Tests und `analyze` brauchen keins.
+        self.protokoll = protokoll or Startprotokoll()
         # Wird bei jedem Zustandswechsel gerufen, damit die Oberflaeche sich
         # nachzieht - ohne dass diese Schicht die Oberflaeche kennen muss.
         self._on_change = on_change or (lambda: None)
@@ -122,8 +229,9 @@ class Engine:
                     # der Umweg ist. Diese Schicht darf das nicht wissen
                     # muessen, sonst steht die Plattformfrage zweimal im
                     # Programm.
-                    self._route = routing.create(args)
-                    self._route.__enter__()
+                    with self.protokoll.etappe("Routing the system audio"):
+                        self._route = routing.create(args)
+                        self._route.__enter__()
                     # Die Umleitung darf die Abtastrate VORGEBEN: Beim
                     # Windows-Mute-Weg kommt der Mitschnitt im Mixformat des
                     # Endpunkts, und das ist nicht verhandelbar - eine andere
@@ -131,22 +239,25 @@ class Engine:
                     rate = getattr(self._route, "samplerate", None) or args.samplerate
                     # [POC-BTC] Der Analysepuffer muss das 10-s-Modellfenster
                     # halten (Default waeren 3s).
-                    self._loop = DelayedLoopback(
-                        self._route.capture_device,
-                        self._route.playback_device,
-                        args.delay,
-                        samplerate=rate,
-                        analysis_seconds=11.0,
-                        capture=getattr(self._route, "capture_source", None))
-                    self._loop.start()
-                    self._route.after_start()
+                    with self.protokoll.etappe("Opening the audio devices"):
+                        self._loop = DelayedLoopback(
+                            self._route.capture_device,
+                            self._route.playback_device,
+                            args.delay,
+                            samplerate=rate,
+                            analysis_seconds=11.0,
+                            capture=getattr(self._route, "capture_source", None))
+                        self._loop.start()
+                        self._route.after_start()
                 else:
                     eingang = args.input if args.input is not None \
                         else _standardgeraet()
-                    self._loop = DelayedLoopback(eingang, args.output,
-                                                 args.delay, samplerate=args.samplerate,
-                                                 analysis_seconds=11.0)  # [POC-BTC] s.o.
-                    self._loop.start()
+                    with self.protokoll.etappe("Opening the audio devices"):
+                        self._loop = DelayedLoopback(
+                            eingang, args.output, args.delay,
+                            samplerate=args.samplerate,
+                            analysis_seconds=11.0)  # [POC-BTC] s.o.
+                        self._loop.start()
             except BaseException as exc:
                 # Halb aufgebaut ist schlimmer als gar nicht: sonst bleibt der
                 # Null-Sink als Standardausgang stehen und der Rechner ist stumm.

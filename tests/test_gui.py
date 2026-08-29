@@ -194,3 +194,34 @@ class TestLink:
         f = gui.Fenster(FakeEngine(), None)
         assert "--no-web" in f.link.text()
         assert not f.anzeige_knopf.isEnabled()
+
+
+class TestStartprotokoll:
+    """Das Fenster zeigt die laufende Etappe - eine Zeile, die wechselt."""
+
+    def test_ohne_protokoll_bleibt_die_zeile_versteckt(self, fenster):
+        f, _ = fenster                       # FakeEngine hat kein Protokoll
+        f.nachziehen()
+        assert f.etappe.isHidden()
+
+    def test_zeigt_nur_die_juengste_etappe(self, app):
+        from jampilot.engine import Startprotokoll
+
+        e = FakeEngine()
+        e.protokoll = Startprotokoll()
+        f = gui.Fenster(e, "http://192.168.1.42:8765/")
+        e.protokoll.melden("Window open")
+        with e.protokoll.etappe("Compiling the analysis"):
+            f.nachziehen()
+            assert f.etappe.text() == "Compiling the analysis ..."
+        with e.protokoll.etappe("Routing the system audio"):
+            f.nachziehen()
+            assert f.etappe.text() == "Routing the system audio ..."
+            assert "Compiling" not in f.etappe.text()   # kein Log
+        assert not f.etappe.isHidden()
+
+    def test_der_starthinweis_nennt_die_erste_minute(self, fenster):
+        f, _ = fenster
+        f.startet = True
+        f.nachziehen()
+        assert "up to a minute" in f.hinweis.text()
