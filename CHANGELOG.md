@@ -1,17 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### An icon
-
-JamPilot has a symbol now — a pick with a note and a spectrum — and it shows up
-everywhere the program does: in the control window and its taskbar entry, as
-the favicon of the web display (and as the home-screen icon when you add the
-page on your phone), on the Linux launcher that `jampilot install` writes, and
-embedded in the Windows executable and the macOS app bundle. The Linux launcher
-used to borrow a generic audio icon from the theme; it now installs its own
-into `~/.local/share/icons` and removes it again with `--remove`.
-
 ## 1.2.0 — 2026-08-28
 
 The theme of this release: **Windows gets a download.** No new analysis, no
@@ -60,6 +48,16 @@ PyInstaller normalises it was unknown. Measured over two full builds: identical
 across all ~1700 files. What is compared there is the contents of the folder,
 file by file; a ZIP stores modification times and therefore cannot be
 bit-stable, which is a property of the format rather than a hole in the claim.
+
+### An icon
+
+JamPilot has a symbol now — a pick with a note and a spectrum — and it shows up
+everywhere the program does: in the control window and its taskbar entry, as
+the favicon of the web display (and as the home-screen icon when you add the
+page on your phone), on the Linux launcher that `jampilot install` writes, and
+embedded in the Windows executable and the macOS app bundle. The Linux launcher
+used to borrow a generic audio icon from the theme; it now installs its own
+into `~/.local/share/icons` and removes it again with `--remove`.
 
 ### The big chord was too heavy on Windows
 
