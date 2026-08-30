@@ -137,6 +137,20 @@ class TestCallback:
                               np.arange(0, 524, dtype=np.float32))  # um 500 verzoegert
 
 
+class TestBlockgroesse:
+    def test_uebergrosser_callbackblock_beim_stummschalten_crasht_nicht(self, loop):
+        # Selbst wenn ein Treiber mehr Frames liefert als beim Streambau
+        # angekuendigt, darf der Fade nicht an den vorbereiteten Arbeitsarrays
+        # scheitern. Lieber ein sauber behandelter Block als ein Callback-Crash.
+        loop.toggle_mute()
+        frames = 96                          # groesser als das konfigurierte 64
+        indata = np.ones((frames, 2), dtype=np.float32)
+        outdata = np.ones((frames, 2), dtype=np.float32)
+        loop._callback(indata, outdata, frames, Zeit(0.0), None)
+        assert outdata.shape == (frames, 2)
+        assert np.all(np.isfinite(outdata))
+
+
 class TestKontrollgitarre:
     @staticmethod
     def _stille(loop, bloecke=16):
@@ -415,6 +429,15 @@ class TestMitschnittAngehaengt:
                                      + teilschritt * 64) / loop.samplerate
                 werte.append(loop.heard_position())
         assert max(werte) - min(werte) == pytest.approx(0.0, abs=1e-9)
+
+    def test_zurueckspringen_zieht_die_hoerbare_stelle_zurueck(self, loop):
+        puffer = self._mitschnitt(loop, minuten=0.5)
+        _rampe_einspeisen(loop, 40)
+        vorher = loop.heard_position()
+        puffer.seek(-0.5)
+        assert loop.heard_position() == pytest.approx(vorher - 0.5, abs=1e-6)
+        puffer.to_now()
+        assert loop.heard_position() == pytest.approx(vorher, abs=1e-6)
 
     def test_die_uhr_des_mitschnitts_ist_die_der_stufe(self, loop):
         # Kein Angleichen, kein Versatz: `process` bekommt `_frames_seen` mit.
