@@ -433,7 +433,7 @@ like a program that failed to start (and invites a second double-click).
 ### Double-clicking it (Windows)
 
 ```bat
-run.cmd --bundle    :: -> dist\JamPilot\ + dist\JamPilot-1.2.0-windows-x86_64.zip
+run.cmd --bundle    :: -> dist\JamPilot\ + dist\JamPilot-1.3.0-windows-x86_64.zip
 ```
 
 **Double-click `JamPilot.cmd`, not `jampilot.exe`.** Here the raw executable

@@ -1,10 +1,14 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 — 2026-08-30
+
+The theme of this release: **record mode.** JamPilot has always shown you the
+change — now it lets you *replay* it. Judged in the rehearsal room before it
+was merged: for a beginner the fretboard diagrams move too fast live; with `R`
+you learn the shape at your own pace, then the chord name is enough to play
+along.
 
 ### Record mode: `R`, and a player for the change you did not catch
-
-*Judged in the rehearsal room, then merged.*
 
 The one thing missing when you use JamPilot to actually *learn* a song: a
 change goes by, you did not catch it, and there is no way to hear it again
