@@ -83,14 +83,26 @@ class DelayedLoopback:
         self._dac_anchor: tuple[int, float] | None = None
 
         # STUMM, nicht pausiert - und das ist keine Wortklauberei, sondern der
-        # Entwurf. Der Ringpuffer laeuft weiter, die Analyse laeuft weiter, die
-        # Quelle laeuft weiter; nur der Lautsprecher schweigt. Beim Aufheben ist
-        # man deshalb sofort wieder synchron zur Quelle. Wuerde man stattdessen
-        # den Puffer anhalten - also wirklich PAUSIEREN -, waere das in Wahrheit
-        # "Verzoegerung vergroessern": Man kaeme mit jeder Sekunde eine Sekunde
-        # weiter hinter die Quelle, und der Vorlauf, der ganze Sinn des
-        # Programms, waere hinueber.
+        # Entwurf DIESER Stufe. Der Ringpuffer laeuft weiter, die Analyse laeuft
+        # weiter, die Quelle laeuft weiter; nur der Lautsprecher schweigt. Beim
+        # Aufheben ist man deshalb sofort wieder synchron zur Quelle.
+        #
+        # Diesen Ringpuffer anzuhalten waere in Wahrheit "Verzoegerung
+        # vergroessern", und genau das darf hier nicht passieren: Die
+        # Verzoegerung ist die Zeitbasis, auf der die Analyse ihre Commit-Grenze
+        # rechnet. Waechst sie, muss die Zeitleiste Minuten an Zukunft
+        # offenhalten - und der Merge, der sie jeden Hop neu aufbaut, arbeitet
+        # quadratisch in ihrer Laenge.
+        #
+        # Anhalten und Zurueckspringen kann man trotzdem: Das macht der
+        # Mitschnitt eine Stufe weiter hinten (record_buffer, Taste R), mit
+        # eigenem Puffer und eigener Leseposition. Diese Stufe merkt davon
+        # nichts.
         self._muted = False
+        # Der Mitschnitt, falls einer eingehaengt wurde (s. Callback). None ist
+        # der Normalfall: in Tests, ohne Speicher - und in jeder Sitzung, in der
+        # nie R gedrueckt wurde.
+        self._record = None
         self._control_guitar = False
         self._control_timeline = ()
         # Immutable Snapshot: Der Analyse-Thread ersetzt das Tupel atomar, der
@@ -241,6 +253,23 @@ class DelayedLoopback:
                     outdata[dst:dst + count] += sound[src:src + count]
             np.clip(outdata, -1.0, 1.0, out=outdata)
 
+        # Der Mitschnitt (record_buffer) - die einzige Stelle, an der diese
+        # Klasse ihn kennt. Er sitzt hier, weil hier der FERTIGE Mix steht:
+        # Musik, Einzaehler und Kontrollgitarre sind drin, die Stummschaltung
+        # noch nicht. Wer zurueckspult, hoert damit genau das wieder, was aus
+        # dem Lautsprecher kam - und wer stumm geschaltet hat, findet beim
+        # Zurueckspulen Musik statt Stille.
+        #
+        # Oberhalb dieser Zeile aendert sich durch den Mitschnitt NICHTS: Der
+        # Ringpuffer ist weiter exakt `delay` lang, `_frames_seen - n` ist
+        # weiter die Ausgabeposition dieser Stufe, und die Analyse rechnet
+        # unveraendert auf dieser konstanten Verzoegerung. Der Mitschnitt
+        # bekommt `_frames_seen` mit und fuehrt darauf seine eigene Position -
+        # so liegen Akkorde und Leseposition per Konstruktion auf derselben
+        # Uhr. Ist er nicht am Aufnehmen, kehrt er um, ohne ein Byte anzufassen.
+        if self._record is not None:
+            self._record.process(outdata, self._frames_seen)
+
         # Stummschalten NACH dem Ringpuffer: Der Puffer wird weiter befuellt und
         # weiter ausgelesen, nur was rausgeht, wird leise. Damit bleibt die
         # Zeitrechnung unangetastet - `audible_position` gilt stumm genauso, und
@@ -250,11 +279,17 @@ class DelayedLoopback:
             schritt = frames / self._fade_frames
             neu = (min(self._gain + schritt, ziel) if ziel > self._gain
                    else max(self._gain - schritt, ziel))
+            fade = min(frames, len(self._scratch))
             # rampe = gain + (neu - gain) * i/frames, in-place: kein malloc hier.
-            rampe = self._scratch[:frames]
-            np.multiply(self._ramp[:frames], (neu - self._gain) / frames, out=rampe)
+            # Falls ein Host-API wider Erwarten mehr Frames liefert als beim
+            # Streambau angekuendigt, darf das nicht im Callback crashen: Dann
+            # bekommt der Rest des Blocks einfach schon den Zielpegel.
+            rampe = self._scratch[:fade]
+            np.multiply(self._ramp[:fade], (neu - self._gain) / frames, out=rampe)
             rampe += self._gain
-            outdata *= rampe[:, None]
+            outdata[:fade] *= rampe[:, None]
+            if fade < frames:
+                outdata[fade:] *= neu
             self._gain = neu
         elif ziel == 0.0:
             outdata[:] = 0.0
@@ -293,6 +328,73 @@ class DelayedLoopback:
         """
         self._muted = not self._muted
         return self._muted
+
+    def attach_record(self, puffer) -> None:
+        """Mitschnitt einhaengen (oder mit None wieder aushaengen).
+
+        Darf im laufenden Betrieb passieren - die Engine haengt ihn beim ersten
+        R ein, nachdem der Speicher im Hintergrund reserviert wurde. Der
+        Callback liest das Attribut ohne Lock: Eine Zuweisung ist in CPython
+        atomar, und ein Callback, der den neuen Puffer eine Blockgrenze spaeter
+        sieht, faengt eben 40 ms spaeter an aufzunehmen.
+        """
+        self._record = puffer
+
+    @property
+    def recording(self) -> bool:
+        return self._record is not None and self._record.recording
+
+    @property
+    def record_paused(self) -> bool:
+        return self._record is not None and self._record.paused
+
+    @property
+    def record_offset_seconds(self) -> float:
+        """Wie weit der Lautsprecher hinter DIESER Stufe zurueckliegt.
+
+        Ohne laufende Aufnahme immer 0.0 - dann ist die Ausgabe dieser Stufe
+        schon das, was man hoert.
+        """
+        return self._record.offset_seconds if self._record is not None else 0.0
+
+    @property
+    def record_epoch(self) -> int:
+        """Zaehlt die Zeitspruenge des Mitschnitts (Modus, Pause, Sprung)."""
+        return self._record.epoch if self._record is not None else 0
+
+    @property
+    def record_capacity_seconds(self) -> float:
+        """Wie weit der Mitschnitt zurueckreicht - 0.0, wenn es keinen gibt."""
+        return self._record.capacity_seconds if self._record is not None else 0.0
+
+    def heard_position(self) -> float:
+        """Stream-Position (Sekunden), die JETZT aus dem Lautsprecher kommt.
+
+        Ohne laufende Aufnahme ist das `audible_position()` - buchstaeblich
+        dieselbe Funktion, nicht dieselbe Zahl. Das ist die Zusage des
+        Record-Modus: Wer R nie drueckt, bekommt die Uhr von vorher.
+
+        PAUSIERT wird NICHT aus der Differenz der beiden gerechnet, und das ist
+        der Punkt: `audible_position()` interpoliert mit der DAC-Uhr und laeuft
+        darum zwischen zwei Callbacks kontinuierlich weiter; der Versatz waechst
+        dagegen ruckweise um je einen Block. Ihre Differenz ist deshalb kein
+        Stillstand, sondern ein Saegezahn mit einer Blockdauer Amplitude (bei
+        2048 Frames / 48 kHz gut 42 ms). Die Anzeige tastet das alle 250 ms in
+        beliebiger Phase ab - und das Laufband zittert um ein paar Pixel hin und
+        her, obwohl gar nichts laeuft.
+
+        Aus den Frame-Zaehlern gerechnet ist die Stelle exakt konstant: Beide
+        wachsen um denselben Block pro Callback, und `play_position_frames`
+        liest sie in einem Zug.
+        """
+        if not self.recording:
+            return self.audible_position()
+        if not self._record.paused:
+            # Laufend (auch zurueckgesprungen) ist der Versatz konstant - dann
+            # traegt die feinere DAC-Uhr, und die Differenz zittert nicht.
+            return self.audible_position() - self._record.offset_seconds
+        return ((self._record.play_position_frames - self.delay_frames)
+                / self.samplerate - self.output_latency)
 
     @property
     def control_guitar(self) -> bool:

@@ -319,3 +319,170 @@ class TestLiveZeile:
         engine.jetzt = "Now playing C"
         engine.stop()
         assert engine.jetzt == ""
+
+
+def _warten_bis_reserviert(e, timeout=5.0):
+    """Der Speicher kommt im Hintergrundthread - der Test wartet darauf."""
+    t = e._record_lade
+    if t is not None:
+        t.join(timeout=timeout)
+    assert e._record_lade is None, "Reservierung haengt"
+
+
+class TestRecordModus:
+    """Die Engine-Seite des Record-Modus.
+
+    Wichtigste Zusage: Ohne Mitschnitt darf NICHTS abstuerzen. Die Oberflaechen
+    bieten die Tasten immer an - sie koennen nicht wissen, ob der Speicher
+    gereicht hat -, und dann muessen sie eben folgenlos bleiben.
+    """
+
+    @pytest.fixture
+    def laufend(self, args):
+        args.record_buffer = 0.02            # 1,2 s - klein, aber echt
+        with patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
+             patch("jampilot.cli._display_loop"):
+            loop = Loop.return_value
+            loop.muted = False
+            loop.samplerate, loop.channels = 8000, 2
+            # Die Attrappe reicht die Mitschnitt-Eigenschaften an einen echten
+            # Puffer durch, sobald einer eingehaengt ist.
+            loop.attach_record.side_effect = lambda p: setattr(loop, "_rec", p)
+            loop._rec = None
+            type(loop).recording = property(lambda l: l._rec is not None and l._rec.recording)
+            type(loop).record_paused = property(lambda l: l._rec is not None and l._rec.paused)
+            type(loop).record_offset_seconds = property(
+                lambda l: l._rec.offset_seconds if l._rec else 0.0)
+            type(loop).record_epoch = property(lambda l: l._rec.epoch if l._rec else 0)
+            loop.heard_position.return_value = 10.0
+            e = Engine(args)
+            e.start()
+            try:
+                yield e, loop
+            finally:
+                e.stop()
+
+    def test_im_stopp_zustand_folgenlos(self, engine):
+        assert engine.toggle_record() is False
+        assert engine.recording is False
+        engine.seek_chord(-1); engine.record_to_now()      # darf nicht werfen
+
+    def test_r_reserviert_im_hintergrund_und_nimmt_dann_auf(self, laufend):
+        e, loop = laufend
+        assert e.toggle_record() is True
+        assert e.record_pending                            # laedt gerade
+        _warten_bis_reserviert(e)
+        loop.attach_record.assert_called_once()
+        assert e.recording and not e.record_pending
+
+    def test_zweites_r_schaltet_aus_und_ein_drittes_greift_sofort(self, laufend):
+        e, _ = laufend
+        e.toggle_record(); _warten_bis_reserviert(e)
+        assert e.toggle_record() is False and not e.recording
+        assert e._record is not None                        # Speicher bleibt
+        assert e.toggle_record() is True and e.recording   # ohne Laden
+        assert not e.record_pending
+
+    def test_stoppen_gibt_den_speicher_wieder_her(self, laufend):
+        e, _ = laufend
+        e.toggle_record(); _warten_bis_reserviert(e)
+        e.stop()
+        assert e._record is None and not e.recording
+
+    def test_zu_wenig_speicher_ist_kein_fehler(self, args):
+        args.record_buffer = 30.0
+        with patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
+             patch("jampilot.cli._display_loop"), \
+             patch("jampilot.record_buffer.verfuegbarer_speicher",
+                   return_value=2 ** 20):
+            Loop.return_value.muted = False
+            Loop.return_value.samplerate, Loop.return_value.channels = 48000, 2
+            Loop.return_value.recording = False
+            e = Engine(args)
+            e.start()
+            try:
+                e.toggle_record(); _warten_bis_reserviert(e)
+                assert e.status == "running"
+                assert e._record is None
+                assert "not enough free memory" in (e.record_hinweis or "")
+                Loop.return_value.attach_record.assert_not_called()
+            finally:
+                e.stop()
+
+    def test_der_browser_erfaehrt_jeden_wechsel_sofort(self, args):
+        args.record_buffer = 0.02
+        broadcaster = MagicMock()
+        with patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
+             patch("jampilot.cli._display_loop"):
+            loop = Loop.return_value
+            loop.muted = False
+            loop.samplerate, loop.channels = 8000, 2
+            loop.recording, loop.record_paused, loop.record_epoch = True, False, 7
+            e = Engine(args, broadcaster=broadcaster)
+            e.start()
+            try:
+                e._record = MagicMock()
+                e.toggle_record_pause()
+                broadcaster.republish.assert_called_with(
+                    recording=True, record_pending=False, paused=False, epoch=7)
+            finally:
+                e.stop()
+
+
+class TestAkkordspruenge:
+    """Die Pfeiltasten springen auf Akkordgrenzen, nicht auf Sekunden."""
+
+    def _engine(self, jetzt, onsets):
+        from jampilot.engine import Engine as E
+        e = E.__new__(E)
+        e._loop = MagicMock()
+        e._loop.recording = True
+        e._loop.heard_position.return_value = jetzt
+        e._record = MagicMock()
+        e.onsets = tuple(onsets)
+        e.broadcaster = None
+        e._on_change = lambda: None
+        return e
+
+    def test_zurueck_geht_an_den_anfang_des_laufenden_akkords(self):
+        from jampilot.engine import VORLAUF
+        e = self._engine(jetzt=14.0, onsets=(10.0, 20.0))     # 4 s im Akkord
+        e.seek_chord(-1)
+        e._record.seek.assert_called_once_with(pytest.approx(10.0 - VORLAUF - 14.0))
+
+    def test_am_anfang_geht_zurueck_eine_grenze_weiter(self):
+        # CD-Player: Wer schon am Anfang steht, will den davor.
+        from jampilot.engine import VORLAUF
+        e = self._engine(jetzt=10.5, onsets=(4.0, 10.0, 20.0))
+        e.seek_chord(-1)
+        e._record.seek.assert_called_once_with(pytest.approx(4.0 - VORLAUF - 10.5))
+
+    def test_vor_landet_mit_vorlauf_vor_dem_naechsten(self):
+        from jampilot.engine import VORLAUF
+        e = self._engine(jetzt=12.0, onsets=(10.0, 20.0, 30.0))
+        e.seek_chord(+1)
+        e._record.seek.assert_called_once_with(pytest.approx(20.0 - VORLAUF - 12.0))
+
+    def test_vor_ueberspringt_einen_onset_der_schon_im_vorlauf_liegt(self):
+        # Sonst spraenge "vor" um ein paar Zehntel ZURUECK.
+        from jampilot.engine import VORLAUF
+        e = self._engine(jetzt=19.8, onsets=(10.0, 20.0, 30.0))
+        e.seek_chord(+1)
+        e._record.seek.assert_called_once_with(pytest.approx(30.0 - VORLAUF - 19.8))
+
+    def test_ohne_naechsten_geht_es_an_die_live_kante(self):
+        e = self._engine(jetzt=25.0, onsets=(10.0, 20.0))
+        e.seek_chord(+1)
+        e._record.to_now.assert_called_once()
+        e._record.seek.assert_not_called()
+
+    def test_ohne_vorigen_geht_es_an_den_anfang(self):
+        e = self._engine(jetzt=5.0, onsets=(10.0, 20.0))
+        e.seek_chord(-1)
+        e._record.to_start.assert_called_once()
+
+    def test_ohne_aufnahme_passiert_nichts(self):
+        e = self._engine(jetzt=14.0, onsets=(10.0,))
+        e._loop.recording = False
+        e.seek_chord(-1)
+        e._record.seek.assert_not_called()

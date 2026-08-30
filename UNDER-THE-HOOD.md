@@ -25,6 +25,10 @@ a user sees is English.
    one accented), then the music arrives. A break inside a song does not
    trigger it: the count-in only fires when the silence was at least one full
    delay long, so the output really is quiet until the new material lands.
+   This buffer is *exactly* one delay long and stays that way for the life of
+   the run — the record mode (`R`) is a **separate stage behind it**,
+   described under *Control window*, precisely so that the delay here never
+   has to change.
 3. **Analysis**: The chord labels come from a **learned model** — BTC, a small
    bidirectional transformer for chord recognition (Park et al., ISMIR 2019),
    ported to pure NumPy (`btc.py`, 12 MB of weights, no PyTorch). Every 250 ms
@@ -256,10 +260,41 @@ your audio. Leaving it running invisibly in the background is precisely the
 trap the window exists to prevent.
 
 **Muting is not pausing**, and the difference matters: the **Sound** switch
-mutes only the delayed output — the music and the chords keep running; you
-just hear nothing. The ring buffer keeps running. Pausing it would silently
-mean "increase the delay" — you would drift further behind the song with every
-muted second, and the lead, the whole point of the program, would be gone.
+(`Space`) mutes only the delayed output — the music and the chords keep
+running, and *every view keeps moving*; you just hear nothing. The delay ring
+buffer keeps running too. (Mute used to freeze the big chord and dim the lane,
+an attempt to get "let me look at this chord" out of the mute switch because
+there was nothing better. Now there is, so mute means exactly what it says.)
+
+Pausing and going back is **record mode** (`R`), a **separate stage**
+(`record_buffer.py`) behind the delay stage — and it has to be separate, because
+pausing *that* ring buffer would silently mean "increase the delay". The delay
+is the time base the analysis computes its commit boundary on: let it grow, and
+the chord timeline has to hold minutes of future — through a merge that is
+quadratic in its length. So `R` does not touch the delay stage. A second buffer
+sits behind it, records the **finished mix** (music, count-in, control guitar —
+everything except the mute fade, so rewinding past a muted stretch gives you
+the music back), and has its own read pointer. `P` holds that pointer still
+while the write edge runs away; `←`/`→` move it to the previous or next chord
+onset, landing 0.7 s early so you hear the change coming; `Home`/`End` go to
+the start of the recording and back to the live edge. Every jump is crossfaded
+over 15 ms, because a hard cut in the signal is a click.
+
+The mode is a mode, not a background state, and that is the property that
+makes it safe to carry: **with `R` off, `record_buffer.process()` returns
+before touching a byte**, the output is bit-identical to a run without it, and
+the display clock is *the same function* as before — no second time axis, no
+event window, no epoch counter. The delay stage learns exactly one thing about
+all this: nothing. It exposes `heard_position()`, which falls through to
+`audible_position()` unless a recording is running.
+
+The cost is memory — 30 minutes of stereo float32 is about 660 MB — and it is
+paid **on the first `R`, not at startup**: the buffer is reserved and touched
+in a background thread (a page fault over that much memory inside the audio
+callback would be a dropout), the red dot shows hollow for the ~0.2 s it
+takes, then recording begins. Too little free memory just leaves `R` inert
+with a note in the startup log. `--record-buffer 0` turns it off,
+`--record-buffer <minutes>` resizes it.
 
 `--no-window` runs without the control window (terminal only). Over SSH or in
 CI, where there is no display, that happens by itself.

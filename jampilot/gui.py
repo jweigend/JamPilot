@@ -27,7 +27,8 @@ from pathlib import Path
 
 from PySide6.QtCore import (Property, QEasingCurve, QPropertyAnimation, QSize, Qt,
                             QTimer, Signal)
-from PySide6.QtGui import QColor, QIcon, QPainter, QPalette
+from PySide6.QtGui import (QColor, QIcon, QKeySequence, QPainter, QPalette,
+                           QShortcut)
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QFrame, QHBoxLayout,
                                QLabel, QPushButton, QVBoxLayout, QWidget)
 
@@ -290,6 +291,27 @@ class Fenster(QWidget):
         wurzel.addWidget(self.etappe)
         self._etappe_stand = -1
 
+        # Dieselben Tasten wie in der Webanzeige. Nicht, weil hier gespielt
+        # wuerde - gespielt wird nach der Webseite -, sondern weil eine Taste,
+        # die an einem Fenster etwas anderes tut als am anderen, schlimmer ist
+        # als eine Taste, die es nicht gibt.
+        #
+        # QShortcut statt keyPressEvent: Der Schieber ist ein QAbstractButton
+        # und verschluckt die Leertaste, sobald er den Fokus hat. Ein Kuerzel
+        # wird vorher ausgewertet und ist damit unabhaengig davon, wo der Fokus
+        # gerade steht.
+        for taste, wirkung in (
+                (Qt.Key_Space, self._stumm_umschalten),
+                (Qt.Key_M, self._stumm_umschalten),
+                (Qt.Key_R, lambda: self._record("toggle_record")),
+                (Qt.Key_P, lambda: self._record("toggle_record_pause")),
+                (Qt.Key_Left, lambda: self._record("seek_chord", -1)),
+                (Qt.Key_Right, lambda: self._record("seek_chord", +1)),
+                (Qt.Key_Home, lambda: self._record("record_to_start")),
+                (Qt.Key_End, lambda: self._record("record_to_now"))):
+            QShortcut(QKeySequence(taste), self, activated=wirkung,
+                      context=Qt.WindowShortcut)
+
         # Der Analysethread darf keine Widgets anfassen. Also fragen WIR ihn.
         self._takt = QTimer(self)
         self._takt.timeout.connect(self.nachziehen)
@@ -313,6 +335,19 @@ class Fenster(QWidget):
             return
         if self.engine.running and self.engine.muted == an:
             self.engine.toggle_mute()
+        self.nachziehen()
+
+    def _stumm_umschalten(self):
+        if self.engine.running:
+            self.engine.toggle_mute()
+        self.nachziehen()
+
+    def _record(self, methode: str, *argumente):
+        # getattr: Die Attrappe im Selbsttest kennt den Record-Modus nicht -
+        # und braucht ihn nicht.
+        wirkung = getattr(self.engine, methode, None)
+        if self.engine.running and wirkung is not None:
+            wirkung(*argumente)
         self.nachziehen()
 
     def _anzeige_oeffnen(self):
@@ -360,6 +395,16 @@ class Fenster(QWidget):
                                  "through JamPilot.")
             self.hinweis.setStyleSheet(f"color:{GRAU}; font-size:11px;")
             self.hinweis.show()
+        elif getattr(e, "record_paused", False):
+            # VOR "Muted" geprueft: Wer angehalten hat, soll das lesen, auch
+            # wenn zusaetzlich stummgeschaltet ist - Pause ist der Zustand, aus
+            # dem man wieder herausfinden muss.
+            self.punkt.setStyleSheet(f"color:{ROT}; font-size:15px;")
+            self.zustand.setText("Paused")
+            self.hinweis.setText("Record mode. P plays on, ← → jump to the "
+                                 "previous/next chord, R leaves the mode.")
+            self.hinweis.setStyleSheet(f"color:{GRAU}; font-size:11px;")
+            self.hinweis.show()
         elif e.muted:
             self.punkt.setStyleSheet(f"color:{AMBER}; font-size:15px;")
             self.zustand.setText("Muted")
@@ -373,8 +418,19 @@ class Fenster(QWidget):
             self.hinweis.hide()
 
         if e.running:
-            self.info.setText(f"Delay {e.delay_seconds:.1f} s   ·   "
-                              f"Lead {max(e.lead, 0.0):.1f} s")
+            # Im Record-Modus TRITT der Rueckstand AN DIE STELLE des Vorlaufs,
+            # statt sich danebenzustellen: Das Fenster waechst nach show() nicht
+            # mehr nach, und eine dritte Angabe waere abgeschnitten statt
+            # gelesen. Das Kontrollfenster ist Diagnoseflaeche - hier darf die
+            # Sekundenangabe stehen, die die Webanzeige bewusst verschweigt.
+            if getattr(e, "recording", False):
+                zurueck = getattr(e, "record_offset", 0.0)
+                self.info.setText(f"Delay {e.delay_seconds:.1f} s   ·   "
+                                  f"REC {zurueck:.0f} s back" if zurueck >= 0.5
+                                  else f"Delay {e.delay_seconds:.1f} s   ·   REC")
+            else:
+                self.info.setText(f"Delay {e.delay_seconds:.1f} s   ·   "
+                                  f"Lead {max(e.lead, 0.0):.1f} s")
         else:
             self.info.setText("")
 

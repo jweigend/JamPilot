@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+### Record mode: `R`, and a player for the change you did not catch
+
+*On a branch, not merged — being judged in the rehearsal room first.*
+
+The one thing missing when you use JamPilot to actually *learn* a song: a
+change goes by, you did not catch it, and there is no way to hear it again
+without reaching for Spotify. `R` starts record mode. From then on what you hear
+is kept in a buffer inside the app, and you get a player: `←`/`→` jump to the
+**previous and next chord** — landing 0.7 s before the change so you hear it
+coming, and `←` going first to the start of the *current* chord like a CD
+player — `P` pauses, `Home`/`End` go to the start of the recording and back to
+live. The same five buttons sit as a half-transparent bar at the bottom of the
+display, so a phone on the music stand can drive it too (it cannot *enter* the
+mode: `R` is a key, deliberately). The only other sign of the mode is a small
+red dot by the logo — no seconds, no bar; where you are in the recording, the
+music tells you. `R` again leaves: back to live, buffer discarded.
+
+The buffer holds **30 minutes** (one side of a traditional album), lives only in
+RAM, and is reserved **on the first `R`** rather than at startup — in a
+background thread, because a page fault over 660 MB inside the audio callback
+would be a dropout, and because paying that in every session for a mode most
+sessions never enter would be exactly the bloat this feature is being judged
+for. Too little memory leaves `R` inert with a note in the log.
+`--record-buffer <minutes>` resizes it, `0` turns it off.
+
+Architecturally it is a **separate stage behind the delay buffer**, not a change
+to it: the delay is the time base the analysis computes its commit boundary on,
+and letting it grow would force the chord timeline to hold minutes of future
+through a merge that is quadratic in its length. With `R` off the stage returns
+before touching a byte, the output is bit-identical, and the display clock is
+the same function as before — the mode costs a session that never uses it
+nothing but a key nobody else had claimed.
+
+**Mute became a real mute.** It used to freeze the big chord and dim the lane —
+a stand-in for "let me look at this chord" when there was nothing better. Now
+there is, so `Space` (or `M`) means sound off and nothing else; every view keeps
+running. The button lost its play/pause icons with it (a speaker now), which
+also fixes a stale selector that had been drawing both icons on top of each
+other while muted.
+
+Also in this branch: the audio callback survives blocks that are larger or
+smaller than the one announced at stream creation (the mute fade and the
+crossfades clamp to what is actually there); a chord held longer than eight
+seconds no longer drops out of the published window and shows "No music"; and
+the display clock hard-resets on every jump instead of easing into it — the
+easing exists to absorb network jitter and would have shown the wrong position
+for about ten seconds after every rewind.
+
 ### The control window says what the start is doing
 
 The very first start of a binary takes up to a minute — numba compiles the

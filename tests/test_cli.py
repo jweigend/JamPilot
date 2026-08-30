@@ -248,6 +248,10 @@ class TestWachhund:
         class ToterStream:
             delay_seconds, captured_frames, xruns, last_status = 4.0, 0, 0, None
             capture_dropouts = None          # kein fremder Mitschnitt
+            recording, record_paused, record_epoch = False, False, 0
+            record_offset_seconds, record_capacity_seconds = 0.0, 0.0
+            def heard_position(self):
+                return self.captured_frames / 48000 - self.delay_seconds
 
         with pytest.raises(cli.StreamStalled, match="No audio"):
             cli._display_loop(ToterStream(), args)
@@ -262,6 +266,10 @@ class TestWachhund:
         class LaufenderStream:
             delay_seconds, xruns, last_status = 4.0, 0, None
             capture_dropouts = None          # kein fremder Mitschnitt
+            recording, record_paused, record_epoch = False, False, 0
+            record_offset_seconds, record_capacity_seconds = 0.0, 0.0
+            def heard_position(self):
+                return self.captured_frames / 48000 - self.delay_seconds
 
             def __init__(self):
                 self._runden = 0
@@ -378,7 +386,7 @@ class TestEventLedger:
         led = cli.EventLedger()
         led.advance([(1.0, "C"), (2.0, "G"), (6.0, "F")], [None] * 3, None,
                     frontier=7.0)
-        led.prune(audible_pos=5.0)
+        led.prune(heard_pos=5.0)
         assert [e["at"] for e in led.events] == [2.0, 6.0]
 
 
@@ -561,3 +569,96 @@ class TestLiveZeile:
                 naechster, in_s = name, pos - audible_pos
                 break
         assert (naechster, round(in_s, 1)) == ("G", 1.3)
+
+
+class TestRecordImAnzeigepfad:
+    """Die Trennung von Analysezeit und Hoerzeit - im Anzeigepfad."""
+
+    def test_events_reichen_so_weit_zurueck_wie_der_mitschnitt(self):
+        led = cli.EventLedger()
+        led.advance([(10.0, "C"), (200.0, "G"), (900.0, "F")], [None] * 3, None,
+                    frontier=1000.0)
+        led.prune(heard_pos=950.0, rueckhalt=1800.0)
+        assert [e["at"] for e in led.events] == [10.0, 200.0, 900.0]
+
+    def test_ohne_mitschnitt_bleibt_es_bei_zwei_sekunden(self):
+        led = cli.EventLedger()
+        led.advance([(1.0, "C"), (2.0, "G"), (6.0, "F")], [None] * 3, None,
+                    frontier=7.0)
+        led.prune(heard_pos=5.0, rueckhalt=0.0)
+        assert [e["at"] for e in led.events] == [2.0, 6.0]
+
+    def test_ohne_mitschnitt_ist_das_fenster_die_identitaet(self):
+        # Die Zusage "R nie gedrueckt = Code von vorher" fuer den Anzeigepfad:
+        # Alles, was der Ledger nach zwei Sekunden Rueckhalt noch hat, liegt im
+        # Fenster - der Schnitt aendert nichts.
+        led = cli.EventLedger()
+        led.advance([(1.0, "C"), (4.5, "G"), (6.0, "F")], [None] * 3, None,
+                    frontier=7.0)
+        led.prune(heard_pos=5.0, rueckhalt=0.0)
+        assert cli._im_fenster(led.events, 5.0, 7.0) == led.events
+
+    def test_ein_lang_gehaltener_akkord_faellt_nicht_aus_dem_fenster(self):
+        events = [{"at": 100.0, "c": "C", "b": None},
+                  {"at": 118.0, "c": "G", "b": None}]
+        for gehoert in (102.0, 109.0, 115.0, 117.9):
+            klingt = cli._event_bei(cli._im_fenster(events, gehoert, gehoert + 2.0),
+                                    gehoert)
+            assert klingt is not None and klingt["c"] == "C", gehoert
+
+    def test_das_fenster_bleibt_kurz(self):
+        events = [{"at": float(t), "c": "C"} for t in range(0, 100)]
+        assert len(cli._im_fenster(events, 90.0, 92.0)) <= 16
+
+    def test_gehoerter_akkord_und_countdown_kommen_aus_dem_kanal(self):
+        events = [{"at": 1.0, "c": "C", "b": None}, {"at": 5.0, "c": "G", "b": "B"}]
+        assert cli._event_bei(events, 6.0)["c"] == "G"
+        assert cli._event_bei(events, 0.5) is None
+        assert cli._naechstes_event(events, 3.0)["at"] == 5.0
+        assert cli._naechstes_event(events, 7.0) is None
+
+
+class TestRecordBefehl:
+    class Attrappe:
+        def __init__(self):
+            self.recording, self.record_pending = True, False
+            self.record_paused, self.record_epoch = False, 3
+            self.record_hinweis = None
+            self.gerufen = []
+        def toggle_record(self): self.gerufen.append("toggle")
+        def toggle_record_pause(self): self.gerufen.append("pause")
+        def seek_chord(self, r): self.gerufen.append(("chord", r))
+        def record_to_start(self): self.gerufen.append("start")
+        def record_to_now(self): self.gerufen.append("end")
+
+    def test_alle_sechs_befehle_landen_richtig(self):
+        e = self.Attrappe()
+        b = cli._record_befehl(e)
+        for name in ("toggle", "pause", "prev", "next", "start", "end"):
+            b(name)
+        assert e.gerufen == ["toggle", "pause", ("chord", -1), ("chord", 1),
+                             "start", "end"]
+
+    def test_die_antwort_traegt_immer_den_ganzen_zustand(self):
+        zustand = cli._record_befehl(self.Attrappe())("end")
+        assert set(zustand) == {"recording", "record_pending", "paused",
+                                "epoch", "hint"}
+
+
+class TestLiveZeileRecord:
+    def test_ohne_aufnahme_bleibt_die_zeile_wie_vorher(self):
+        assert cli._live_zeile("C", "G", 1.5, "C major") == \
+            "Now playing C · next G in 1.5 s · Key C major"
+        assert cli._aufnahme_text(False, 0.0, False) == ""
+
+    def test_aufnahme_steht_in_der_zeile_und_im_terminal(self):
+        zeile = cli._live_zeile("C", "G", 1.5, "C major", aufnahme=True, zurueck=8.0)
+        assert "REC 8 s behind live" in zeile and "next G in 1.5 s" in zeile
+        assert cli._aufnahme_text(True, 8.0, False).strip() == "| REC 8s back"
+        assert cli._aufnahme_text(True, 0.0, False).strip() == "| REC"
+
+    def test_pausiert_steht_nicht_now_playing_da(self):
+        zeile = cli._live_zeile("C", "G", 1.5, "C major", aufnahme=True,
+                                zurueck=12.0, pausiert=True)
+        assert zeile.startswith("Paused at C") and "next G" not in zeile
+        assert cli._aufnahme_text(True, 12.0, True).strip() == "| REC paused 12s back"

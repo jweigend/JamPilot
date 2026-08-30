@@ -167,7 +167,9 @@ def _fenster_pruefen() -> bool | None:
     leer = SimpleNamespace(running=False, muted=False, delay_seconds=4.0,
                            lead=0.0, status="stopped", fehler=None,
                            start=lambda: None, stop=lambda: None,
-                           toggle_mute=lambda: False)
+                           toggle_mute=lambda: False,
+                           recording=False, record_paused=False,
+                           record_offset=0.0)
     fenster = gui.Fenster(leer, "http://127.0.0.1:8765/")
     fenster.nachziehen()
     ok = fenster.zustand.text() == "Stopped"
