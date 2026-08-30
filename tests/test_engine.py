@@ -424,7 +424,38 @@ class TestRecordModus:
                 e._record = MagicMock()
                 e.toggle_record_pause()
                 broadcaster.republish.assert_called_with(
-                    recording=True, record_pending=False, paused=False, epoch=7)
+                    recording=True, record_pending=False, paused=False)
+            finally:
+                e.stop()
+
+    def test_der_epoch_reist_nie_ohne_frisches_t(self, args):
+        """Der Fehler, der das Laufband nach jedem Sprung stehen liess.
+
+        `republish` traegt das ALTE `t`. Ein Epoch darin liesse die Seite ihre
+        Uhr auf die alte Position neu stellen - und der richtige Wert eine
+        Viertelsekunde spaeter bekaeme nur noch die Drift-Glaettung: bis zu zehn
+        Sekunden falsche Anzeige nach einem Sprung zurueck.
+        """
+        args.record_buffer = 0.02
+        broadcaster = MagicMock()
+        with patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
+             patch("jampilot.cli._display_loop"):
+            loop = Loop.return_value
+            loop.muted = False
+            loop.samplerate, loop.channels = 8000, 2
+            loop.recording, loop.record_paused, loop.record_epoch = True, False, 7
+            loop.heard_position.return_value = 30.0
+            e = Engine(args, broadcaster=broadcaster)
+            e.start()
+            try:
+                e._record = MagicMock()
+                e.onsets = (10.0, 20.0, 40.0)
+                e.seek_chord(-1)
+                e.seek_chord(+1)
+                e.record_to_now()
+                for aufruf in broadcaster.republish.call_args_list:
+                    assert "epoch" not in aufruf.kwargs, aufruf
+                    assert "t" not in aufruf.kwargs, aufruf
             finally:
                 e.stop()
 

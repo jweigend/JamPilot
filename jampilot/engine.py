@@ -386,21 +386,25 @@ class Engine:
         Genau die Diskrepanz, die den Eindruck macht, die Taste habe nicht
         gegriffen.
 
-        ALLE Felder muessen mit. `republish` mischt nur das Uebergebene in den
-        letzten Zustand - was hier fehlt, behaelt seinen alten Wert. `epoch`
-        ist das Signal, an dem die Seite ihre Uhr neu stellt, statt sie sanft
-        nachzuziehen.
+        Was mitkommt, ist der MODUS: an, wird gerade reserviert, angehalten.
+        Das ist, was der rote Punkt und die Transportleiste sofort brauchen.
 
-        Was hier NICHT mitkommt, ist die Zeitleiste: Die Events liegen im
-        Anzeigepfad (EventLedger), nicht in dieser Schicht. Nach einem Sprung
-        stehen die Akkorde darum noch bis zum naechsten Analysetakt an der
-        alten Stelle.
+        Was NICHT mitkommt - und das ist keine Luecke, sondern die Lehre aus
+        einem Fehler -, ist `epoch`. `republish` mischt nur das Uebergebene in
+        den LETZTEN Zustand, und der traegt noch das alte `t`. Ginge der Epoch
+        hier mit, stellte die Seite ihre Uhr auf die ALTE Position neu; kaeme
+        dann eine Viertelsekunde spaeter der volle Zustand mit dem richtigen
+        `t`, waere der Epoch schon verbraucht, und statt eines Resets griffe die
+        sanfte Drift-Glaettung (syncClock: Minimum ueber 40 Messwerte). Bei
+        einem Sprung ZURUECK gewinnt der alte Messwert bis zu zehn Sekunden
+        lang, bei einem Sprung VOR gleitet die Uhr ueber Sekunden nach - der
+        Ton springt sofort, das Laufband nicht. Der Epoch reist darum
+        ausschliesslich mit dem frischen `t` aus der Anzeigeschleife.
         """
         if self.broadcaster:
             self.broadcaster.republish(recording=self.recording,
                                        record_pending=self.record_pending,
-                                       paused=self.record_paused,
-                                       epoch=self.record_epoch)
+                                       paused=self.record_paused)
         self._on_change()
 
     @property
