@@ -141,15 +141,21 @@ class Startprotokoll:
         return f"{kopf} ({e['dauer']:.1f} s)"
 
 
-# Akkordspruenge im Record-Modus (Engine.seek_chord). Beide Werte sind
-# Playtest-Kandidaten, keine Messwerte - sie stehen hier, damit man sie im
-# Proberaum drehen kann.
+# Akkordspruenge im Record-Modus (Engine.seek_chord).
 #
-# VORLAUF: Der Sprung landet so viele Sekunden VOR dem Onset. Wer einen Wechsel
-# lernen will, muss den Anlauf hoeren.
-VORLAUF = 0.7
+# LANDUNG: Der Sprung landet so viele Sekunden NACH dem Onset - ein
+# Wimpernschlag, damit der Zielakkord sicher als klingend gilt (die Anzeige
+# nimmt "at <= now"; landete man durch Blockrundung ein paar Millisekunden
+# davor, stuende gross noch der Akkord davor und der Chip einen Hauch rechts
+# von NOW). Der urspruengliche Entwurf landete 0,7 s VOR dem Onset, um den
+# Anlauf zu hoeren - im Proberaum verworfen: Der Zielakkord sass dann sichtbar
+# neben NOW statt darauf, und "ich bin zu Akkord X gesprungen" stimmte fuer
+# die Anzeige nicht. Den Anlauf bekommt man wie an jedem Player: zweimal
+# Zurueck.
+LANDUNG = 0.05
 # NEUSTART_SCHWELLE: Steht man weniger als so lange im laufenden Akkord, geht
 # "zurueck" an den vorigen; sonst an den Anfang des laufenden (CD-Player).
+# Playtest-Kandidat, kein Messwert.
 NEUSTART_SCHWELLE = 1.0
 
 
@@ -344,10 +350,13 @@ class Engine:
         * "Zurueck" heisst zuerst: an den Anfang des LAUFENDEN Akkords - die
           CD-Player-Konvention. Man drueckt zurueck, weil man diesen Wechsel
           nochmal will, nicht den davor. Erst wer schon am Anfang steht
-          (NEUSTART_SCHWELLE), geht eine Grenze weiter zurueck.
-        * Der Sprung landet VORLAUF Sekunden VOR dem Onset. Wer einen Wechsel
-          lernen will, muss den Anlauf hoeren; genau auf die Grenze zu springen
-          liefert den Zielakkord ohne das, was zu ihm hinfuehrt.
+          (NEUSTART_SCHWELLE), geht eine Grenze weiter zurueck. Den Anlauf zu
+          einem Wechsel hoert man also mit zweimal Zurueck - nicht ueber einen
+          eingebauten Vorlauf (der stand im ersten Entwurf und ist im Proberaum
+          gescheitert, s. LANDUNG).
+        * Der Sprung landet LANDUNG Sekunden NACH dem Onset, damit der
+          Zielakkord in der Anzeige sicher der klingende ist: gross in der
+          Mitte, sein Chip auf NOW.
 
         Gelesen wird die volle Onset-Liste des Ledgers (`self.onsets`), nicht
         das veroeffentlichte Anzeige-Fenster - das reicht nur acht Sekunden
@@ -364,18 +373,22 @@ class Engine:
                 self._record_gemeldet()
                 return
             ziel = vorige[-1]
-            if jetzt - ziel < NEUSTART_SCHWELLE and len(vorige) >= 2:
+            if jetzt - ziel < NEUSTART_SCHWELLE:
+                if len(vorige) < 2:
+                    self._record.to_start()  # am ersten Akkord: der Anfang
+                    self._record_gemeldet()
+                    return
                 ziel = vorige[-2]
         else:
-            # Der naechste Onset, der samt Vorlauf noch VOR uns liegt - sonst
-            # spraenge "vor" um ein paar Zehntel zurueck.
-            kommende = [o for o in onsets if o - VORLAUF > jetzt + 0.05]
+            # Der naechste Onset, der noch VOR uns liegt - der, auf dem wir
+            # gerade (mit LANDUNG) gelandet sind, zaehlt nicht mehr.
+            kommende = [o for o in onsets if o > jetzt + LANDUNG]
             if not kommende:
                 self._record.to_now()
                 self._record_gemeldet()
                 return
             ziel = kommende[0]
-        self._record.seek(ziel - VORLAUF - jetzt)
+        self._record.seek(ziel + LANDUNG - jetzt)
         self._record_gemeldet()
 
     def _record_gemeldet(self):

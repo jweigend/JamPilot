@@ -10,10 +10,10 @@ The one thing missing when you use JamPilot to actually *learn* a song: a
 change goes by, you did not catch it, and there is no way to hear it again
 without reaching for Spotify. `R` starts record mode. From then on what you hear
 is kept in a buffer inside the app, and you get a player: `←`/`→` jump to the
-**previous and next chord** — landing 0.7 s before the change so you hear it
-coming, and `←` going first to the start of the *current* chord like a CD
-player — `P` pauses, `Home`/`End` go to the start of the recording and back to
-live. The same five buttons sit as a half-transparent bar at the bottom of the
+**previous and next chord** — `←` going first to the start of the *current*
+chord like a CD player, and again to the one before, which is how you hear a
+change coming — `P` pauses, `Home`/`End` go to the start of the recording and
+back to live. The same five buttons sit as a half-transparent bar at the bottom of the
 display, so a phone on the music stand can drive it too (it cannot *enter* the
 mode: `R` is a key, deliberately). The only other sign of the mode is a small
 red dot by the logo — no seconds, no bar; where you are in the recording, the

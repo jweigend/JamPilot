@@ -476,30 +476,44 @@ class TestAkkordspruenge:
         return e
 
     def test_zurueck_geht_an_den_anfang_des_laufenden_akkords(self):
-        from jampilot.engine import VORLAUF
+        from jampilot.engine import LANDUNG
         e = self._engine(jetzt=14.0, onsets=(10.0, 20.0))     # 4 s im Akkord
         e.seek_chord(-1)
-        e._record.seek.assert_called_once_with(pytest.approx(10.0 - VORLAUF - 14.0))
+        e._record.seek.assert_called_once_with(pytest.approx(10.0 + LANDUNG - 14.0))
 
     def test_am_anfang_geht_zurueck_eine_grenze_weiter(self):
         # CD-Player: Wer schon am Anfang steht, will den davor.
-        from jampilot.engine import VORLAUF
+        from jampilot.engine import LANDUNG
         e = self._engine(jetzt=10.5, onsets=(4.0, 10.0, 20.0))
         e.seek_chord(-1)
-        e._record.seek.assert_called_once_with(pytest.approx(4.0 - VORLAUF - 10.5))
+        e._record.seek.assert_called_once_with(pytest.approx(4.0 + LANDUNG - 10.5))
 
-    def test_vor_landet_mit_vorlauf_vor_dem_naechsten(self):
-        from jampilot.engine import VORLAUF
+    def test_am_anfang_des_ersten_akkords_geht_es_an_den_anfang(self):
+        e = self._engine(jetzt=10.2, onsets=(10.0, 20.0))
+        e.seek_chord(-1)
+        e._record.to_start.assert_called_once()
+
+    def test_vor_landet_auf_dem_naechsten_nicht_davor(self):
+        """Der Zielakkord muss in der Anzeige der KLINGENDE sein.
+
+        Der erste Entwurf landete 0,7 s vor dem Onset ("den Anlauf hoeren") und
+        ist im Proberaum gescheitert: Der Zielakkord sass sichtbar rechts von
+        NOW, gross stand noch der davor. Jetzt: ein Wimpernschlag NACH dem
+        Onset - nie davor.
+        """
+        from jampilot.engine import LANDUNG
+        assert LANDUNG > 0
         e = self._engine(jetzt=12.0, onsets=(10.0, 20.0, 30.0))
         e.seek_chord(+1)
-        e._record.seek.assert_called_once_with(pytest.approx(20.0 - VORLAUF - 12.0))
+        e._record.seek.assert_called_once_with(pytest.approx(20.0 + LANDUNG - 12.0))
 
-    def test_vor_ueberspringt_einen_onset_der_schon_im_vorlauf_liegt(self):
-        # Sonst spraenge "vor" um ein paar Zehntel ZURUECK.
-        from jampilot.engine import VORLAUF
-        e = self._engine(jetzt=19.8, onsets=(10.0, 20.0, 30.0))
+    def test_vor_zaehlt_den_akkord_nicht_auf_dem_man_gerade_gelandet_ist(self):
+        # Nach einem Sprung auf 20.0 steht man bei 20.0 + LANDUNG. "Vor" muss
+        # dann 30.0 meinen - sonst spraenge es um LANDUNG zurueck.
+        from jampilot.engine import LANDUNG
+        e = self._engine(jetzt=20.0 + LANDUNG, onsets=(10.0, 20.0, 30.0))
         e.seek_chord(+1)
-        e._record.seek.assert_called_once_with(pytest.approx(30.0 - VORLAUF - 19.8))
+        e._record.seek.assert_called_once_with(pytest.approx(30.0 + LANDUNG - (20.0 + LANDUNG)))
 
     def test_ohne_naechsten_geht_es_an_die_live_kante(self):
         e = self._engine(jetzt=25.0, onsets=(10.0, 20.0))

@@ -276,7 +276,11 @@ sits behind it, records the **finished mix** (music, count-in, control guitar �
 everything except the mute fade, so rewinding past a muted stretch gives you
 the music back), and has its own read pointer. `P` holds that pointer still
 while the write edge runs away; `←`/`→` move it to the previous or next chord
-onset, landing 0.7 s early so you hear the change coming; `Home`/`End` go to
+onset — landing a hair *after* it, so the target is unambiguously the sounding
+chord: big in the middle, its chip on the NOW line (an earlier design landed
+0.7 s early "to hear the change coming" and failed in the rehearsal room for
+exactly that reason — the target sat visibly beside NOW, not on it; you get
+the run-up the way every player gives it, with `←` twice); `Home`/`End` go to
 the start of the recording and back to the live edge. Every jump is crossfaded
 over 15 ms, because a hard cut in the signal is a click.
 

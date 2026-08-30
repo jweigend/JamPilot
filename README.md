@@ -121,8 +121,9 @@ glance, while both your hands are busy:
 - **`R` starts record mode** — the one thing for practising a change you did
   not catch. From that moment JamPilot keeps what you hear in a buffer inside
   the app (30 minutes, RAM only, gone when you quit), and you get a player: `←`
-  and `→` jump to the **previous and next chord** (landing a moment before the
-  change, so you hear it coming), `P` pauses, `Home`/`End` go to the start of
+  and `→` jump to the **previous and next chord** — like a CD player, `←` first
+  restarts the chord you are in, and again takes you to the one before, which
+  is how you hear a change coming — `P` pauses, `Home`/`End` go to the start of
   the recording and back to live. The same five buttons appear as a
   half-transparent bar at the bottom — on a phone too, which has no `R` but can
   tap the bar. A small red dot next to the JamPilot logo is the only other sign

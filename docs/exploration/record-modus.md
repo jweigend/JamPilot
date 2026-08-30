@@ -154,22 +154,27 @@ zurück:  ziel = Onset des LAUFENDEN Akkords
              ziel = Onset des VORIGEN Akkords
 vor:     ziel = Onset des NÄCHSTEN Akkords (> jetzt)
 
-ziel = ziel − VORLAUF
+ziel = ziel + LANDUNG                                  # ein Wimpernschlag DANACH
 seek(ziel − jetzt)                                     # der Puffer klemmt selbst
 ```
 
 Zwei Feinheiten, beide aus dem Üben begründet:
 
-* **`NEUSTART_SCHWELLE` (Vorschlag 1,0 s).** „Zurück" heißt zuerst *an den
-  Anfang des laufenden Akkords* — die CD-Player-Konvention. Man drückt zurück,
-  weil man **diesen** Wechsel nochmal will, nicht den davor. Erst wer schon am
-  Anfang steht, geht eine Grenze weiter zurück.
-* **`VORLAUF` (Vorschlag 0,7 s).** Der Sprung landet ein Stück **vor** dem
-  Onset. Wer einen Wechsel lernen will, muss den *Anlauf* hören; genau auf die
-  Grenze zu springen liefert den Zielakkord ohne das, was zu ihm hinführt.
+* **`NEUSTART_SCHWELLE` (1,0 s, Playtest-Kandidat).** „Zurück" heißt zuerst
+  *an den Anfang des laufenden Akkords* — die CD-Player-Konvention. Man drückt
+  zurück, weil man **diesen** Wechsel nochmal will, nicht den davor. Erst wer
+  schon am Anfang steht, geht eine Grenze weiter zurück. Den *Anlauf* zu einem
+  Wechsel hört man damit wie an jedem Player: zweimal Zurück.
+* **`LANDUNG` (0,05 s).** Der Sprung landet einen Wimpernschlag **nach** dem
+  Onset, damit der Zielakkord in der Anzeige sicher der klingende ist — groß in
+  der Mitte, sein Chip auf NOW.
 
-Beide Werte sind Playtest-Kandidaten, keine Messwerte. Sie stehen als
-Konstanten mit Begründung im Code, damit man sie im Proberaum drehen kann.
+> **Verworfen im Proberaum (30.08.): der Vorlauf.** Der erste Entwurf landete
+> 0,7 s **vor** dem Onset, „damit man den Wechsel kommen hört". Die Anzeige
+> zeigte das treu — und genau das war das Problem: Der Zielakkord saß sichtbar
+> rechts neben NOW, groß stand noch der Akkord davor, und „ich bin zu X
+> gesprungen" stimmte für das Bild nicht. Der Anlauf ist über zweimal Zurück
+> erreichbar; die Anzeige-Wahrheit ist es nicht.
 
 ### 5.3 Ränder
 
@@ -284,8 +289,8 @@ Diagnoseflächen, keine Bühne — dort wäre eine Sekundenangabe („12 s back"
 weiterhin nützlich, während sie in der Webanzeige verschwindet. *Vorschlag:
 Kontrollfenster behält sie, Webanzeige nicht.*
 
-**10.5 Vorlauf und Neustart-Schwelle** (§ 5.2): 0,7 s / 1,0 s sind geraten.
-*Im Proberaum zu drehen.*
+**10.5 Vorlauf und Neustart-Schwelle** (§ 5.2): Der Vorlauf ist im Proberaum
+*verworfen* (siehe dort). Die Neustart-Schwelle (1,0 s) ist weiter geraten.
 
 
 ## 11. Umsetzungsreihenfolge
