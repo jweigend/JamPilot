@@ -139,6 +139,13 @@ glance, while both your hands are busy:
 *Connect any tablet or phone — now. One scan, and the same synced display is on
 every music stand in the room. No app, no account: it is just a browser page.*
 
+![Record mode: Gm sounding with its fretboard diagram top-left, a red recording dot next to the JamPilot logo, the half-transparent five-button transport bar at the bottom, G and C ahead in the lane](docs/bilder/record-mode.png)
+
+*Record mode: the red dot next to the logo is the only sign you left live. The
+half-transparent bar at the bottom is the player — chord-wise back and forward,
+pause, start of the recording, back to live. Everything else keeps working;
+here it runs inside guitar mode, with `Gm` sounding.*
+
 **The control window** opens next to it — a small native window, and it is the
 **way back**:
 
