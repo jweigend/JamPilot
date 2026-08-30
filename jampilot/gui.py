@@ -25,8 +25,8 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import (Property, QEasingCurve, QPropertyAnimation, QSize, Qt,
-                            QTimer, Signal)
+from PySide6.QtCore import (Property, QEasingCurve, QLoggingCategory,
+                            QPropertyAnimation, QSize, Qt, QTimer, Signal)
 from PySide6.QtGui import QColor, QIcon, QPainter, QPalette
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QFrame, QHBoxLayout,
                                QLabel, QPushButton, QVBoxLayout, QWidget)
@@ -465,12 +465,20 @@ def run(engine, url: str | None, autostart: bool = False, vorbereiten=None) -> i
     Der Warmup laeuft VOR dem Audio, nicht daneben: Der Stream soll nicht schon
     Toene in den Puffer schieben, waehrend die halbe CPU im JIT-Compiler steckt.
     """
+    # Unter Wayland nimmt die Fensterleiste das Symbol nicht vom Fenster, sondern
+    # vom Starter: Der Name hier muss zur .desktop-Datei passen (desktop.py).
+    # VOR dem Konstruktor, weil Qt (ab 6.8) sich beim Erzeugen der App unter
+    # diesem Namen beim Desktop-Portal anmeldet - nachtraeglich gesetzt gibt es
+    # eine zweite Anmeldung, die das Portal mit einer Warnung ablehnt.
+    QApplication.setDesktopFileName("jampilot")
+    # Die Portal-Anmeldung kann trotzdem scheitern - etwa wenn kein Starter
+    # installiert ist (Entwickler-Checkout, entpacktes tar.gz). Sie dient nur
+    # der Namens-Zuordnung in Portal-Dialogen; JamPilot braucht sie nicht.
+    # Also stumm statt eine Warnung, gegen die der Nutzer nichts tun kann.
+    QLoggingCategory.setFilterRules("qt.qpa.services.warning=false")
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("JamPilot")
     app.setWindowIcon(QIcon(str(ICON_DATEI)))
-    # Unter Wayland nimmt die Fensterleiste das Symbol nicht vom Fenster, sondern
-    # vom Starter: Der Name hier muss zur .desktop-Datei passen (desktop.py).
-    app.setDesktopFileName("jampilot")
     palette = app.palette()
     palette.setColor(QPalette.Window, QColor(BG))
     app.setPalette(palette)
