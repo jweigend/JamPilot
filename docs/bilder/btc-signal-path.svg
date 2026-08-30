@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 250" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="a" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto">
+      <polygon points="0,0 9,4 0,8" fill="#66707E"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="940" height="250" fill="#FBFAF7"/>
+
+  <!-- 1 Audio -->
+  <rect x="20" y="45" width="160" height="105" rx="8" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="100" y="82" font-size="14" font-weight="700" fill="#243040" text-anchor="middle">Audio</text>
+  <text x="100" y="104" font-size="11.5" fill="#66707E" text-anchor="middle">22 050 Hz, mono</text>
+  <text x="100" y="121" font-size="11.5" fill="#66707E" text-anchor="middle">system output</text>
+  <line x1="180" y1="97" x2="200" y2="97" stroke="#66707E" stroke-width="1.4" marker-end="url(#a)"/>
+
+  <!-- 2 CQT -->
+  <rect x="205" y="45" width="160" height="105" rx="8" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="285" y="76" font-size="14" font-weight="700" fill="#243040" text-anchor="middle">Constant-Q</text>
+  <text x="285" y="98" font-size="11.5" fill="#66707E" text-anchor="middle">144 bands, 24/octave</text>
+  <text x="285" y="115" font-size="11.5" fill="#66707E" text-anchor="middle">C1–B6, quarter tones</text>
+  <text x="285" y="132" font-size="11.5" fill="#66707E" text-anchor="middle">log + normalise</text>
+  <text x="285" y="178" font-size="11.5" fill="#9AA4B1" text-anchor="middle">(108, 144)</text>
+  <line x1="365" y1="97" x2="385" y2="97" stroke="#66707E" stroke-width="1.4" marker-end="url(#a)"/>
+
+  <!-- 3 Embedding -->
+  <rect x="390" y="45" width="160" height="105" rx="8" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="470" y="82" font-size="14" font-weight="700" fill="#243040" text-anchor="middle">Embedding</text>
+  <text x="470" y="104" font-size="11.5" fill="#66707E" text-anchor="middle">144 → 128</text>
+  <text x="470" y="121" font-size="11.5" fill="#66707E" text-anchor="middle">+ timing signal</text>
+  <text x="470" y="178" font-size="11.5" fill="#9AA4B1" text-anchor="middle">(108, 128)</text>
+  <line x1="550" y1="97" x2="570" y2="97" stroke="#66707E" stroke-width="1.4" marker-end="url(#a)"/>
+
+  <!-- 4 Stack -->
+  <rect x="575" y="55" width="160" height="105" rx="8" fill="#F0F1F3" stroke="#C9CFD8"/>
+  <rect x="575" y="50" width="160" height="105" rx="8" fill="#F4F5F7" stroke="#C9CFD8"/>
+  <rect x="575" y="45" width="160" height="105" rx="8" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="655" y="76" font-size="14" font-weight="700" fill="#243040" text-anchor="middle">8 × Bi-Layer</text>
+  <text x="620" y="99" font-size="11" font-weight="600" fill="#D97B33" text-anchor="middle">forward</text>
+  <text x="655" y="99" font-size="11" fill="#9AA4B1" text-anchor="middle">‖</text>
+  <text x="692" y="99" font-size="11" font-weight="600" fill="#2F6FBF" text-anchor="middle">backward</text>
+  <text x="655" y="120" font-size="11.5" fill="#66707E" text-anchor="middle">2.90 M of 2.94 M</text>
+  <text x="655" y="137" font-size="11.5" fill="#66707E" text-anchor="middle">parameters</text>
+  <text x="655" y="178" font-size="11.5" fill="#9AA4B1" text-anchor="middle">(108, 128)</text>
+  <line x1="735" y1="97" x2="755" y2="97" stroke="#66707E" stroke-width="1.4" marker-end="url(#a)"/>
+
+  <!-- 5 Output -->
+  <rect x="760" y="45" width="160" height="105" rx="8" fill="#FFFFFF" stroke="#243040" stroke-width="1.6"/>
+  <text x="840" y="76" font-size="14" font-weight="700" fill="#243040" text-anchor="middle">Chord label</text>
+  <text x="840" y="98" font-size="11.5" fill="#66707E" text-anchor="middle">projection 128 → 170</text>
+  <text x="840" y="115" font-size="11.5" fill="#66707E" text-anchor="middle">argmax per frame</text>
+  <text x="840" y="132" font-size="11.5" fill="#66707E" text-anchor="middle">one every 92.9 ms</text>
+  <text x="840" y="178" font-size="11.5" fill="#9AA4B1" text-anchor="middle">(108,)</text>
+
+  <text x="470" y="215" font-size="11.5" fill="#66707E" text-anchor="middle">One window = 108 frames = 10.0 s. Live, the last 10 s are recomputed every 0.25 s.</text>
+</svg>

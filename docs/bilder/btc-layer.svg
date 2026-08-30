@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 415" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="b" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto">
+      <polygon points="0,0 9,4 0,8" fill="#66707E"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="940" height="415" fill="#FBFAF7"/>
+
+  <!-- input -->
+  <rect x="20" y="165" width="110" height="70" rx="8" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="75" y="195" font-size="14" font-weight="700" fill="#243040" text-anchor="middle">x</text>
+  <text x="75" y="215" font-size="11.5" fill="#66707E" text-anchor="middle">(108 × 128)</text>
+  <path d="M130,200 H150 V110 H166" fill="none" stroke="#66707E" stroke-width="1.4" marker-end="url(#b)"/>
+  <path d="M130,200 H150 V305 H166" fill="none" stroke="#66707E" stroke-width="1.4" marker-end="url(#b)"/>
+
+  <!-- forward -->
+  <rect x="170" y="25" width="555" height="155" rx="10" fill="#FBF1E8" stroke="#D97B33"/>
+  <text x="185" y="45" font-size="11" font-weight="700" fill="#D97B33" letter-spacing="0.08em">FORWARD</text>
+  <rect x="185" y="55" width="250" height="110" rx="6" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="310" y="82" font-size="13" font-weight="700" fill="#243040" text-anchor="middle">LayerNorm → Self-Attention</text>
+  <text x="310" y="103" font-size="11.5" fill="#66707E" text-anchor="middle">4 heads × 32 dimensions</text>
+  <text x="310" y="121" font-size="11.5" font-weight="600" fill="#D97B33" text-anchor="middle">sees only frames ≤ t</text>
+  <text x="310" y="146" font-size="11.5" fill="#9AA4B1" text-anchor="middle">⊕ residual</text>
+  <line x1="435" y1="110" x2="458" y2="110" stroke="#66707E" stroke-width="1.4" marker-end="url(#b)"/>
+  <rect x="460" y="55" width="250" height="110" rx="6" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="585" y="82" font-size="13" font-weight="700" fill="#243040" text-anchor="middle">LayerNorm → 2 × Conv1d</text>
+  <text x="585" y="103" font-size="11.5" fill="#66707E" text-anchor="middle">kernel 3, ReLU, 128 → 128</text>
+  <text x="585" y="121" font-size="11.5" fill="#66707E" text-anchor="middle">mixes 3 neighbouring frames</text>
+  <text x="585" y="146" font-size="11.5" fill="#9AA4B1" text-anchor="middle">⊕ residual</text>
+
+  <!-- backward -->
+  <rect x="170" y="220" width="555" height="155" rx="10" fill="#EAF1F9" stroke="#2F6FBF"/>
+  <text x="185" y="240" font-size="11" font-weight="700" fill="#2F6FBF" letter-spacing="0.08em">BACKWARD</text>
+  <rect x="185" y="250" width="250" height="110" rx="6" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="310" y="277" font-size="13" font-weight="700" fill="#243040" text-anchor="middle">LayerNorm → Self-Attention</text>
+  <text x="310" y="298" font-size="11.5" fill="#66707E" text-anchor="middle">4 heads × 32 dimensions</text>
+  <text x="310" y="316" font-size="11.5" font-weight="600" fill="#2F6FBF" text-anchor="middle">sees only frames ≥ t</text>
+  <text x="310" y="341" font-size="11.5" fill="#9AA4B1" text-anchor="middle">⊕ residual</text>
+  <line x1="435" y1="305" x2="458" y2="305" stroke="#66707E" stroke-width="1.4" marker-end="url(#b)"/>
+  <rect x="460" y="250" width="250" height="110" rx="6" fill="#FFFFFF" stroke="#C9CFD8"/>
+  <text x="585" y="277" font-size="13" font-weight="700" fill="#243040" text-anchor="middle">LayerNorm → 2 × Conv1d</text>
+  <text x="585" y="298" font-size="11.5" fill="#66707E" text-anchor="middle">kernel 3, ReLU, 128 → 128</text>
+  <text x="585" y="316" font-size="11.5" fill="#66707E" text-anchor="middle">mixes 3 neighbouring frames</text>
+  <text x="585" y="341" font-size="11.5" fill="#9AA4B1" text-anchor="middle">⊕ residual</text>
+
+  <!-- merge -->
+  <path d="M710,110 H734 V200 H753" fill="none" stroke="#66707E" stroke-width="1.4" marker-end="url(#b)"/>
+  <path d="M710,305 H734 V200" fill="none" stroke="#66707E" stroke-width="1.4"/>
+  <rect x="755" y="150" width="165" height="100" rx="8" fill="#FFFFFF" stroke="#243040" stroke-width="1.6"/>
+  <text x="837" y="178" font-size="13" font-weight="700" fill="#243040" text-anchor="middle">concat → 256</text>
+  <text x="837" y="199" font-size="11.5" fill="#66707E" text-anchor="middle">Linear 256 → 128</text>
+  <text x="837" y="217" font-size="11.5" fill="#66707E" text-anchor="middle">32 896 parameters</text>
+  <text x="837" y="238" font-size="11.5" font-weight="600" fill="#243040" text-anchor="middle">x′ (108 × 128)</text>
+
+  <text x="470" y="400" font-size="11.5" fill="#66707E" text-anchor="middle">Both directions read the same x — in parallel, with separate weights. One of these layers is stacked 8 times.</text>
+</svg>

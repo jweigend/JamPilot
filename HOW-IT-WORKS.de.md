@@ -9,7 +9,8 @@ Chroma-Ansatz, mit dem das Projekt gestartet ist, warum wir auf ein gelerntes
 Modell umgestiegen sind — und warum auch der beste Erkenner an eine
 prinzipielle Grenze stößt, die nichts mit Fleiß zu tun hat.
 
-Stand: 2026-08-08 (nach dem Umbau auf das BTC-Modell). Alle Zahlen stammen aus
+Stand: 2026-08-30 (Schaubilder zum Modell ergänzt; die Messungen stammen vom
+2026-08-08, nach dem Umbau auf das BTC-Modell). Alle Zahlen stammen aus
 Messungen gegen handannotierte Referenzaufnahmen
 ([tests/reference/README.md](tests/reference/README.md)).
 
@@ -78,7 +79,8 @@ Seit dem Umbau beantwortet die Frage „welcher Akkord?" ein neuronales Netz:
 **BTC** („Bi-directional Transformer for Chord Recognition", Park et al.,
 ISMIR 2019) — ein kleiner bidirektionaler Transformer, trainiert auf
 expertenannotierten Aufnahmen, mit einem Vokabular von **14 Qualitäten × 12
-Grundtöne** (170 Klassen). Der Checkpoint ist nur 12 MB groß; wir haben ihn
+Grundtöne** (170 Klassen). Der Checkpoint ist nur 12 MB groß — 2,94 Millionen
+Parameter in float32, und genau das steht auch in der Datei; wir haben ihn
 nach reinem NumPy portiert ([btc.py](jampilot/btc.py)), es gibt also keine
 PyTorch-Abhängigkeit.
 
@@ -95,6 +97,81 @@ Signalverarbeitung:
   alten Pfads, in neuer Form.
 - **Tonart** wird weiter selbst geschätzt (sie entscheidet nur noch über die
   Schreibweise: `C#` oder `Db`).
+
+### Was das Modell sieht
+
+Das Modell bekommt nie Audio zu sehen. Was bei ihm ankommt, ist ein Bild:
+**144 Frequenzbänder × 108 Zeitschritte**, ein Float je Feld. Die drei unten
+sind keine Zeichnung dieser Matrix, sondern die Matrix selbst, genau so, wie
+`features_from_audio()` sie liefert, danach mit genau demselben globalen
+Mittelwert und derselben Standardabweichung normalisiert wie vor der
+Modellinferenz. Die ersten beiden Felder sind feste **echte** 10-s-Ausschnitte
+aus den Referenzaufnahmen, die im Repository ohnehin unter `tests/reference`
+liegen: `let_it_be.mp3` und `its_too_late.mp3`; das dritte ist digitale Stille
+bei -90 dBFS. `docs/bilder/make-btc-images.py` baut die gesamte Grafik neu.
+
+![Drei BTC-Eingabebilder nebeneinander: ein 10-Sekunden-Ausschnitt aus Let It Be, ein 10-Sekunden-Ausschnitt aus It's Too Late und digitale Stille bei -90 dBFS. Die senkrechte Achse läuft von C1 unten bis B6 oben, die waagerechte über zehn Sekunden](docs/bilder/btc-input-panels.png)
+
+Zu lesen wie ein Spektrogramm: **Jede Zeile ist ein Frequenzband** — 144
+Stück, gestapelt von C1 unten bis B6 oben — und jede Spalte ist einer der 108
+Zeitschritte, von links nach rechts über die zehn Sekunden. Heller heißt mehr
+Energie in diesem Band zu diesem Zeitpunkt. Ein Anschlag erscheint als helle
+senkrechte Kante, ein gehaltener Ton als **waagerechter Streifen**, der nach
+rechts leiser ausläuft — und bei einem Akkordwechsel springt das ganze
+Streifenmuster auf neue Höhen, was sich an den Markern der annotierten Grafik
+weiter unten gegen die Ground Truth prüfen lässt. Alle drei Felder teilen sich
+**eine** Graustufenskala — sonst sähe die Stille aus wie Rauschen bei voller
+Aussteuerung, und der Vergleich wäre eine Lüge.
+
+Die Überschriften benennen also die Quelle des Ausschnitts, nicht die Antwort
+des Modells. Die Grafik soll die Eingabetextur zeigen, die der Transformer
+sieht, bevor er für jedes Frame ein Akkordlabel entscheidet.
+
+Wer Bild und Harmonie direkter übereinanderlegen will, findet im Repository
+auch eine annotierte Hilfsgrafik. Sie markiert für `Let It Be` die
+Referenz-Akkordwechsel und für `It's Too Late` genau den breiteren Wechsel
+`Am7 → D6 → Am7 → D6 → Am7`, den man in den ersten zehn Sekunden tatsächlich
+sehen kann:
+
+![Annotierte BTC-Eingabegrafik: Das Let-It-Be-Feld ist mit den Referenzwechseln C, G, Am, Am/b7, Fmaj7, F6, C, G markiert; das It's-Too-Late-Feld mit dem gröberen Wechsel Am7, D6, Am7, D6, Am7](docs/bilder/btc-input-panels-annotated.png)
+
+In diesen waagerechten Streifen sitzt auch die **Viertelton**-Auflösung: Bei
+24 Bändern je Oktave liegen zwei benachbarte *Zeilen* 50 Cent auseinander, jeder Halbton
+bekommt also zwei davon. Die Obertonreihe passt nämlich nicht ins
+Zwölftonraster — das Siebenfache des Grundtons landet 31 Cent unter der
+gleichstufigen kleinen Septime, das Elffache fast genau zwischen Quarte und
+Tritonus. Mit halbtonbreiten Bändern würden diese Teiltöne in ihren Nachbarn
+schmieren und dort wie Akkordtöne aussehen, die niemand gespielt hat. Das
+feinere Raster bringt außerdem Toleranz: Eine Aufnahme mit A = 442 Hz oder
+eine nach Gehör gestimmte Gitarre rutscht nicht aus ihren Bändern.
+
+Von diesem Bild bis zum Akkordnamen passt der ganze Weg auf eine Zeile:
+
+![Der Signalweg: Audio mit 22 050 Hz, Constant-Q-Transformation in 144 Bänder, Embedding auf Breite 128, acht bidirektionale Schichten mit 2,90 der 2,94 Millionen Parameter, dann eine Projektion auf 170 Klassen und ein argmax je Frame](docs/bilder/btc-signal-path.de.svg)
+
+Das Fenster liegt fest bei 108 Frames. Offline wird die Datei in
+nicht überlappende Blöcke zerlegt; live rechnet JamPilot alle 250 ms die
+letzten zehn Sekunden neu, jeder Moment Musik wandert also rund vierzigmal
+durch das Modell — jedes Mal an einer anderen Stelle im Fenster.
+
+Innen ist jede der acht Schichten doppelt ausgeführt:
+
+![Eine Schicht im Detail: dasselbe x wird parallel von einem Vorwärts-Block gelesen, der nur Frames bis t sieht, und einem Rückwärts-Block, der nur Frames ab t sieht; beide durchlaufen LayerNorm, eine Self-Attention mit vier Köpfen und zwei Faltungen mit Kernel 3, danach werden sie auf 256 verkettet und zurück auf 128 projiziert](docs/bilder/btc-layer.de.svg)
+
+**Beide Richtungen sind getrennt gelernt**, mit eigenen Gewichten — dorthin
+geht die Hälfte aller Parameter, und das ist es, was das „bi-direktional" im
+Namen bedeutet. Es erklärt auch ein Verhalten, das man beim Mitspielen spürt:
+Am jüngsten Rand des Fensters hat der Rückwärts-Block nichts zu lesen, dort
+*ist* noch keine Zukunft. Diese Frames flackern, und deshalb warten Segmente
+am Rand bis zum nächsten Hop, statt sofort veröffentlicht zu werden. Der
+Vorlaufpuffer bezahlt diese Wartezeit.
+
+Ein Detail zielt noch genauer auf Musik: Wo ein Transformer sonst eine breite
+punktweise Feed-Forward-Schicht hat, stehen bei BTC **zwei Faltungen über je
+drei Frames** — und sie verbreitern gar nicht (128 bleibt 128). Jede Schicht
+mischt dadurch zusätzlich lokal in der Zeit, ganz unabhängig von der
+Attention. Für ein Signal, in dem benachbarte Frames fast immer denselben
+Akkord tragen, ist das die nützlichere Nachbarschaft.
 
 ### Was der Umstieg messbar gebracht hat
 
