@@ -271,12 +271,17 @@ class Engine:
         if self._record_lade is not None:
             return False
         if self._record is None:
-            if self.record_hinweis:
-                return False                 # schon einmal gescheitert
+            # Auch nach einem gescheiterten Versuch wieder probieren: Speicher
+            # kann inzwischen frei geworden sein, und ein R, das fuer den Rest
+            # der Sitzung tot ist, erklaert sich niemandem.
+            self.record_hinweis = None
             self._record_lade = threading.Thread(
                 target=self._record_anlegen, name="record-buffer", daemon=True)
             self._record_lade.start()
-            self._on_change()
+            # SOFORT melden, nicht nur das Fenster nachziehen: Die Seite soll
+            # den hohlen Punkt sehen, solange reserviert wird. Die Meldung
+            # traegt `record_pending`.
+            self._record_gemeldet()
             return True
         self._record.start_record()
         self._record_gemeldet()
@@ -319,7 +324,12 @@ class Engine:
             self._record_lade = None
             if self.record_hinweis:
                 self.protokoll.melden(self.record_hinweis)
+            # Die Meldung traegt den Hinweis (falls es einen gibt) genau
+            # EINMAL zur Seite; danach ist er abgeraeumt, damit der laufende
+            # Analysetakt nicht viermal pro Sekunde denselben Fehler schickt.
+            # Im Startprotokoll steht er dauerhaft.
             self._record_gemeldet()
+            self.record_hinweis = None
 
     def toggle_record_pause(self) -> bool:
         if not self.recording:
@@ -417,7 +427,8 @@ class Engine:
         if self.broadcaster:
             self.broadcaster.republish(recording=self.recording,
                                        record_pending=self.record_pending,
-                                       paused=self.record_paused)
+                                       paused=self.record_paused,
+                                       record_hint=self.record_hinweis)
         self._on_change()
 
     @property

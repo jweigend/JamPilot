@@ -80,6 +80,16 @@
          background: #e2483d; box-sizing: border-box; }
   #rec.pending { background: transparent; border: 1px solid #e2483d; }
   #rec[hidden] { display: none; }
+  /* Wenn R NICHT greift (kein Speicher), sagt der Server einmal warum. Das
+     ist die einzige Schrift, die der Record-Modus je zeigt - und nur im
+     Fehlerfall, fuer ein paar Sekunden. Dieselbe Form wie das Stumm-Schild. */
+  #recbadge {
+    position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+    z-index: 15; padding: 1.3vmin 2.8vmin; border-radius: 0 0 1.4vmin 1.4vmin;
+    background: #e2483d18; border: 1px solid #e2483d55; border-top: 0;
+    color: #e2483d; font-size: max(1.8vmin, 12px); letter-spacing: .06em;
+  }
+  #recbadge[hidden] { display: none; }
 
   /* Die Transportleiste - nur im Record-Modus, unten, halbtransparent. Sie ist
      Werkzeug, nicht Buehne: Sie darf den grossen Akkord nicht bedraengen. Voll
@@ -622,6 +632,7 @@
   <div id="mutebadge">
     Muted <small>&mdash; sound off only; the display keeps running</small>
   </div>
+  <div id="recbadge" hidden></div>
   <div id="transport" hidden>
     <button data-cmd="start" aria-label="Start of recording" title="Start (Home)">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5h2v14H5zM19 5 9 12l10 7z"/></svg>
@@ -1776,9 +1787,22 @@ function apply(state) {
   lastT = state.t;
   frozenAt = paused ? state.t : null;
   zeigeAufnahme();
+  if (state.record_hint) zeigeRecordHinweis(state.record_hint);
 
   neuSchreibenFallsNoetig();
   syncClock(state.t);
+}
+
+// R hat nicht gegriffen - der Server sagt einmal warum (kein Speicher). Ein
+// paar Sekunden sichtbar, dann weg: Es ist eine Antwort auf einen Tastendruck,
+// kein Dauerzustand.
+let recHinweisTimer = null;
+function zeigeRecordHinweis(text) {
+  const el = $("recbadge");
+  el.textContent = text;
+  el.hidden = false;
+  if (recHinweisTimer) clearTimeout(recHinweisTimer);
+  recHinweisTimer = setTimeout(() => { el.hidden = true; }, 6000);
 }
 
 // Der rote Punkt und die Transportleiste - beides nur im Record-Modus. Der

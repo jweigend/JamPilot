@@ -214,6 +214,16 @@ class RecordBuffer:
         self._record_start = None    # erster Frame DIESER Aufnahme (None: noch keiner)
         self._recording = False
         self._paused = False
+        # R aus ist ein Vorgang, kein Schalter: Der Callback muss den letzten
+        # Block noch UEBERBLENDEN (von Altmaterial oder aus der Stille auf die
+        # Live-Kante), erst dann darf er sich zurueckziehen. Bis dahin steht
+        # hier True; nach aussen gilt die Aufnahme ab dem Wunsch als beendet.
+        self._stop_pending = False
+        # War der letzte ausgegebene Block still (Pause)? Dann wird beim
+        # naechsten hoerbaren Block EINGEBLENDET statt von Altmaterial
+        # ueberblendet - aus der Stille heraus ist jeder Anschnitt ein Knacken,
+        # egal woher das Material kommt.
+        self._was_silent = False
         self._lock = threading.Lock()
 
         # Sprungstellen werden ueberblendet, nicht geschnitten. Die Rampe ist
@@ -233,7 +243,11 @@ class RecordBuffer:
     # --- Zustand ------------------------------------------------------------
     @property
     def recording(self) -> bool:
-        return self._recording
+        # Ab dem Wunsch "aus" gilt sie als beendet - auch wenn der Callback
+        # den Uebergang noch ausblendet. So sieht die Anzeige den roten Punkt
+        # sofort verschwinden, und `heard_position()` faellt sofort auf die
+        # Live-Uhr zurueck.
+        return self._recording and not self._stop_pending
 
     @property
     def paused(self) -> bool:
@@ -305,14 +319,21 @@ class RecordBuffer:
 
     # --- Modus --------------------------------------------------------------
     def start_record(self) -> None:
-        """Aufnahme an. Der Anfang wird vom naechsten Callback gesetzt."""
+        """Aufnahme an. Der Anfang wird vom naechsten Callback gesetzt.
+
+        R R in schneller Folge (aus, sofort wieder an) trifft womoeglich noch
+        den ausstehenden Stopp: Dann wird der Stopp verworfen und die Aufnahme
+        beginnt neu - der Anfang faellt auf den naechsten Block.
+        """
         with self._lock:
-            if self._recording:
+            if self._recording and not self._stop_pending:
                 return
+            self._stop_pending = False
             self._record_start = None        # der erste Block legt ihn fest
             self._recording = True
             self._paused = False
             self._blend_from = -1
+            self._was_silent = False
             self.epoch += 1
 
     def stop_record(self) -> None:
@@ -324,14 +345,18 @@ class RecordBuffer:
         neuen Kante an frisch beschrieben.
         """
         with self._lock:
-            if not self._recording:
+            if not self._recording or self._stop_pending:
                 return
-            # Ueberblenden, falls gerade zurueckgesprungen oder angehalten war:
-            # Der naechste Block ist wieder der Live-Block.
+            # NICHT sofort `_recording = False`: Dann kehrte `process()` beim
+            # naechsten Block um, bevor es ein Byte anfasst - und der Sprung
+            # von Altmaterial (oder aus der Stille) auf die Live-Kante waere
+            # ein harter Schnitt. Stattdessen: Leseposition an die Kante, den
+            # Uebergang als Sprungstelle markieren, und den Rueckzug dem
+            # Callback ueberlassen, NACHDEM er ueberblendet hat.
             self._blend_from = self._offset
-            self._recording = False
+            self._play_end = self._written
             self._paused = False
-            self._record_start = None
+            self._stop_pending = True
             self.epoch += 1
 
     # --- Transport ----------------------------------------------------------
@@ -446,8 +471,11 @@ class RecordBuffer:
         #    so waechst der Versatz um die Dauer der Pause, OHNE dass dieser
         #    Callback etwas schreiben muesste, das die Bedienung auch schreibt.
         if paused:
-            if blend_from < 0:
-                block[:] = 0.0               # laengst still
+            if self._was_silent:
+                # Laengst still - und das bleibt so, auch wenn dazwischen
+                # gesprungen wurde (`blend_from` >= 0): Ein Sprung waehrend
+                # der Pause darf keinen Blip der neuen Stelle spielen.
+                block[:] = 0.0
             else:
                 fade = min(self._fade_frames, frames)
                 # Der erste Block der Pause: Ausgegeben wird der Block, der
@@ -458,6 +486,7 @@ class RecordBuffer:
                 self._lies(block, self._offset - frames, frames)
                 block[:fade] *= self._ramp[:fade][::-1]
                 block[fade:] = 0.0
+                self._was_silent = True
             return
 
         # 3. Laufender Betrieb: Die Leseposition rueckt mit der Schreibkante
@@ -481,12 +510,29 @@ class RecordBuffer:
         #    Ende. Faellt der Sprung auf denselben Versatz - Fortsetzen nach
         #    einer Pause -, sind alt und neu identisch und die Ueberblendung ist
         #    rechnerisch die Identitaet: kein Pegelloch.
-        if blend_from >= 0 and frames <= len(self._scratch):
+        #
+        #    Kam der letzte Block aus der STILLE (Pause), wird nicht
+        #    ueberblendet, sondern EINGEBLENDET: Aus der Stille heraus ist
+        #    jeder Anschnitt bei vollem Pegel ein Knacken - auch der
+        #    "richtige" Block an der "richtigen" Stelle.
+        if frames <= len(self._scratch) and (blend_from >= 0 or self._was_silent):
             fade = min(self._fade_frames, frames)
-            alt = self._scratch[:frames]
-            self._lies(alt, blend_from, frames)
-            block[:fade] *= self._ramp[:fade]
-            block[:fade] += alt[:fade] * self._ramp[:fade][::-1]
+            if self._was_silent:
+                block[:fade] *= self._ramp[:fade]
+            else:
+                alt = self._scratch[:frames]
+                self._lies(alt, blend_from, frames)
+                block[:fade] *= self._ramp[:fade]
+                block[:fade] += alt[:fade] * self._ramp[:fade][::-1]
+        self._was_silent = False
+
+        # 5. Der ausstehende Rueckzug (R aus): Der Uebergang auf die Live-Kante
+        #    ist eben ueberblendet worden - ab dem naechsten Block fasst diese
+        #    Stufe nichts mehr an.
+        if self._stop_pending:
+            self._stop_pending = False
+            self._recording = False
+            self._record_start = None
 
     def _lies(self, ziel: np.ndarray, offset: int, frames: int) -> None:
         """`frames` Frames, die `offset` Frames hinter der Schreibkante enden."""

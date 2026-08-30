@@ -375,6 +375,53 @@ class TestRecordModus:
         loop.attach_record.assert_called_once()
         assert e.recording and not e.record_pending
 
+    def test_die_seite_sieht_das_reservieren_sofort(self, args):
+        # Der hohle Punkt: R hat gegriffen, der Speicher kommt. Ohne die
+        # Sofortmeldung erschiene er erst, wenn die Reservierung fertig ist -
+        # also nie, denn dann ist er schon gefuellt.
+        args.record_buffer = 0.02
+        broadcaster = MagicMock()
+        with patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
+             patch("jampilot.cli._display_loop"):
+            loop = Loop.return_value
+            loop.muted = False
+            loop.samplerate, loop.channels = 8000, 2
+            loop.recording, loop.record_paused = False, False
+            e = Engine(args, broadcaster=broadcaster)
+            e.start()
+            try:
+                e.toggle_record()
+                erste = broadcaster.republish.call_args_list[0].kwargs
+                assert erste["record_pending"] is True
+                _warten_bis_reserviert(e)
+            finally:
+                e.stop()
+
+    def test_scheitert_die_reservierung_erfaehrt_es_die_seite_einmal(self, args):
+        args.record_buffer = 30.0
+        broadcaster = MagicMock()
+        with patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
+             patch("jampilot.cli._display_loop"), \
+             patch("jampilot.record_buffer.verfuegbarer_speicher",
+                   return_value=2 ** 20):
+            loop = Loop.return_value
+            loop.muted = False
+            loop.samplerate, loop.channels = 48000, 2
+            loop.recording, loop.record_paused = False, False
+            e = Engine(args, broadcaster=broadcaster)
+            e.start()
+            try:
+                e.toggle_record(); _warten_bis_reserviert(e)
+                hinweise = [c.kwargs.get("record_hint")
+                            for c in broadcaster.republish.call_args_list]
+                assert any(h and "not enough free memory" in h for h in hinweise)
+                assert e.record_hinweis is None              # abgeraeumt
+                # ... und R darf es wieder versuchen.
+                assert e.toggle_record() is True
+                _warten_bis_reserviert(e)
+            finally:
+                e.stop()
+
     def test_zweites_r_schaltet_aus_und_ein_drittes_greift_sofort(self, laufend):
         e, _ = laufend
         e.toggle_record(); _warten_bis_reserviert(e)
@@ -404,7 +451,10 @@ class TestRecordModus:
                 e.toggle_record(); _warten_bis_reserviert(e)
                 assert e.status == "running"
                 assert e._record is None
-                assert "not enough free memory" in (e.record_hinweis or "")
+                # Der Hinweis wird einmal gemeldet und dann abgeraeumt (damit
+                # R es wieder versuchen darf) - dauerhaft steht er im
+                # Startprotokoll.
+                assert "not enough free memory" in " ".join(e.protokoll.zeilen())
                 Loop.return_value.attach_record.assert_not_called()
             finally:
                 e.stop()
@@ -424,7 +474,8 @@ class TestRecordModus:
                 e._record = MagicMock()
                 e.toggle_record_pause()
                 broadcaster.republish.assert_called_with(
-                    recording=True, record_pending=False, paused=False)
+                    recording=True, record_pending=False, paused=False,
+                    record_hint=None)
             finally:
                 e.stop()
 

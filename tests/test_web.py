@@ -542,3 +542,8 @@ class TestSeiteKenntDenRecordModus:
     def test_die_uhr_wird_bei_spruengen_neu_gestellt(self):
         assert "state.epoch !== epoch" in PAGE and "offsetSamples = []" in PAGE
         assert "if (frozenAt !== null) return frozenAt;" in PAGE
+
+    def test_ein_gescheitertes_r_erklaert_sich(self):
+        # Die einzige Schrift des Record-Modus - nur im Fehlerfall, kurz.
+        assert 'id="recbadge" hidden' in PAGE
+        assert "if (state.record_hint) zeigeRecordHinweis(state.record_hint)" in PAGE

@@ -211,10 +211,12 @@ class TestUeberblendung:
         aus = spiele(p, 5)
         assert np.abs(np.diff(aus[:, 0])).max() < 5.0
 
-    def test_fortsetzen_ohne_pegelloch(self):
-        # Beim Fortsetzen wird von derselben Stelle auf dieselbe Stelle
-        # ueberblendet - rechnerisch die Identitaet. Ein Pegelloch hier waere
-        # ein Fehler in der Ueberblendung, kein Kompromiss.
+    def test_fortsetzen_blendet_aus_der_stille_ein(self):
+        # Der letzte Block war still. Bei vollem Pegel wieder einzusetzen -
+        # egal wie "richtig" die Stelle ist - ist ein Anschnitt aus dem Nichts,
+        # und den hoert man. Also: Rampe von 0 auf den Pegel, dann voll.
+        # (Ein frueherer Test schrieb hier `allclose(aus, 5.0)` fest - er hat
+        # den Ist-Zustand beschrieben, nicht die Zusage.)
         p = puffer()
         for k in range(5):
             spiele(p, k)
@@ -222,7 +224,32 @@ class TestUeberblendung:
         spiele(p, 5)
         p.toggle_pause()
         aus = spiele(p, 6)
-        assert np.allclose(aus, 5.0)
+        assert aus[0, 0] < 0.5 and aus[-1, 0] == pytest.approx(5.0)
+        assert np.all(np.diff(aus[:, 0]) >= -1e-6)          # monoton hoch
+
+    def test_sprung_waehrend_der_pause_bleibt_still(self):
+        # Ein Sprung setzt eine Sprungstelle - pausiert darf die aber keinen
+        # 15-ms-Blip der neuen Stelle spielen. Still ist still.
+        p = puffer()
+        for k in range(20):
+            spiele(p, k)
+        p.toggle_pause()
+        spiele(p, 20)                        # ausblenden
+        p.seek(-0.5)
+        assert not spiele(p, 21).any()
+        p.seek(0.2)
+        assert not spiele(p, 22).any()
+
+    def test_sprung_im_laufenden_betrieb_ueberblendet_alt_und_neu(self):
+        # Das Gegenstueck: Wer spielend springt, bekommt eine echte
+        # Ueberblendung - am Blockanfang noch das Alte, am Ende das Neue.
+        p = puffer()
+        for k in range(30):
+            spiele(p, k)
+        p.seek(-10 * F / SR)
+        aus = spiele(p, 30)
+        assert aus[0, 0] == pytest.approx(30.0, abs=0.5)    # noch das Alte
+        assert welcher(aus) == 20                           # dann das Neue
 
     def test_kuerzerer_callbackblock_beim_pausieren_crasht_nicht(self):
         # Host-APIs sollen zwar die konfigurierte Blockgroesse liefern; wenn ein
@@ -336,7 +363,51 @@ class TestModus:
         p.toggle_pause()
         p.stop_record()
         assert not p.recording and not p.paused and p.offset_seconds == 0.0
-        assert np.array_equal(spiele(p, 20), block(20))       # bitgleich
+        spiele(p, 20)                                         # der Uebergang
+        assert np.array_equal(spiele(p, 21), block(21))       # danach bitgleich
+
+    def test_aus_schalten_ueberblendet_statt_zu_schneiden(self):
+        """R aus ist ein Vorgang, kein Schalter.
+
+        Frueher setzte stop_record sofort `_recording = False` - process()
+        kehrte beim naechsten Block um, bevor es ein Byte anfasste, und der
+        Sprung von Altmaterial auf die Live-Kante war ein harter Schnitt.
+        """
+        p = puffer()
+        for k in range(30):
+            spiele(p, k)
+        p.seek(-10 * F / SR)                 # spielt gerade Block ~20
+        p.stop_record()
+        assert not p.recording               # nach aussen sofort aus
+        aus = spiele(p, 30)
+        assert aus[0, 0] == pytest.approx(20.0, abs=0.5)    # Anfang: Altes
+        assert welcher(aus) == 30                           # Mitte: Live
+        assert np.array_equal(spiele(p, 31), block(31))     # dann bitgleich
+
+    def test_aus_schalten_aus_der_pause_blendet_ein(self):
+        p = puffer()
+        for k in range(30):
+            spiele(p, k)
+        p.toggle_pause()
+        spiele(p, 30)
+        p.stop_record()
+        aus = spiele(p, 31)
+        assert aus[0, 0] < 0.5 and welcher(aus) == 31       # Rampe aus der Stille
+
+    def test_r_r_in_schneller_folge_verliert_das_zweite_nicht(self):
+        # Aus und sofort wieder an, bevor ein Callback dazwischen kam: Der
+        # ausstehende Stopp wird verworfen, die Aufnahme beginnt neu.
+        p = puffer()
+        for k in range(10):
+            spiele(p, k)
+        p.stop_record()
+        p.start_record()
+        assert p.recording
+        for k in range(10, 15):
+            spiele(p, k)
+        assert p.recording
+        p.seek(-3600.0)
+        assert welcher(spiele(p, 15)) == 10                 # neuer Anfang
 
     def test_die_uhr_ist_die_der_verzoegerungsstufe(self):
         # Kein eigener Zaehler, der "angeglichen" wird: `process` bekommt die

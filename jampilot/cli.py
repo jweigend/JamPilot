@@ -900,6 +900,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                                        if engine is not None else False),
                     "paused": loop.record_paused,
                     "epoch": loop.record_epoch,
+                    "record_hint": (engine.record_hinweis
+                                    if engine is not None else None),
                 })
 
             accidental = keys.accidental
