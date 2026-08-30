@@ -101,6 +101,11 @@ class _Handler(BaseHTTPRequestHandler):
     # vorher (sie zeigt den QR-Code). Bis dahin: 503 statt Absturz.
     mute_toggle = None
     control_guitar_toggle = None
+    # Record-Modus: eine Funktion (befehl) -> Zustands-dict. EIN Einstiegspunkt
+    # fuer alle sechs Befehle, weil alle dasselbe zurueckgeben muessen - die
+    # Seite stellt daran ihre Uhr, und sechs Wege dorthin waeren sechs
+    # Gelegenheiten, das zu vergessen.
+    record_control = None
     # Session-Token: Die Seite ist bewusst im ganzen LAN erreichbar (Handy auf
     # dem Notenstaender), und ANZEIGEN ist harmlos. EINGREIFEN darf aber nur,
     # wer die URL wirklich hat - aus Terminal oder QR-Code, wo das Token schon
@@ -165,6 +170,17 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(json.dumps({"control_guitar": enabled}).encode(),
                        "application/json")
             return
+        if path == "/record":
+            if self.record_control is None:
+                self.send_error(503, "no audio stream")
+                return
+            befehl = parse_qs(urlparse(self.path).query).get("cmd", [""])[0]
+            if befehl not in ("toggle", "pause", "prev", "next", "start", "end"):
+                self.send_error(400, "cmd must be one of toggle|pause|prev|next|start|end")
+                return
+            self._send(json.dumps(self.record_control(befehl)).encode(),
+                       "application/json")
+            return
         if path != "/mute":
             self.send_error(404)
             return
@@ -215,6 +231,9 @@ class WebDisplay:
 
     def set_control_guitar_toggle(self, fn):
         self._handler.control_guitar_toggle = staticmethod(fn)
+
+    def set_record_control(self, fn):
+        self._handler.record_control = staticmethod(fn)
 
     def stop(self):
         self._server.shutdown()

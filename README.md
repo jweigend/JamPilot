@@ -118,7 +118,18 @@ glance, while both your hands are busy:
 - **The QR code** — scan it with a phone on the same Wi-Fi and you get the same
   display on your music stand. The computer does the listening; every other
   device is just a screen.
-- Click or tap for fullscreen, `Space` to mute. The **gear** switches the
+- **`R` starts record mode** — the one thing for practising a change you did
+  not catch. From that moment JamPilot keeps what you hear in a buffer inside
+  the app (30 minutes, RAM only, gone when you quit), and you get a player: `←`
+  and `→` jump to the **previous and next chord** — like a CD player, `←` first
+  restarts the chord you are in, and again takes you to the one before, which
+  is how you hear a change coming — `P` pauses, `Home`/`End` go to the start of
+  the recording and back to live. The same five buttons appear as a
+  half-transparent bar at the bottom — on a phone too, which has no `R` but can
+  tap the bar. A small red dot next to the JamPilot logo is the only other sign
+  of the mode. `R` again leaves it: back to live, buffer discarded.
+- Click or tap for fullscreen, `Space` (or `M`) to mute — sound off, everything
+  on screen keeps running. The **gear** switches the
   instrument mode (chords, bass, guitar or keyboard), the diagram on or off,
   spelling (♯/♭), scale degrees — and lets you pin the key. All of it is
   per-device, so your phone and your laptop may disagree.
@@ -140,8 +151,10 @@ and underneath you see the state, the delay, and the **lead actually being
 measured** — how far ahead of your ears the *analysis* is running (4.0 s in the
 shot: the 5 s buffer minus a one-second guard at the fresh edge). Half of that
 is the lead you see on the lane; the other half is where a chord settles before
-it is committed to the screen. Closing the window quits JamPilot, and that
-restores your audio.
+it is committed to the screen. The same keys work here as on the display page
+(`Space`, `R`, `P`, `←`, `→`, `Home`, `End`), and in record mode the line
+shows how far behind live you are instead of the lead. Closing the window quits
+JamPilot, and that restores your audio.
 
 ## Your instrument: chords, bass, guitar or keyboard
 
@@ -248,7 +261,9 @@ run.cmd --bundle             :: standalone folder + release ZIP -> dist\
 Use `run.cmd`, not `run.ps1` directly — it gets past the default PowerShell
 execution policy for that one call without changing your system.
 
-`run` options: `--delay` (seconds, default 5), `--output` (target sink/device),
+`run` options: `--delay` (seconds, default 5), `--record-buffer` (minutes the
+record mode can go back, default 30, `0` disables — about 22 MB of RAM per
+minute, reserved on the first `R`), `--output` (target sink/device),
 `--input` + `--no-route` (direct mode without automatic routing), `--route
 auto|mute|cable` (Windows: how the source is silenced), `--samplerate` (default
 48000), `--port` (web display, default 8765), `--no-web`, `--no-window`.

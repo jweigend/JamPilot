@@ -19,6 +19,8 @@ import wave
 
 import numpy as np
 
+from . import record_buffer
+
 # Die Uhr des Startprotokolls: so frueh, wie Python uns laesst. Was davor liegt
 # (das Entpacken der onefile-Binary, ~2,5 s), sieht kein Python-Code.
 _PROZESSSTART = time.monotonic()
@@ -111,6 +113,15 @@ _REFINED_LOOKBACK = 0.40
 # die sich gegenseitig anschneiden. Der EventLedger garantiert den Abstand
 # strukturell; Merge und Verfeinerung halten ihn zusaetzlich an der Quelle.
 MIN_EVENT_GAP = 0.25
+
+# Wieviel Vergangenheit und Zukunft die Anzeige je Takt mitgeschickt bekommt.
+# Gemessen um die HOERBARE Position, nicht um die der Analyse: Im Record-Modus
+# koennen zwischen beiden Minuten liegen, und den ganzen Mitschnitt viermal pro
+# Sekunde als JSON zu verschicken waere sinnlos - die Seite zeigt ohnehin nur
+# das Fenster um die JETZT-Linie. Ohne Record-Modus liegen alle Events von
+# selbst im Fenster; der Schnitt ist dann die Identitaet.
+PUBLISH_BACK_SECONDS = 8.0
+PUBLISH_AHEAD_MARGIN = 2.0
 
 # Wie lange der Ringpuffer stillstehen darf, bevor der Stream als tot gilt.
 # Ein Callback kommt alle ~43ms (2048 Frames bei 48kHz); selbst ein schwer
@@ -560,6 +571,7 @@ def cmd_run(args):
     if web_display:
         web_display.set_mute_toggle(engine.toggle_mute)
         web_display.set_control_guitar_toggle(engine.toggle_control_guitar)
+        web_display.set_record_control(_record_befehl(engine))
 
     url = web_display.url if web_display else None
 
@@ -679,6 +691,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     key_fed_until = 0.0
 
     print(f"Running: output delayed by {loop.delay_seconds:.1f}s. Ctrl+C quits.")
+    if float(getattr(args, "record_buffer", record_buffer.DEFAULT_MINUTES)) > 0:
+        print(f"Record mode: R in the display or the control window "
+              f"(buffer reserved on first use).")
     # Unter 3s Puffer bleibt nach dem Edge-Guard weder eine Sekunde Vorlauf
     # noch eine Sekunde Verstehzeit (haelftige Teilung, s. _commit_ahead).
     if args.delay < 3.0:
@@ -738,6 +753,23 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                                                  silence_rms=SILENCE_RMS)
 
             audible_pos = loop.audible_position()
+            # ZWEI Zeiten, und ihre Trennung ist der ganze Trick des
+            # Mitschnitts:
+            #
+            #   audible_pos - was die Verzoegerungsstufe ausgibt. Konstant
+            #                 `delay` hinter dem Eingang, immer, egal was der
+            #                 Record-Modus tut. Das ist die Zeitbasis der
+            #                 ANALYSE: Merge, Commit-Grenze, Verfeinerung und
+            #                 die Pflege der Zeitleiste haengen daran - und
+            #                 bleiben damit genauso begrenzt wie vorher.
+            #   heard_pos   - was der Lautsprecher spielt. Steht waehrend der
+            #                 Pause still und geht beim Zurueckspringen
+            #                 zurueck. Daran haengt alles ANZEIGENDE.
+            #
+            # Ohne Record-Modus ist `heard_position()` buchstaeblich
+            # `audible_position()`, und dann ist dieser ganze Abschnitt der
+            # Code von vorher - keine zweite Uhr, kein Fenster, kein Epoch.
+            heard_pos = loop.heard_position()
             frontier = audible_pos + commit_ahead
             horizon = window_end / sr - BTC_EDGE_GUARD
             _merge_model_segments(timeline, segments, audible_pos, horizon,
@@ -795,21 +827,11 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             loop.set_control_timeline([
                 (pos, name, None) for pos, name in timeline
             ])
-            audible = "-"
-            for pos, name in timeline:
-                if pos > audible_pos:
-                    break
-                audible = name
             current = timeline[-1][1] if timeline else "-"
 
             # Bassnote je Segment aus dem Tiefband - der Vorlauf gilt fuer den
             # Bass genauso wie fuer den Akkord (wie im Template-Pfad).
             basslinie = _bass_per_segment(timeline, bass_track, window_end / sr)
-            bass_jetzt = None
-            for (pos, _), gemessen in zip(timeline, basslinie):
-                if pos > audible_pos:
-                    break
-                bass_jetzt = gemessen
 
             if debug:
                 debug.write(f"{time.time():.3f}\t{window_end / sr:.3f}\t"
@@ -823,22 +845,63 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # mit eingefrorenen Attributen committen. Die Zeitleiste selbst
             # bleibt jenseits der Grenze weiter revidierbar.
             ledger.advance(timeline, basslinie, key_dict, frontier)
-            ledger.prune(audible_pos)
+            # Rueckhalt: Im Record-Modus muessen die Events so weit
+            # zurueckreichen wie der Mitschnitt, sonst springt man in Audio
+            # zurueck, zu dem es keine Akkorde mehr gibt. Ohne Record-Modus
+            # bleibt es bei den zwei Sekunden von vorher - was vor dem R lag,
+            # ist ohnehin nicht aufgezeichnet.
+            ledger.prune(heard_pos, rueckhalt=(loop.record_capacity_seconds
+                                               if loop.recording else 0.0))
+            if engine is not None:
+                # Die Sprungziele der Pfeiltasten. Ein Tupel aus floats, atomar
+                # ersetzt - die Engine liest es aus einem anderen Thread.
+                engine.onsets = tuple(e["at"] for e in ledger.events)
+
+            # Was JETZT zu hoeren ist, kommt aus dem Publish-once-Kanal und
+            # nicht mehr aus der Zeitleiste. Zwei Gruende: Der Kanal ist das,
+            # was die Webanzeige zeigt - Terminal, Kontrollfenster und Browser
+            # koennen so gar nicht mehr auseinanderlaufen. Und die Zeitleiste
+            # reicht nur zwei Sekunden zurueck, der Mitschnitt bis zu einer
+            # halben Stunde: Wer zurueckspringt, findet den Akkord nur hier.
+            gehoert = _event_bei(ledger.events, heard_pos)
+            audible = gehoert["c"] if gehoert else "-"
+            bass_jetzt = gehoert["b"] if gehoert else None
 
             if broadcaster:
                 # "frontier"/"committed" ist der Publish-once-Kanal, aus dem
                 # index.html liest. "chords" ist die interne, weiter
                 # revidierbare Hypothese - Debug-Kanal fuer /timeline-poc
                 # (Geister-Chips, Revisions-Zaehler).
+                #
+                # Beide Kanaele werden um die HOERBARE Zeit geschnitten, nicht
+                # um die der Analyse. Die Grenze wird mitgeschickt
+                # (`frontier`), damit die Seite ihren sichtbaren Vorlauf daraus
+                # rechnet; sie bleibt beim Zurueckspringen genauso breit wie
+                # live.
+                sicht_frontier = heard_pos + commit_ahead
                 broadcaster.publish({
-                    "t": round(audible_pos, 3),
-                    "frontier": round(frontier, 3),
-                    "committed": ledger.events,
+                    "t": round(heard_pos, 3),
+                    "frontier": round(sicht_frontier, 3),
+                    "committed": _im_fenster(ledger.events, heard_pos,
+                                             sicht_frontier),
                     "chords": [{"c": name, "at": round(pos, 3), "b": bassnote}
-                               for (pos, name), bassnote in zip(timeline, basslinie)],
+                               for (pos, name), bassnote in zip(timeline, basslinie)
+                               if heard_pos - PUBLISH_BACK_SECONDS <= pos
+                               <= sicht_frontier + PUBLISH_AHEAD_MARGIN],
                     "key": key_dict,
                     "muted": loop.muted,
                     "control_guitar": loop.control_guitar,
+                    # Record-Modus. `epoch` zaehlt die Zeitspruenge: Die Seite
+                    # stellt daran ihre Uhr NEU, statt sie sanft nachzuziehen
+                    # (index.html: syncClock). Keine Sekundenangabe - die
+                    # Anzeige zeigt den Modus, nicht den Rueckstand.
+                    "recording": loop.recording,
+                    "record_pending": (engine.record_pending
+                                       if engine is not None else False),
+                    "paused": loop.record_paused,
+                    "epoch": loop.record_epoch,
+                    "record_hint": (engine.record_hinweis
+                                    if engine is not None else None),
                 })
 
             accidental = keys.accidental
@@ -847,20 +910,24 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 # Der NAECHSTE Wechsel und wann er kommt - nicht `lead`: Das
                 # ist der Analysevorsprung (Delay minus Edge-Guard) und damit
                 # konstant, "in 4.0 s" stand da dauerhaft und stimmte nie.
-                naechster, in_s = None, 0.0
-                for pos, name in timeline:
-                    if pos > audible_pos:
-                        naechster, in_s = spell(name, accidental), pos - audible_pos
-                        break
+                # Gezaehlt wird ab der HOERBAREN Position und aus demselben
+                # Kanal, den die Webanzeige zeigt: Steht der Ton, steht auch
+                # der Countdown.
+                folge = _naechstes_event(ledger.events, heard_pos)
+                naechster = spell(folge["c"], accidental) if folge else None
+                in_s = folge["at"] - heard_pos if folge else 0.0
                 engine.jetzt = _live_zeile(
                     spell(jetzt, accidental), naechster, in_s,
-                    key.label_in(accidental) if key else None)
+                    key.label_in(accidental) if key else None,
+                    aufnahme=loop.recording, zurueck=loop.record_offset_seconds,
+                    pausiert=loop.record_paused)
             sys.stdout.write(
                 f"\r  In {max(lead, 0.0):3.1f}s: "
                 f"{spell(current, accidental):<6s} "
                 f"| Now playing: {spell(jetzt, accidental):<8s} "
                 f"| Bass: {spell(bass_jetzt or '-', accidental):<3s} "
                 f"| Key: {key.label_in(accidental) if key else '...':<9s}"
+                f"{_aufnahme_text(loop.recording, loop.record_offset_seconds, loop.record_paused):<20s}"
             )
             sys.stdout.flush()
     except KeyboardInterrupt:
@@ -876,8 +943,97 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
               f"(the two device clocks drifting apart)")
 
 
+def _record_befehl(engine):
+    """Die Befehle der Webseite fuer den Record-Modus auf die Engine legen.
+
+    R (an/aus) kommt nur von einer Tastatur - auf dem Handy gibt es sie nicht,
+    und dort wird der Modus nur ANGEZEIGT. Die Transportbefehle dagegen gehen
+    von ueberall: Die Leiste unten ist auf dem Handy genauso bedienbar wie am
+    Laptop. Antwort ist immer derselbe vollstaendige Zustand, egal welcher
+    Befehl kam - die Seite soll nie auf den naechsten Analysetakt warten
+    muessen, um zu wissen, was passiert ist.
+    """
+    def befehl(name: str) -> dict:
+        if name == "toggle":
+            engine.toggle_record()
+        elif name == "pause":
+            engine.toggle_record_pause()
+        elif name == "prev":
+            engine.seek_chord(-1)
+        elif name == "next":
+            engine.seek_chord(+1)
+        elif name == "start":
+            engine.record_to_start()
+        elif name == "end":
+            engine.record_to_now()
+        return {"recording": engine.recording,
+                "record_pending": engine.record_pending,
+                "paused": engine.record_paused,
+                "epoch": engine.record_epoch,
+                "hint": engine.record_hinweis}
+    return befehl
+
+
+def _event_bei(events, t: float):
+    """Das Event, das zum Zeitpunkt t gilt - None, solange keines gilt.
+
+    Lineare Suche: Die Liste ist nach `at` sortiert und selbst bei voller
+    halber Stunde Mitschnitt ein paar tausend Eintraege - viermal pro Sekunde
+    durchgezaehlt sind das Mikrosekunden.
+    """
+    treffer = None
+    for e in events:
+        if e["at"] > t:
+            break
+        treffer = e
+    return treffer
+
+
+def _naechstes_event(events, t: float):
+    """Das erste Event NACH t - fuer den Countdown der Live-Zeile."""
+    for e in events:
+        if e["at"] > t:
+            return e
+    return None
+
+
+def _im_fenster(events, heard_pos: float, frontier: float) -> list[dict]:
+    """Der Ausschnitt der Event-Liste, den die Anzeige gerade braucht.
+
+    Der GERADE KLINGENDE Akkord ist immer dabei, auch wenn sein Onset laengst
+    aus dem Fenster gelaufen ist. Ohne diese Ausnahme trifft der Schnitt genau
+    das Falsche: Ein Akkord, der laenger gehalten wird, als das Fenster
+    zurueckreicht, hat seinen Onset ausserhalb - und die Seite, die "jetzt
+    klingend" als den letzten Eintrag VOR der JETZT-Linie bestimmt
+    (index.html: setCurrent), findet dann gar keinen und zeigt "No music".
+    Betroffen waeren ausgerechnet gehaltene Klavier- und Flaechenakkorde: die,
+    bei denen man am laengsten hinsieht.
+
+    Es bleibt bei EINEM Eintrag mehr, nicht bei der ganzen Vergangenheit.
+    """
+    ab = heard_pos - PUBLISH_BACK_SECONDS
+    bis = frontier + PUBLISH_AHEAD_MARGIN
+    fenster = [e for e in events if ab <= e["at"] <= bis]
+    laufend = _event_bei(events, heard_pos)
+    if laufend is not None and (not fenster or fenster[0]["at"] > laufend["at"]):
+        fenster.insert(0, laufend)
+    return fenster
+
+
+def _aufnahme_text(aufnahme: bool, zurueck: float, pausiert: bool) -> str:
+    """Der Zusatz fuers Terminal im Record-Modus. ASCII - Codepage 850."""
+    if not aufnahme:
+        return ""
+    if pausiert:
+        return f" | REC paused {zurueck:.0f}s back"
+    if zurueck >= 0.5:
+        return f" | REC {zurueck:.0f}s back"
+    return " | REC"
+
+
 def _live_zeile(jetzt: str, naechster: str | None, in_s: float,
-                tonart: str | None) -> str:
+                tonart: str | None, aufnahme: bool = False,
+                zurueck: float = 0.0, pausiert: bool = False) -> str:
     """Die eine Zeile fuers Kontrollfenster, sobald die Analyse laeuft.
 
     Klein und in einem Satz - das Fenster ist die Notbremse, nicht die Buehne;
@@ -886,7 +1042,17 @@ def _live_zeile(jetzt: str, naechster: str | None, in_s: float,
     Endpunkt, Kabel, exklusiver WASAPI-Modus), ist der haeufigste stille
     Fehler - dann steht hier dauerhaft "-", und das sagt die Zeile auch.
     """
+    # Das Kontrollfenster ist Diagnoseflaeche, nicht Buehne: Hier darf der
+    # Rueckstand in Sekunden stehen, den die Webanzeige bewusst verschweigt.
+    # Pausiert wird NICHT "Now playing" gesagt - der Lautsprecher schweigt ja.
+    if pausiert:
+        return " \u00b7 ".join([f"Paused at {'\u2013' if jetzt == '-' else jetzt}",
+                               f"REC, {zurueck:.0f} s behind live",
+                               f"Key {tonart or '\u2026'}"])
+
     teile = [f"Now playing {'\u2013' if jetzt == '-' else jetzt}"]
+    if aufnahme:
+        teile.append(f"REC {zurueck:.0f} s behind live" if zurueck >= 0.5 else "REC")
     if jetzt == "-":
         teile.append("no sound arriving?")
     elif naechster is not None:
@@ -1112,10 +1278,17 @@ class EventLedger:
                     e["b"] = stable
                     e["b_up"] = True
 
-    def prune(self, audible_pos: float):
-        # Wie die Zeitleiste: Vergangenes kurz behalten - und das letzte
-        # Event vor der JETZT-Linie bleibt immer stehen (aktueller Akkord).
-        while len(self.events) > 1 and self.events[1]["at"] <= audible_pos - 2.0:
+    def prune(self, heard_pos: float, rueckhalt: float = 2.0):
+        """Vergangenes vergessen - aber nicht weiter zurueck als `rueckhalt`.
+
+        Gemessen an der HOERBAREN Position: Was noch nicht gehoert wurde, wird
+        nie vergessen. `rueckhalt` ist die Reichweite des Mitschnitts - wer
+        eine halbe Stunde zurueckspringen kann, muss dort auch noch Akkorde
+        vorfinden. Ohne Mitschnitt bleiben es zwei Sekunden, und das letzte
+        Event vor der JETZT-Linie bleibt immer stehen (aktueller Akkord).
+        """
+        grenze = heard_pos - max(rueckhalt, 2.0)
+        while len(self.events) > 1 and self.events[1]["at"] <= grenze:
             self._origin.pop(self.events.pop(0)["at"], None)
 
 
@@ -1188,6 +1361,12 @@ def main():
     # docs/exploration/zeitleiste-redesign.md, Abschnitt 3.
     p_run.add_argument("--delay", type=_bounded(float, 0.5, 30.0, "s"), default=5.0,
                        help="Delay in seconds (0.5..30, default 5)")
+    p_run.add_argument("--record-buffer", type=_bounded(float, 0.0, 120.0, "min"),
+                       default=record_buffer.DEFAULT_MINUTES, dest="record_buffer",
+                       help=f"Minutes of playback the record mode (R) can go "
+                            f"back (0 disables, default "
+                            f"{record_buffer.DEFAULT_MINUTES:.0f}). About 22 MB "
+                            f"of RAM per minute, reserved on first use.")
     p_run.add_argument("--input", default=None,
                        help="Input device (index/name); switches to direct mode")
     p_run.add_argument("--output", default=None,

@@ -137,6 +137,20 @@ class TestCallback:
                               np.arange(0, 524, dtype=np.float32))  # um 500 verzoegert
 
 
+class TestBlockgroesse:
+    def test_uebergrosser_callbackblock_beim_stummschalten_crasht_nicht(self, loop):
+        # Selbst wenn ein Treiber mehr Frames liefert als beim Streambau
+        # angekuendigt, darf der Fade nicht an den vorbereiteten Arbeitsarrays
+        # scheitern. Lieber ein sauber behandelter Block als ein Callback-Crash.
+        loop.toggle_mute()
+        frames = 96                          # groesser als das konfigurierte 64
+        indata = np.ones((frames, 2), dtype=np.float32)
+        outdata = np.ones((frames, 2), dtype=np.float32)
+        loop._callback(indata, outdata, frames, Zeit(0.0), None)
+        assert outdata.shape == (frames, 2)
+        assert np.all(np.isfinite(outdata))
+
+
 class TestKontrollgitarre:
     @staticmethod
     def _stille(loop, bloecke=16):
@@ -319,3 +333,124 @@ class TestCountdown:
         # Die Luecke erscheint am Ausgang bei [4000, 5000) - und bleibt leer
         # (ein falscher 1er-Ton laege genau dort, bei 4000).
         assert np.abs(ausgabe[4000:5000]).max() == 0.0
+
+
+class TestMitschnittAngehaengt:
+    """Die Naht zwischen Verzoegerungsstufe und Mitschnitt (Record-Modus).
+
+    Hier wird nur geprueft, WO der Mitschnitt sitzt und WAS er der Stufe
+    kostet - was er kann, steht in test_record_buffer.py. Die Lage ist die
+    eigentliche Entwurfsentscheidung: hinter allem, was dem Signal noch
+    beigemischt wird, und VOR der Stummschaltung.
+    """
+
+    def _mitschnitt(self, loop, minuten=0.05, an=True):
+        from jampilot.record_buffer import RecordBuffer
+
+        puffer = RecordBuffer(loop.samplerate, loop.channels, minuten,
+                              blocksize=64)
+        loop.attach_record(puffer)
+        if an:
+            puffer.start_record()
+        return puffer
+
+    def test_ohne_mitschnitt_bleibt_alles_wie_vorher(self, loop):
+        assert loop.record_offset_seconds == 0.0
+        assert loop.record_capacity_seconds == 0.0
+        assert loop.recording is False and loop.record_paused is False
+        _rampe_einspeisen(loop, 16)
+        assert loop.heard_position() == loop.audible_position()
+
+    def test_eingehaengt_aber_aus_ist_die_uhr_dieselbe(self, loop):
+        # Die Zusage des Modus: R nie gedrueckt (oder wieder aus) heisst
+        # buchstaeblich dieselbe Funktion, nicht nur dieselbe Zahl.
+        self._mitschnitt(loop, an=False)
+        _rampe_einspeisen(loop, 20)
+        assert loop.heard_position() == loop.audible_position()
+        assert loop.recording is False
+
+    def test_der_mitschnitt_aendert_die_verzoegerung_nicht(self, loop):
+        """Der Kern der Trennung: Die Zeitbasis der ANALYSE bleibt konstant."""
+        puffer = self._mitschnitt(loop)
+        _rampe_einspeisen(loop, 16)
+        vorher = loop.delay_seconds
+        puffer.toggle_pause()
+        for _ in range(20):
+            _rampe_einspeisen(loop, 1)
+        assert loop.delay_seconds == vorher
+        assert loop.delay_frames == len(loop._ring)
+        assert loop.record_offset_seconds > 0.0 and loop.record_paused
+
+    def test_stumm_geschaltetes_wird_nicht_als_stille_mitgeschnitten(self, loop):
+        """Wer stumm schaltet und spaeter zurueckspringt, will die Musik."""
+        puffer = self._mitschnitt(loop)
+        _rampe_einspeisen(loop, 16)
+        loop.toggle_mute()
+        for _ in range(12):
+            _rampe_einspeisen(loop, 1)
+        assert not np.any(_letzter_ausgang(loop))  # der Lautsprecher schweigt
+        loop.toggle_mute()
+        aufgezeichnet = np.zeros((64, 2), dtype=np.float32)
+        puffer._lies(aufgezeichnet, 0, 64)
+        assert np.any(aufgezeichnet)
+
+    def test_die_hoerbare_stelle_steht_waehrend_der_pause(self, loop):
+        """`heard_position()` friert ein, ohne dass eine zweite Uhr angehalten wird."""
+        puffer = self._mitschnitt(loop, minuten=0.5)
+        _rampe_einspeisen(loop, 40)
+        puffer.toggle_pause()
+        _rampe_einspeisen(loop, 1)
+        stand = loop.heard_position()
+        for _ in range(30):
+            _rampe_einspeisen(loop, 1)
+            assert loop.heard_position() == pytest.approx(stand, abs=1e-6)
+        puffer.toggle_pause()
+        for _ in range(5):
+            _rampe_einspeisen(loop, 1)
+        assert loop.heard_position() > stand
+
+    def test_pausiert_steht_die_hoerbare_stelle_EXAKT(self, loop):
+        """Kein Saegezahn im Stillstand - mitten im Block abgetastet.
+
+        `audible_position()` laeuft zwischen zwei Callbacks kontinuierlich
+        weiter, der Versatz waechst ruckweise. Ihre Differenz saegt mit einer
+        Blockdauer Amplitude; das Laufband zittert. `heard_position()` rechnet
+        pausiert darum aus den Frame-Zaehlern. Ohne das Abtasten ZWISCHEN den
+        Callbacks saehe der Test nichts - er traefe immer dieselbe Phase.
+        """
+        puffer = self._mitschnitt(loop, minuten=0.5)
+        _rampe_einspeisen(loop, 30)
+        puffer.toggle_pause()
+        werte = []
+        for _ in range(10):
+            _rampe_einspeisen(loop, 1)
+            for teilschritt in (0.2, 0.5, 0.9):
+                loop._stream.time = (loop.captured_frames
+                                     + teilschritt * 64) / loop.samplerate
+                werte.append(loop.heard_position())
+        assert max(werte) - min(werte) == pytest.approx(0.0, abs=1e-9)
+
+    def test_zurueckspringen_zieht_die_hoerbare_stelle_zurueck(self, loop):
+        puffer = self._mitschnitt(loop, minuten=0.5)
+        _rampe_einspeisen(loop, 40)
+        vorher = loop.heard_position()
+        puffer.seek(-0.5)
+        assert loop.heard_position() == pytest.approx(vorher - 0.5, abs=1e-6)
+        puffer.to_now()
+        assert loop.heard_position() == pytest.approx(vorher, abs=1e-6)
+
+    def test_die_uhr_des_mitschnitts_ist_die_der_stufe(self, loop):
+        # Kein Angleichen, kein Versatz: `process` bekommt `_frames_seen` mit.
+        puffer = self._mitschnitt(loop, an=False)
+        _rampe_einspeisen(loop, 25)
+        puffer.start_record()
+        _rampe_einspeisen(loop, 3)
+        assert puffer.play_position_frames == loop.captured_frames
+
+
+def _letzter_ausgang(loop):
+    """Einen einzelnen Block durchschicken und zurueckgeben."""
+    indata = np.ones((64, 2), dtype=np.float32)
+    outdata = np.zeros((64, 2), dtype=np.float32)
+    loop._callback(indata, outdata, 64, Zeit(0.0), None)
+    return outdata

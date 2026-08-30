@@ -354,7 +354,7 @@ class TestToken:
 
     def test_post_ohne_token_wird_abgelehnt(self, server):
         base, _ = server
-        for pfad in ("/mute", "/control-guitar"):
+        for pfad in ("/mute", "/control-guitar", "/record"):
             with pytest.raises(urllib.error.HTTPError) as fehler:
                 self._post(base + pfad)
             assert fehler.value.code == 403, pfad
@@ -453,8 +453,97 @@ class TestStummAufDerSeite:
         assert 'id="mutebadge"' in PAGE
         assert "body.muted" in PAGE
 
+    def test_stumm_friert_nichts_mehr_ein(self):
+        """Stumm ist stumm - alle Ansichten laufen weiter.
+
+        Frueher fror der grosse Akkord beim Stummschalten ein und das Laufband
+        wurde gedimmt: der Versuch, aus dem Stummschalter ein "jetzt in Ruhe
+        ansehen" zu machen, solange es keinen Transport gab. Den gibt es jetzt
+        hinter R - und er haelt den TON an, nicht nur das Bild.
+        """
+        assert "frozenSeg" not in PAGE
+        assert "currentAudible" not in PAGE
+        assert "body.muted #lane" not in PAGE
+
+    def test_der_stummknopf_ist_ein_lautsprecher(self):
+        # Pause/Play auf dem Stummknopf war eine Notluege; neben einem echten
+        # Transport waere sie eine verwirrende. Und der tote Selektor auf ein
+        # #pause, das es nie gab, darf nicht zurueckkommen.
+        assert "#mute .ic-play" not in PAGE and 'id="pause"' not in PAGE
+        assert "body.muted #mute .ic-off" in PAGE
+
     def test_die_wahrheit_kommt_vom_server(self):
         # Nicht optimistisch umschalten: Sonst laufen zwei Geraete auseinander,
         # wenn beide gleichzeitig druecken.
         assert 'fetch("/mute" + location.search, { method: "POST" })' in PAGE
         assert "(await antwort.json()).muted" in PAGE
+
+
+class TestRecordSteuerung:
+    """Der eine POST, mit dem Browser und Handy den Record-Modus bedienen."""
+
+    def _post(self, url):
+        req = urllib.request.Request(url, method="POST")
+        return urllib.request.urlopen(req, timeout=5)
+
+    @pytest.fixture
+    def server_mit_record(self):
+        display = web.start(0)
+        aufrufe = []
+
+        def steuerung(befehl):
+            aufrufe.append(befehl)
+            return {"recording": befehl != "toggle", "record_pending": False,
+                    "paused": befehl == "pause", "epoch": len(aufrufe), "hint": None}
+
+        display.set_record_control(steuerung)
+        port = display._server.server_address[1]
+        token = display.url.split("k=")[1]
+        yield f"http://127.0.0.1:{port}", token, aufrufe
+        display.stop()
+
+    def test_ohne_stream_kommt_503_statt_absturz(self, server):
+        base, token = server
+        with pytest.raises(urllib.error.HTTPError) as fehler:
+            self._post(f"{base}/record?k={token}&cmd=toggle")
+        assert fehler.value.code == 503
+
+    def test_alle_befehle_gehen_durch(self, server_mit_record):
+        base, token, aufrufe = server_mit_record
+        for cmd in ("toggle", "pause", "prev", "next", "start", "end"):
+            with self._post(f"{base}/record?k={token}&cmd={cmd}") as antwort:
+                json.loads(antwort.read())
+        assert aufrufe == ["toggle", "pause", "prev", "next", "start", "end"]
+
+    def test_unbekannter_befehl_wird_abgewiesen(self, server_mit_record):
+        base, token, aufrufe = server_mit_record
+        with pytest.raises(urllib.error.HTTPError) as fehler:
+            self._post(f"{base}/record?k={token}&cmd=rewind")
+        assert fehler.value.code == 400 and aufrufe == []
+
+
+class TestSeiteKenntDenRecordModus:
+    def test_leertaste_bleibt_stumm_r_nimmt_auf(self):
+        assert "Space = mute" in PAGE and "R = record" in PAGE
+        assert 'recordBefehl("toggle")' in PAGE
+
+    def test_pfeile_home_end_und_p_sind_transport(self):
+        for cmd in ("prev", "next", "start", "end", "pause"):
+            assert f'recordBefehl("{cmd}")' in PAGE, cmd
+
+    def test_die_leiste_hat_fuenf_knoepfe_und_einen_roten_punkt(self):
+        assert 'id="transport" hidden' in PAGE and 'id="rec" hidden' in PAGE
+        for cmd in ("start", "prev", "pause", "next", "end"):
+            assert f'data-cmd="{cmd}"' in PAGE, cmd
+        # Keine Sekundenangabe in der Buehnenanzeige - der Modus, nicht der
+        # Rueckstand.
+        assert "behind live" not in PAGE
+
+    def test_die_uhr_wird_bei_spruengen_neu_gestellt(self):
+        assert "state.epoch !== epoch" in PAGE and "offsetSamples = []" in PAGE
+        assert "if (frozenAt !== null) return frozenAt;" in PAGE
+
+    def test_ein_gescheitertes_r_erklaert_sich(self):
+        # Die einzige Schrift des Record-Modus - nur im Fehlerfall, kurz.
+        assert 'id="recbadge" hidden' in PAGE
+        assert "if (state.record_hint) zeigeRecordHinweis(state.record_hint)" in PAGE

@@ -58,21 +58,63 @@
   #mute:hover { color: #6ea8ff; }
   #mute svg { width: 3.4vmin; height: 3.4vmin; display: block;
                min-width: 22px; min-height: 22px; }
-  /* Der Knopf zeigt, was ein Druck TUT, nicht was gerade ist: laeuft der Ton,
-     steht da das Pausenzeichen; ist er stumm, das Play-Dreieck. */
-  #mute .ic-play { display: none; }
+  /* Lautsprecher, kein Pausenzeichen. Der Knopf trug frueher Pause/Play - eine
+     Notluege (er hielt ja nichts an), und seit es mit R einen echten Transport
+     gibt, waere sie eine verwirrende: Zwei Symbole gleicher Form mit
+     verschiedener Wirkung sind schlimmer als gar kein Symbol. Gezeigt wird der
+     ZUSTAND (Ton laeuft / Ton ist aus) - beim Lautsprecher die gewohnte
+     Konvention. */
+  #mute .ic-off { display: none; }
   body.muted #mute { color: #f5a524; }
-  body.muted #pause .ic-pause { display: none; }
-  body.muted #mute .ic-play  { display: inline; }
+  body.muted #mute .ic-on  { display: none; }
+  body.muted #mute .ic-off { display: inline; }
 
-  /* Stumm heisst FREEZE fuer den Kopf: der grosse Akkord und - im Gitarrenmodus -
-     das Griffbild frieren im Moment des Stummschaltens ein (der Freeze selbst
-     passiert in animate()). Genau dafuer ist die Pause da: den gegriffenen Akkord
-     in Ruhe ansehen. Darum bleibt der Kopf hier VOLL sichtbar; nur das Laufband
-     unten laeuft weiter und wird gedimmt - es zeigt bloss noch, wo die Quelle
-     inzwischen steht, waehrend der Akkord oben stehenbleibt. */
-  #lane { transition: opacity .3s, filter .3s; }
-  body.muted #lane { opacity: .3; filter: saturate(.15); }
+  /* RECORD-MODUS (Taste R). Sichtbar durch genau ein Zeichen: einen kleinen
+     roten Punkt neben dem Verbindungspunkt - dort sitzt der Status, dort sucht
+     das Auge ihn. Keine Schrift, keine Sekundenangabe, kein Balken: Wo im
+     Mitschnitt man steht, sagt die Musik. Ruhig, nicht blinkend - ein
+     pulsierender Punkt auf einem Notenstaender ist eine Ablenkung, und den
+     Modus verlaesst man mit derselben Taste, mit der man ihn betreten hat.
+     Waehrend der Speicher reserviert wird (ca. 0,2 s), ist er hohl. */
+  #rec { width: 1.1vmin; height: 1.1vmin; border-radius: 50%;
+         background: #e2483d; box-sizing: border-box; }
+  #rec.pending { background: transparent; border: 1px solid #e2483d; }
+  #rec[hidden] { display: none; }
+  /* Wenn R NICHT greift (kein Speicher), sagt der Server einmal warum. Das
+     ist die einzige Schrift, die der Record-Modus je zeigt - und nur im
+     Fehlerfall, fuer ein paar Sekunden. Dieselbe Form wie das Stumm-Schild. */
+  #recbadge {
+    position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+    z-index: 15; padding: 1.3vmin 2.8vmin; border-radius: 0 0 1.4vmin 1.4vmin;
+    background: #e2483d18; border: 1px solid #e2483d55; border-top: 0;
+    color: #e2483d; font-size: max(1.8vmin, 12px); letter-spacing: .06em;
+  }
+  #recbadge[hidden] { display: none; }
+
+  /* Die Transportleiste - nur im Record-Modus, unten, halbtransparent. Sie ist
+     Werkzeug, nicht Buehne: Sie darf den grossen Akkord nicht bedraengen. Voll
+     deckend erst unter der Hand. Fuenf Knoepfe wie an jedem Player: Anfang,
+     voriger Akkord, play/pause, naechster Akkord, NOW. Sie ist auch der Weg,
+     den ein Handy hat - R selbst ist eine Taste, aber die Leiste tippt man. */
+  #transport {
+    position: fixed; bottom: 2.4vmin; left: 50%; transform: translateX(-50%);
+    z-index: 16; display: flex; gap: 1.2vmin; opacity: .42;
+    transition: opacity .25s;
+  }
+  #transport:hover, #transport:focus-within { opacity: 1; }
+  #transport[hidden] { display: none; }
+  #transport button {
+    background: #14161ad0; border: 1px solid #2a2f36; border-radius: 1vmin;
+    color: #e8eaed; width: 6.4vmin; height: 5vmin; min-width: 40px;
+    min-height: 32px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; padding: 0;
+  }
+  #transport button:hover { border-color: #6ea8ff; color: #6ea8ff; }
+  #transport button svg { width: 2.6vmin; height: 2.6vmin; min-width: 16px;
+                          min-height: 16px; }
+  #transport .ic-play  { display: none; }
+  body.rec-paused #transport .ic-pause { display: none; }
+  body.rec-paused #transport .ic-play  { display: inline; }
 
   #mutebadge {
     position: fixed; top: 0; left: 50%; transform: translateX(-50%);
@@ -363,7 +405,8 @@
 <body>
   <div id="topbar">
     <div id="brandbox">
-      <div id="brand"><div id="dot"></div>JamPilot</div>
+      <div id="brand"><div id="dot"></div>JamPilot<div id="rec" hidden
+           title="Record mode (R)"></div></div>
       <div id="keybadge"></div>
     </div>
     <div id="right">
@@ -373,12 +416,15 @@
       <button id="mute" aria-label="Mute" aria-pressed="false">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <g class="ic-pause">
-            <line x1="9" y1="5" x2="9" y2="19"></line>
-            <line x1="15" y1="5" x2="15" y2="19"></line>
+          <g class="ic-on">
+            <path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4Z" fill="currentColor"></path>
+            <path d="M16 9a4 4 0 0 1 0 6"></path>
+            <path d="M18.5 6.5a7.5 7.5 0 0 1 0 11"></path>
           </g>
-          <g class="ic-play">
-            <path d="M7 4.5 19 12 7 19.5 Z" fill="currentColor"></path>
+          <g class="ic-off">
+            <path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4Z" fill="currentColor"></path>
+            <line x1="16" y1="9.5" x2="21" y2="14.5"></line>
+            <line x1="21" y1="9.5" x2="16" y2="14.5"></line>
           </g>
         </svg>
       </button>
@@ -584,9 +630,30 @@
 
   <div id="lane"><div id="nowline"></div><div id="nowlabel">NOW</div></div>
   <div id="mutebadge">
-    Muted <small>&mdash; chord frozen; the source keeps playing below</small>
+    Muted <small>&mdash; sound off only; the display keeps running</small>
   </div>
-  <div id="hint">Click = fullscreen &middot; Space = mute</div>
+  <div id="recbadge" hidden></div>
+  <div id="transport" hidden>
+    <button data-cmd="start" aria-label="Start of recording" title="Start (Home)">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5h2v14H5zM19 5 9 12l10 7z"/></svg>
+    </button>
+    <button data-cmd="prev" aria-label="Previous chord" title="Previous chord (&larr;)">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5 3 12l9 7zM21 5l-9 7 9 7z"/></svg>
+    </button>
+    <button data-cmd="pause" aria-label="Play or pause" title="Play/pause (P)">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <g class="ic-pause"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></g>
+        <g class="ic-play"><path d="M7 4.5 19 12 7 19.5z"/></g>
+      </svg>
+    </button>
+    <button data-cmd="next" aria-label="Next chord" title="Next chord (&rarr;)">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5l9 7-9 7zM3 5l9 7-9 7z"/></svg>
+    </button>
+    <button data-cmd="end" aria-label="Back to live" title="Live (End)">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 5h2v14h-2zM5 5l10 7-10 7z"/></svg>
+    </button>
+  </div>
+  <div id="hint">Click = fullscreen &middot; Space = mute &middot; R = record</div>
   <div id="credits">
     <span>Johannes Weigend</span>
     <span class="sep">&middot;</span>
@@ -619,6 +686,19 @@ const RIGHT_PCT = 97;        // Einstiegsposition rechts
 // der Server als `chords` nur noch fuer die Debug-Seite /timeline-poc.)
 let events = [];             // committete Events [{at, c, b}]
 let horizon = 2.8;           // Sekunden von rechts bis JETZT-Linie
+// RECORD-MODUS (Taste R). `t` ist dann nicht mehr die Live-Kante, sondern die
+// Stelle im Mitschnitt, die gerade gespielt wird - sie kann stehenbleiben (P)
+// und zurueckspringen (Pfeil links). Die Uhr unten ist fuer DRIFT gebaut,
+// nicht fuer Spruenge: `epoch` zaehlt jeden Sprung, und bei jedem Wechsel wird
+// sie NEU gestellt statt sanft nachgezogen. Ohne Record-Modus ist `t` die
+// Live-Kante wie immer, und keine dieser Variablen tut etwas.
+let recording = false;
+let recPending = false;      // R gedrueckt, Speicher wird gerade reserviert
+let paused = false;
+let epoch = 0;               // Zaehler der Zeitspruenge vom Server
+let frozenAt = null;         // steht die Uhr? (Pause) - dann hier die Position
+let lastT = 0;               // zuletzt gemeldete Position, waehrend die Uhr neu
+                             // gestellt wird die einzige Wahrheit
 let offset = null;           // browserZeit(s) - streamPosition(s), Schaetzung
 let shownOffset = null;      // was die ANZEIGE benutzt - laeuft dem Schaetzer
                              // nur mit ~2% Zeitraffung nach, damit Korrekturen
@@ -721,7 +801,16 @@ function syncClock(t) {
   else offset += (target - offset) * 0.2;   // sanft nachziehen, keine Spruenge
 }
 
-function streamNow() { return performance.now() / 1000 - shownOffset; }
+function streamNow() {
+  // Pausiert steht die Zeit. Ohne diesen Zweig liefe das Laufband weiter,
+  // waehrend der Lautsprecher schweigt - der Schaetzer unten misst ja brav
+  // weiter, dass die Browserzeit vergeht.
+  if (frozenAt !== null) return frozenAt;
+  // Zwischen einem Sprung und dem ersten Zustand danach ist die Uhr noch nicht
+  // gestellt. Dann gilt schlicht die zuletzt gemeldete Position.
+  if (shownOffset === null) return lastT;
+  return performance.now() / 1000 - shownOffset;
+}
 
 function fmtChord(name) {
   if (!name || name === "-" || name === " ") return null;
@@ -1467,19 +1556,15 @@ function animate() {
   const now = streamNow();
 
   // Hoerbar ist das letzte Segment, dessen Onset erreicht ist. Es traegt den
-  // Akkord UND die dort gemessene Bassnote. IM STUMM-MODUS ist der Kopf jedoch
-  // eingefroren: dann steht statt des laufenden Akkords das im Moment des
-  // Stummschaltens festgehaltene Segment (`frozenSeg`) - damit man den Akkord
-  // (und das Griffbild) in Ruhe ansehen kann, waehrend das Laufband weiterlaeuft.
-  let audible;
-  if (stumm && frozenSeg) {
-    audible = frozenSeg;
-  } else {
-    audible = null;
-    for (const c of events) {
-      if (c.at > now) break;
-      audible = c;
-    }
+  // Akkord UND die dort gemessene Bassnote. Das gilt STUMM GENAUSO: Stumm ist
+  // stumm und sonst nichts, alle Ansichten laufen weiter. (Frueher fror der
+  // Kopf beim Stummschalten ein - die Notloesung fuer "ich will den Akkord in
+  // Ruhe ansehen", solange es keinen Transport gab. Den gibt es jetzt hinter
+  // R, und er haelt den TON an, nicht nur das Bild.)
+  let audible = null;
+  for (const c of events) {
+    if (c.at > now) break;
+    audible = c;
   }
   setCurrent(audible);
   // Im Gitarrenmodus das Griffbild zum Akkord, im Bass-Modus das Griffbrett mit
@@ -1683,8 +1768,55 @@ function apply(state) {
   tonart = keyPin ? pinAlsTonart(keyPin) : serverTonart;
   if ("muted" in state) zeigeStumm(state.muted);
   if ("control_guitar" in state) zeigeKontrollgitarre(state.control_guitar);
+
+  // Ein Sprung im Mitschnitt ist KEINE Drift. Die Schaetzung unten mittelt
+  // ueber 40 Messwerte und nimmt das Minimum - nach einem Rueckwaertssprung
+  // waeren das 40 Messwerte lang Werte aus einer anderen Zeitrechnung, also
+  // rund zehn Sekunden falsche Anzeige. Bei jedem Sprung wird darum verworfen
+  // und neu gestellt. (syncClock unten setzt `offset` sofort wieder - animate
+  // sieht nie ein null.)
+  if ("epoch" in state && state.epoch !== epoch) {
+    epoch = state.epoch;
+    offsetSamples = [];
+    offset = null;
+    shownOffset = null;
+  }
+  recording = !!state.recording;
+  recPending = !!state.record_pending;
+  paused = recording && !!state.paused;
+  lastT = state.t;
+  frozenAt = paused ? state.t : null;
+  zeigeAufnahme();
+  if (state.record_hint) zeigeRecordHinweis(state.record_hint);
+
   neuSchreibenFallsNoetig();
   syncClock(state.t);
+}
+
+// R hat nicht gegriffen - der Server sagt einmal warum (kein Speicher). Ein
+// paar Sekunden sichtbar, dann weg: Es ist eine Antwort auf einen Tastendruck,
+// kein Dauerzustand.
+let recHinweisTimer = null;
+function zeigeRecordHinweis(text) {
+  const el = $("recbadge");
+  el.textContent = text;
+  el.hidden = false;
+  if (recHinweisTimer) clearTimeout(recHinweisTimer);
+  recHinweisTimer = setTimeout(() => { el.hidden = true; }, 6000);
+}
+
+// Der rote Punkt und die Transportleiste - beides nur im Record-Modus. Der
+// Punkt ist hohl, solange der Speicher noch reserviert wird: R hat gegriffen,
+// die Aufnahme beginnt gleich.
+function zeigeAufnahme() {
+  const rec = $("rec");
+  rec.hidden = !(recording || recPending);
+  rec.classList.toggle("pending", recPending && !recording);
+  $("transport").hidden = !recording;
+  document.body.classList.toggle("recording", recording);
+  document.body.classList.toggle("rec-paused", paused);
+  const pp = $("transport").querySelector('[data-cmd="pause"]');
+  pp.setAttribute("aria-label", paused ? "Play" : "Pause");
 }
 
 let kontrollgitarre = false;
@@ -1706,33 +1838,20 @@ async function kontrollgitarreSetzen(enabled) {
   } catch (e) {}
 }
 
-// STUMM. Nicht angehalten: Die Quelle laeuft weiter, der Ringpuffer laeuft
-// weiter, die Analyse laeuft weiter - nur der Lautsprecher schweigt. Damit man
-// aber in dieser Pause den Akkord (und im Gitarrenmodus das Griffbild) in Ruhe
-// ansehen kann, FRIERT DER KOPF EIN: das im Moment des Stummschaltens hoerbare
-// Segment wird festgehalten und bleibt oben stehen, waehrend das Laufband unten
-// mit der echten Uhr weiterlaeuft (so ist man beim Fortsetzen sofort wieder
-// synchron zur Quelle, statt hinter sie zu rutschen).
+// STUMM - und weiter nichts. Die Quelle laeuft weiter, der Ringpuffer laeuft
+// weiter, die Analyse laeuft weiter, und ALLE ANSICHTEN laufen weiter: grosser
+// Akkord, Griffbild, Laufband. Nur der Lautsprecher schweigt. Beim Aufheben ist
+// man deshalb sofort wieder synchron zur Quelle.
+//
+// Frueher fror der Kopf hier ein und das Laufband wurde gedimmt - der Versuch,
+// aus dem Stummschalter nebenbei ein "jetzt in Ruhe ansehen" zu machen, solange
+// es keinen Transport gab. Den gibt es jetzt hinter R, und er ist ehrlich: Er
+// haelt den TON an, nicht nur das Bild, und man kann zurueckspringen. Zwei
+// halbe Wege zum selben Ziel sind schlechter als einer, der ganz hinfuehrt.
 let stumm = false;
-let frozenSeg = null;      // eingefrorenes Segment fuer den Kopf, solange stumm
-
-// Das gerade hoerbare Segment - genau das, was der Kopf zeigt. Zum Einfrieren im
-// Moment des Stummschaltens.
-function currentAudible() {
-  if (shownOffset === null) return null;
-  const now = streamNow();
-  let a = null;
-  for (const c of events) { if (c.at > now) break; a = c; }
-  return a;
-}
 
 function zeigeStumm(m) {
-  const war = stumm;
   stumm = !!m;
-  // Beim Uebergang in die Stille den Kopf einfrieren; beim Fortsetzen wieder
-  // freigeben, damit er der Quelle folgt.
-  if (stumm && !war) frozenSeg = currentAudible();
-  if (!stumm) frozenSeg = null;
   document.body.classList.toggle("muted", stumm);
   const btn = $("mute");
   btn.setAttribute("aria-pressed", stumm ? "true" : "false");
@@ -1796,14 +1915,56 @@ for (const opt of document.querySelectorAll(".opt"))
       kontrollgitarreSetzen(opt.dataset.control === "on");
   });
 
+// Record-Modus steuern. Die Seite schickt nur den BEFEHL; was er bedeutet
+// (welcher Akkord "der naechste" ist, wieviel Vorlauf), entscheidet der Server -
+// sonst haette jedes Geraet seine eigene Meinung. Die Antwort werten wir nicht
+// aus: Die Engine schickt den neuen Zustand sofort ueber SSE an ALLE Anzeigen,
+// und der eine Weg dorthin ist besser als zwei, die auseinanderlaufen koennen.
+async function recordBefehl(cmd) {
+  const q = location.search || "";
+  try {
+    await fetch("/record" + q + (q ? "&" : "?") + "cmd=" + cmd, { method: "POST" });
+  } catch (e) {
+    /* Verbindung weg - der naechste SSE-Zustand richtet die Anzeige wieder */
+  }
+}
+
+for (const b of document.querySelectorAll("#transport button"))
+  b.addEventListener("click", ev => {
+    ev.stopPropagation();     // sonst schaltet der Body-Klick auch noch Vollbild
+    recordBefehl(b.dataset.cmd);
+    b.blur();                 // sonst traefe die Leertaste danach den Knopf
+  });
+
 document.addEventListener("keydown", ev => {
   if (ev.key === "Escape") { dialog(false); return; }
-  if (ev.code === "Space" || ev.key === " ") {
-    // Nicht im Einstellungsdialog: Dort waehlt die Leertaste eine Option aus,
-    // und beides gleichzeitig zu tun waere eine Ueberraschung.
-    if (!$("backdrop").hidden) return;
+  // Im Einstellungsdialog gehoeren die Tasten dem Dialog: Dort waehlt die
+  // Leertaste eine Option aus, und die Pfeile wandern zwischen ihnen.
+  if (!$("backdrop").hidden) return;
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;   // Browser-Kuerzel in Ruhe
+
+  if (ev.code === "Space" || ev.key === " " || ev.key === "m" || ev.key === "M") {
     ev.preventDefault();          // sonst scrollt die Seite
     umschalten();
+  } else if (ev.key === "r" || ev.key === "R") {
+    // R ist die einzige Taste, die den Modus BETRITT - und deshalb eine, die
+    // ein Handy nicht hat. Das ist Absicht: Aufnehmen ist Laptop-Geste; das
+    // Handy am Notenstaender zeigt den Modus an und bedient die Leiste.
+    recordBefehl("toggle");
+  } else if (ev.key === "p" || ev.key === "P") {
+    recordBefehl("pause");
+  } else if (ev.key === "ArrowLeft") {
+    ev.preventDefault();
+    recordBefehl("prev");
+  } else if (ev.key === "ArrowRight") {
+    ev.preventDefault();
+    recordBefehl("next");
+  } else if (ev.key === "Home") {
+    ev.preventDefault();
+    recordBefehl("start");
+  } else if (ev.key === "End") {
+    ev.preventDefault();
+    recordBefehl("end");
   }
 });
 

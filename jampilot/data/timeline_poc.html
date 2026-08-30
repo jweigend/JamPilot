@@ -239,6 +239,13 @@ const FLAT_OF = { "C#":"Db", "D#":"Eb", "F#":"Gb", "G#":"Ab", "A#":"Bb" };
 let offset = null;
 let offsetSamples = [];
 let latestState = null;
+// Record-Modus (R in der Hauptanzeige): `t` kann stehenbleiben und
+// zurueckspringen. Dieselbe Behandlung wie in index.html - die Uhr unten ist
+// fuer Drift gebaut, nicht fuer Spruenge.
+let paused = false;
+let epoch = 0;
+let frozenAt = null;
+let lastT = 0;
 let link = "connecting";
 // Publish-once-Buchhaltung: was wir schon gesehen haben (Vertragspruefung),
 // welche Events geflaggt wurden (Revisionszaehler) und das Anzeige-Log.
@@ -259,7 +266,11 @@ function syncClock(t) {
   if (offset === null) offset = target;
   else offset += (target - offset) * 0.2;
 }
-function streamNow() { return performance.now() / 1000 - offset; }
+function streamNow() {
+  if (frozenAt !== null) return frozenAt;      // pausiert steht die Zeit
+  if (offset === null) return lastT;           // Uhr wird gerade neu gestellt
+  return performance.now() / 1000 - offset;
+}
 function writeRoot(root, acc) {
   if (!root || !root.includes("#")) return root || "";
   return acc === "flat" ? (FLAT_OF[root] || root) : root;
@@ -476,6 +487,15 @@ function animate() {
 }
 function apply(state) {
   latestState = state;
+  // Sprung im Mitschnitt: verwerfen und neu stellen, nicht sanft nachziehen.
+  if ("epoch" in state && state.epoch !== epoch) {
+    epoch = state.epoch;
+    offsetSamples = [];
+    offset = null;
+  }
+  paused = !!state.paused;
+  lastT = state.t;
+  frozenAt = paused ? state.t : null;
   syncClock(state.t);
   checkContract(state.committed || []);
   countRevisions(state);

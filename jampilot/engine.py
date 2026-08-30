@@ -141,6 +141,24 @@ class Startprotokoll:
         return f"{kopf} ({e['dauer']:.1f} s)"
 
 
+# Akkordspruenge im Record-Modus (Engine.seek_chord).
+#
+# LANDUNG: Der Sprung landet so viele Sekunden NACH dem Onset - ein
+# Wimpernschlag, damit der Zielakkord sicher als klingend gilt (die Anzeige
+# nimmt "at <= now"; landete man durch Blockrundung ein paar Millisekunden
+# davor, stuende gross noch der Akkord davor und der Chip einen Hauch rechts
+# von NOW). Der urspruengliche Entwurf landete 0,7 s VOR dem Onset, um den
+# Anlauf zu hoeren - im Proberaum verworfen: Der Zielakkord sass dann sichtbar
+# neben NOW statt darauf, und "ich bin zu Akkord X gesprungen" stimmte fuer
+# die Anzeige nicht. Den Anlauf bekommt man wie an jedem Player: zweimal
+# Zurueck.
+LANDUNG = 0.05
+# NEUSTART_SCHWELLE: Steht man weniger als so lange im laufenden Akkord, geht
+# "zurueck" an den vorigen; sonst an den Anfang des laufenden (CD-Player).
+# Playtest-Kandidat, kein Messwert.
+NEUSTART_SCHWELLE = 1.0
+
+
 class Engine:
     """Umleitung, Audiostream und Analyse - startbar und stoppbar zur Laufzeit.
 
@@ -164,6 +182,15 @@ class Engine:
 
         self._loop = None
         self._route = None
+        # Der Mitschnitt (record_buffer). None, bis zum ersten R - der Speicher
+        # (eine halbe Stunde Stereo sind 659 MiB) wird erst dann reserviert,
+        # und zwar in einem Hintergrundthread, nicht im Audio-Callback.
+        self._record = None
+        self._record_lade: threading.Thread | None = None
+        self.record_hinweis: str | None = None   # warum R nichts tut
+        # Onsets der committeten Events in Stream-Sekunden, vom Anzeigepfad je
+        # Hop abgelegt - die Sprungziele der Pfeiltasten im Record-Modus.
+        self.onsets: tuple[float, ...] = ()
         self._thread = None
         self._stop = threading.Event()
         self._lock = threading.Lock()
@@ -196,6 +223,213 @@ class Engine:
             self.broadcaster.republish(muted=stumm)
         self._on_change()
         return stumm
+
+    # --- Record-Modus (Taste R) ---------------------------------------------
+    # Alles hier faellt auf gutmuetige Vorgaben zurueck, wenn es keinen
+    # Mitschnitt gibt (Speicher reichte nicht, --record-buffer 0, oder R wurde
+    # nie gedrueckt). Die Oberflaechen duerfen die Tasten immer anbieten - sie
+    # tun dann nichts, und `record_hinweis` sagt warum.
+    @property
+    def recording(self) -> bool:
+        return self._loop.recording if self._loop else False
+
+    @property
+    def record_pending(self) -> bool:
+        """R ist gedrueckt, der Speicher wird gerade reserviert."""
+        return self._record_lade is not None
+
+    @property
+    def record_paused(self) -> bool:
+        return self._loop.record_paused if self._loop else False
+
+    @property
+    def record_offset(self) -> float:
+        """Sekunden hinter der Live-Kante."""
+        return self._loop.record_offset_seconds if self._loop else 0.0
+
+    @property
+    def record_epoch(self) -> int:
+        """Zaehler der Zeitspruenge - die Anzeige stellt daran ihre Uhr neu."""
+        return self._loop.record_epoch if self._loop else 0
+
+    def toggle_record(self) -> bool:
+        """R: Mitschnitt an oder aus. Gibt zurueck, ob er danach laeuft.
+
+        AUS ist immer sofort: zurueck an die Live-Kante, Inhalt verworfen. AN
+        braucht beim allerersten Mal den Speicher - der wird im Hintergrund
+        geholt, und die Aufnahme beginnt, sobald er da ist (~0,2 s). Man drueckt
+        R, weil man aufzeichnen will, was KOMMT; die zwei Zehntel fehlen
+        niemandem. Waehrend des Ladens ist R wirkungslos: Ein zweiter Druck
+        darf nicht abbrechen, was der erste angestossen hat.
+        """
+        if not self._loop:
+            return False
+        if self.recording:
+            self._record.stop_record()
+            self._record_gemeldet()
+            return False
+        if self._record_lade is not None:
+            return False
+        if self._record is None:
+            # Auch nach einem gescheiterten Versuch wieder probieren: Speicher
+            # kann inzwischen frei geworden sein, und ein R, das fuer den Rest
+            # der Sitzung tot ist, erklaert sich niemandem.
+            self.record_hinweis = None
+            self._record_lade = threading.Thread(
+                target=self._record_anlegen, name="record-buffer", daemon=True)
+            self._record_lade.start()
+            # SOFORT melden, nicht nur das Fenster nachziehen: Die Seite soll
+            # den hohlen Punkt sehen, solange reserviert wird. Die Meldung
+            # traegt `record_pending`.
+            self._record_gemeldet()
+            return True
+        self._record.start_record()
+        self._record_gemeldet()
+        return True
+
+    def _record_anlegen(self):
+        """Im Hintergrundthread: reservieren, anfassen, einhaengen, starten."""
+        from . import record_buffer
+
+        loop = self._loop
+        try:
+            if loop is None:
+                return
+            gewuenscht = float(getattr(self.args, "record_buffer",
+                                       record_buffer.DEFAULT_MINUTES))
+            minuten, hinweis = record_buffer.plan(
+                gewuenscht, loop.samplerate, loop.channels)
+            if minuten <= 0:
+                self.record_hinweis = hinweis or "record buffer is disabled"
+                return
+            try:
+                puffer = record_buffer.RecordBuffer(
+                    loop.samplerate, loop.channels, minuten)
+            except MemoryError:
+                # Der Voraus-Check hat sich geirrt (oder jemand hat sich in der
+                # Zwischenzeit den Speicher genommen). Kein Absturz - nur ein
+                # Grund, warum R nichts tut.
+                self.record_hinweis = ("record buffer did not fit in memory - "
+                                       "record mode (R) is off")
+                return
+            if hinweis:
+                self.protokoll.melden(hinweis)
+            with self._lock:
+                if self._loop is not loop:       # inzwischen gestoppt
+                    return
+                self._record = puffer
+                loop.attach_record(puffer)
+                puffer.start_record()
+        finally:
+            self._record_lade = None
+            if self.record_hinweis:
+                self.protokoll.melden(self.record_hinweis)
+            # Die Meldung traegt den Hinweis (falls es einen gibt) genau
+            # EINMAL zur Seite; danach ist er abgeraeumt, damit der laufende
+            # Analysetakt nicht viermal pro Sekunde denselben Fehler schickt.
+            # Im Startprotokoll steht er dauerhaft.
+            self._record_gemeldet()
+            self.record_hinweis = None
+
+    def toggle_record_pause(self) -> bool:
+        if not self.recording:
+            return False
+        zustand = self._record.toggle_pause()
+        self._record_gemeldet()
+        return zustand
+
+    def record_to_now(self) -> None:
+        if not self.recording:
+            return
+        self._record.to_now()
+        self._record_gemeldet()
+
+    def record_to_start(self) -> None:
+        if not self.recording:
+            return
+        self._record.to_start()
+        self._record_gemeldet()
+
+    def seek_chord(self, richtung: int) -> None:
+        """Pfeiltasten im Record-Modus: zum vorigen/naechsten Akkord.
+
+        Die Sprungeinheit ist der AKKORD, nicht die Sekunde - man will nicht
+        "fuenf Sekunden zurueck", man will "diesen Wechsel nochmal". Zwei
+        Feinheiten, beide aus dem Ueben begruendet:
+
+        * "Zurueck" heisst zuerst: an den Anfang des LAUFENDEN Akkords - die
+          CD-Player-Konvention. Man drueckt zurueck, weil man diesen Wechsel
+          nochmal will, nicht den davor. Erst wer schon am Anfang steht
+          (NEUSTART_SCHWELLE), geht eine Grenze weiter zurueck. Den Anlauf zu
+          einem Wechsel hoert man also mit zweimal Zurueck - nicht ueber einen
+          eingebauten Vorlauf (der stand im ersten Entwurf und ist im Proberaum
+          gescheitert, s. LANDUNG).
+        * Der Sprung landet LANDUNG Sekunden NACH dem Onset, damit der
+          Zielakkord in der Anzeige sicher der klingende ist: gross in der
+          Mitte, sein Chip auf NOW.
+
+        Gelesen wird die volle Onset-Liste des Ledgers (`self.onsets`), nicht
+        das veroeffentlichte Anzeige-Fenster - das reicht nur acht Sekunden
+        zurueck, und ein Sprung ueber zehn Akkorde faende dort nichts.
+        """
+        if not self.recording or not richtung:
+            return
+        jetzt = self._loop.heard_position()
+        onsets = self.onsets
+        if richtung < 0:
+            vorige = [o for o in onsets if o <= jetzt]
+            if not vorige:
+                self._record.to_start()
+                self._record_gemeldet()
+                return
+            ziel = vorige[-1]
+            if jetzt - ziel < NEUSTART_SCHWELLE:
+                if len(vorige) < 2:
+                    self._record.to_start()  # am ersten Akkord: der Anfang
+                    self._record_gemeldet()
+                    return
+                ziel = vorige[-2]
+        else:
+            # Der naechste Onset, der noch VOR uns liegt - der, auf dem wir
+            # gerade (mit LANDUNG) gelandet sind, zaehlt nicht mehr.
+            kommende = [o for o in onsets if o > jetzt + LANDUNG]
+            if not kommende:
+                self._record.to_now()
+                self._record_gemeldet()
+                return
+            ziel = kommende[0]
+        self._record.seek(ziel + LANDUNG - jetzt)
+        self._record_gemeldet()
+
+    def _record_gemeldet(self):
+        """Zustandswechsel sofort an alle Anzeigen - wie beim Stummschalter.
+
+        Warten auf den naechsten Analysetakt hiesse: Der Musiker drueckt eine
+        Taste, der Ton reagiert sofort, aber die Anzeige laeuft noch weiter.
+        Genau die Diskrepanz, die den Eindruck macht, die Taste habe nicht
+        gegriffen.
+
+        Was mitkommt, ist der MODUS: an, wird gerade reserviert, angehalten.
+        Das ist, was der rote Punkt und die Transportleiste sofort brauchen.
+
+        Was NICHT mitkommt - und das ist keine Luecke, sondern die Lehre aus
+        einem Fehler -, ist `epoch`. `republish` mischt nur das Uebergebene in
+        den LETZTEN Zustand, und der traegt noch das alte `t`. Ginge der Epoch
+        hier mit, stellte die Seite ihre Uhr auf die ALTE Position neu; kaeme
+        dann eine Viertelsekunde spaeter der volle Zustand mit dem richtigen
+        `t`, waere der Epoch schon verbraucht, und statt eines Resets griffe die
+        sanfte Drift-Glaettung (syncClock: Minimum ueber 40 Messwerte). Bei
+        einem Sprung ZURUECK gewinnt der alte Messwert bis zu zehn Sekunden
+        lang, bei einem Sprung VOR gleitet die Uhr ueber Sekunden nach - der
+        Ton springt sofort, das Laufband nicht. Der Epoch reist darum
+        ausschliesslich mit dem frischen `t` aus der Anzeigeschleife.
+        """
+        if self.broadcaster:
+            self.broadcaster.republish(recording=self.recording,
+                                       record_pending=self.record_pending,
+                                       paused=self.record_paused,
+                                       record_hint=self.record_hinweis)
+        self._on_change()
 
     @property
     def control_guitar(self) -> bool:
@@ -335,6 +569,13 @@ class Engine:
             except Exception:
                 pass
             self._loop = None
+        # Erst NACH dem Stream loslassen: Solange der Callback laeuft, greift er
+        # auf den Mitschnitt zu. Ein halbes Gigabyte im Stopp-Zustand liegen zu
+        # lassen waere ausserdem genau das, was man einem Programm vorwirft,
+        # das "im Hintergrund nichts tut".
+        self._record = None
+        self.record_hinweis = None
+        self.onsets = ()
         if self._route is not None:
             try:
                 self._route.__exit__(None, None, None)

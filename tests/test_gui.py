@@ -30,6 +30,10 @@ class FakeEngine:
         self.lead = 0.0
         self.starts = 0
         self.stops = 0
+        self.recording = False
+        self.record_paused = False
+        self.record_offset = 0.0
+        self.gerufen = []
 
     running = property(lambda self: self._running)
     muted = property(lambda self: self._muted)
@@ -45,6 +49,24 @@ class FakeEngine:
     def toggle_mute(self):
         self._muted = not self._muted
         return self._muted
+
+    def toggle_record(self):
+        self.recording = not self.recording
+        self.gerufen.append("toggle")
+        return self.recording
+
+    def toggle_record_pause(self):
+        self.record_paused = not self.record_paused
+        self.gerufen.append("pause")
+
+    def seek_chord(self, richtung):
+        self.gerufen.append(("chord", richtung))
+
+    def record_to_start(self):
+        self.gerufen.append("start")
+
+    def record_to_now(self):
+        self.gerufen.append("end")
 
 
 @pytest.fixture
@@ -275,3 +297,59 @@ class TestLiveZeile:
         e.jetzt = ""
         f.nachziehen()
         assert f.etappe.text() == "First window analysed - chords are live"
+
+
+class TestTastenImFenster:
+    """Dieselben Tasten wie in der Webanzeige."""
+
+    def _ausloesen(self, f, taste):
+        from PySide6.QtGui import QKeySequence
+        folge = QKeySequence(taste)
+        for kuerzel in f.findChildren(gui.QShortcut):
+            if kuerzel.key() == folge:
+                kuerzel.activated.emit()
+                return True
+        return False
+
+    def test_leertaste_schaltet_stumm(self, fenster):
+        f, e = fenster
+        e.start()
+        assert self._ausloesen(f, gui.Qt.Key_Space)
+        assert e.muted is True
+
+    def test_r_und_transport(self, fenster):
+        f, e = fenster
+        e.start()
+        for taste in (gui.Qt.Key_R, gui.Qt.Key_P, gui.Qt.Key_Left, gui.Qt.Key_Right,
+                      gui.Qt.Key_Home, gui.Qt.Key_End):
+            assert self._ausloesen(f, taste), taste
+        assert e.gerufen == ["toggle", "pause", ("chord", -1), ("chord", 1),
+                             "start", "end"]
+
+    def test_im_stopp_zustand_tun_die_tasten_nichts(self, fenster):
+        f, e = fenster
+        self._ausloesen(f, gui.Qt.Key_R)
+        self._ausloesen(f, gui.Qt.Key_Left)
+        assert e.gerufen == [] and e.muted is False
+
+
+class TestRecordAnzeige:
+    def test_pausiert_steht_paused_im_fenster(self, fenster):
+        f, e = fenster
+        e.start()
+        e.recording, e.record_paused = True, True
+        f.nachziehen()
+        assert f.zustand.text() == "Paused"
+
+    def test_der_rueckstand_tritt_an_die_stelle_des_vorlaufs(self, fenster):
+        f, e = fenster
+        e.start()
+        e.recording, e.record_offset = True, 12.0
+        f.nachziehen()
+        assert "REC 12 s back" in f.info.text() and "Lead" not in f.info.text()
+
+    def test_ohne_aufnahme_bleibt_die_zeile_wie_vorher(self, fenster):
+        f, e = fenster
+        e.start()
+        f.nachziehen()
+        assert "Lead" in f.info.text() and "REC" not in f.info.text()
