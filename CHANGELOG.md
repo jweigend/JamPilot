@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.3.1 — 2026-08-30
+
+The theme of this release: **trust.** A bugfix release for a rare but
+corrosive failure: a passage clearly sits on one chord, yet JamPilot keeps
+showing the previous one — for the whole passage. Nothing undermines
+confidence in a chord display like a wrong chord that *stays*.
+
+### Timeline: a late boundary can no longer fall behind the ledger
+
+The chain that swallowed it, found by replaying the live loop hop by hop in
+simulation: a boundary the model recognizes late enters the timeline just
+beyond the commit line. Boundary refinement then pulls it backwards onto the
+audible onset — by up to 0.40 s, while the ledger's waterline advances only
+~0.25 s per hop. The refined boundary lands *behind* the waterline, and the
+publish-once ledger, which only ever commits forward, never turns it into an
+event. The internal timeline was right all along; only the display never
+heard about it. The late-boundary correction from 1.1.0 could not rescue it
+either — it checks the timeline, which *had* the boundary, not the events,
+which did not.
+
+The fix is one clamp: refinement may not move a boundary backwards across
+the commit line. In the narrow band where this used to strike (~0.15 s per
+hop), the event now lands *on* the commit line — up to 0.4 s later than the
+audio says, the honest price for the event arriving at all. Everywhere else
+the output is unchanged: the simulation scenarios around the band produce
+identical events before and after. The refinement loop moved out of the live
+loop into its own function on the way, so the new regression tests exercise
+the real interplay of merge, refinement and ledger.
+
 ## 1.3.0 — 2026-08-30
 
 The theme of this release: **record mode.** JamPilot has always shown you the
