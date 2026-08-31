@@ -167,6 +167,39 @@ class TestSeite:
         # die Information, die der Akkordname allein nicht traegt.
         assert "bassPc" in PAGE
 
+    def test_lagenwahl_im_pausierten_record_modus(self):
+        # Wer im Record-Modus anhaelt, kann die Lage der Stelle durchschalten:
+        # zwei Pfeile und der Stand ("2/3") unter dem Griffbild. Sichtbar nur
+        # bei pausiertem Mitschnitt - waehrend der Fahrt spraenge ein schon
+        # gezeigtes Griffbild um (docs/exploration/lagenwahl-im-record-modus.md).
+        assert 'id="fbswitch"' in PAGE
+        assert "wechsleLage" in PAGE and "lagenKontext" in PAGE
+        assert "body.recording.rec-paused #fbswitch" in PAGE
+
+    def test_lagenwahl_ankert_die_stelle_fuer_alle_drei_instrumente(self):
+        # Die Wahl ist ein Anker auf dem Event (Onset als Schluessel,
+        # publish-once macht ihn stabil): dieselbe Stelle sieht bei jedem
+        # Durchlauf gleich aus - fuer Gitarre, Keyboard UND Bass.
+        assert "fbPins" in PAGE and "kbPins" in PAGE and "bassPins" in PAGE
+        assert "fbPins.get(key)" in PAGE      # der Anker ueberstimmt den Planer
+        assert "kbPins.get(key)" in PAGE
+        assert "planBassLine(line, lastBassPos, fest)" in PAGE
+
+    def test_lagenwahl_rechnet_folgegriffe_vom_anker_neu(self):
+        # Ein Anker invalidiert nach vorn: alles schon Entschiedene ab diesem
+        # Onset wird verworfen und vom Anker aus neu geplant (er wird der
+        # feste Startknoten, wie sonst lastVoicing). Davor bleibt alles stehen.
+        assert "voicings.delete(k)" in PAGE
+        assert "kbVoicings.delete(k)" in PAGE
+        assert "lastVoicing = v; fbShown" in PAGE
+
+    def test_lagenwahl_anker_fallen_mit_dem_mitschnitt(self):
+        # R aus verwirft den Mitschnitt - die Anker zeigen dann auf
+        # Stream-Zeiten, zu denen es kein Audio mehr gibt, und fallen mit.
+        assert "fbPins.clear()" in PAGE
+        assert "kbPins.clear()" in PAGE
+        assert "bassPins.clear()" in PAGE
+
     def test_stufen_sind_abschaltbar(self):
         # Nashville-Stufen ueber den Akkorden: an/invertiert/aus im Dialog,
         # gemerkt wie die anderen Einstellungen, per Body-Klasse geschaltet

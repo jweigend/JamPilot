@@ -301,6 +301,24 @@
   #fbname { color: #c8cdd4; font-size: max(2.5vmin, 15px); font-weight: 650;
             letter-spacing: .03em; white-space: nowrap; }
   #fbname .suffix { color: #6ea8ff; font-size: 72%; }
+
+  /* Lagenwahl im pausierten Record-Modus: unter dem Griffbild zwei Pfeile und
+     der Stand in der Kandidatenliste ("2/3"). Nur dann sichtbar - waehrend der
+     Fahrt waere Durchschalten ein Blindflug, und ein gezeigtes Griffbild
+     spraenge um. Die Ziffer faerbt sich, sobald die Stelle geankert ist. */
+  #fbswitch { display: none; align-items: center; gap: 1.6vmin; }
+  body.recording.rec-paused #fbswitch:not([hidden]) { display: flex; }
+  #fbswitch button {
+    background: #14181d; color: #9aa3ad; border: 1px solid #2a3038;
+    border-radius: 8px; width: max(4.2vmin, 30px); height: max(4.2vmin, 30px);
+    font-size: max(2.6vmin, 17px); line-height: 1; cursor: pointer; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #fbswitch button:hover { color: #e8eaed; border-color: #3a414a; }
+  #fbpos { color: #7b828b; font-size: max(2vmin, 12px); font-weight: 600;
+           min-width: 3em; text-align: center;
+           font-variant-numeric: tabular-nums; }
+  #fbswitch.pinned #fbpos { color: #6ea8ff; }
   /* Der Wechsel des grossen Akkords: nur ein kurzer Groessen-Pop. Frueher
      blendete er zusaetzlich von 40 % Deckkraft auf - auf Schwarz sah der
      Name dann fast eine halbe Sekunde lang GRAU aus, ausgerechnet im
@@ -620,7 +638,13 @@
     </div>
   </div>
 
-  <div id="fretboard"><div id="fbdiagram"></div><div id="fbname"></div></div>
+  <div id="fretboard"><div id="fbdiagram"></div><div id="fbname"></div>
+    <div id="fbswitch" hidden>
+      <button id="fbprev" aria-label="Lower position" title="Lower position (&darr;)">&lsaquo;</button>
+      <span id="fbpos"></span>
+      <button id="fbnext" aria-label="Higher position" title="Higher position (&uarr;)">&rsaquo;</button>
+    </div>
+  </div>
 
   <div id="stage">
     <div id="current"></div>
@@ -1116,6 +1140,10 @@ let voicings = new Map();      // "at|c" -> gewaehltes Voicing
 let lastVoicing = null;
 function decideVoicing(seg) {
   const key = seg.at.toFixed(2) + "|" + seg.c;
+  // Ein Lagen-Anker (unten) ueberstimmt Planer UND Cache: Diese Stelle hat der
+  // Spieler selbst entschieden, und sie sieht bei jedem Durchlauf gleich aus.
+  const anker = fbPins.get(key);
+  if (anker) { voicings.set(key, anker); lastVoicing = anker; return anker; }
   let v = voicings.get(key);
   if (v) { lastVoicing = v; return v; }      // schon entschieden -> Start furs naechste
   const win = futureWindow(seg, q => q in SHAPES_E);
@@ -1193,10 +1221,12 @@ function bassTransCost(a, b) {
 }
 // Viterbi ueber [aktuell, ...folgende] mit festem Startknoten `last` (die zuletzt
 // gegriffene Lage). Zurueck kommt der ganze beste Pfad; gezeigt werden die ersten
-// zwei Knoten - aktueller Ton und Folgeton.
-function planBassLine(pcs, last) {
+// zwei Knoten - aktueller Ton und Folgeton. Ist die Stelle geankert (`fest`),
+// steht der erste Knoten fest und nur die Folgetoene werden geplant.
+function planBassLine(pcs, last, fest) {
   const cand = pcs.map(bassPositions);
   if (!cand.length) return [];
+  if (fest) cand[0] = [fest];
   const dp = [cand[0].map(p => (last ? bassTransCost(last, p) : 0) + bassNodeCost(p))];
   const bp = [cand[0].map(() => -1)];
   for (let i = 1; i < cand.length; i++) {
@@ -1294,10 +1324,12 @@ function renderBassBoard(seg) {
       $("fbdiagram").innerHTML = ""; $("fbname").innerHTML = ""; }
     return;
   }
-  const key = seg.at.toFixed(2) + "|" + line.slice(0, 2).join(",") + "|" + schreibweise;
+  const fest = bassPins.get(seg.at.toFixed(2)) || null;
+  const key = seg.at.toFixed(2) + "|" + line.slice(0, 2).join(",") + "|" + schreibweise
+            + (fest ? "|" + fest.s + "," + fest.f : "");
   if (key === bbShown) return;
   bbShown = key;
-  const plan = planBassLine(line, lastBassPos);
+  const plan = planBassLine(line, lastBassPos, fest);
   const cur = plan[0], nxt = plan.length > 1 ? plan[1] : null;
   lastBassPos = cur;
   $("fbdiagram").innerHTML = bassLineSvg(cur, nxt);
@@ -1432,6 +1464,9 @@ let kbVoicings = new Map();
 let lastKeyVoicing = null;
 function decideKeyVoicing(seg) {
   const key = seg.at.toFixed(2) + "|" + seg.c;
+  // Wie beim Gitarren-Griffbild: ein Lagen-Anker ueberstimmt Planer und Cache.
+  const anker = kbPins.get(key);
+  if (anker) { kbVoicings.set(key, anker); lastKeyVoicing = anker; return anker; }
   let v = kbVoicings.get(key);
   if (v) { lastKeyVoicing = v; return v; }
   const win = futureWindow(seg, q => q in KEY_INTERVALS);
@@ -1463,6 +1498,112 @@ function renderKeyboard(seg) {
   $("fbname").innerHTML = chordHtml(seg.c)
     + (inv ? '<span style="color:#e8934a">/'
              + schreibeGrundton(inv, schreibweise) + "</span>" : "");
+}
+
+// LAGEN-ANKER (Record-Modus). Der Planer waehlt die bewegungsaermste Lage -
+// wer eine Stelle bewusst anders spielen will (Refrain tief, Strophe hoch),
+// haelt im Record-Modus an (P) und schaltet mit den Pfeilen unter dem
+// Griffbild durch die Alternativen. Die Wahl ist ein ANKER auf dem Event
+// (Schluessel: sein Onset - publish-once macht ihn stabil): Diese Stelle wird
+// ab jetzt IMMER so gezeigt, auch bei jedem erneuten Durchlauf im Mitschnitt,
+// und die Folgegriffe werden von dort neu gerechnet - der Anker ist ihr fester
+// Startknoten, genau wie sonst `lastVoicing`. Anker gehoeren zum Mitschnitt:
+// R aus verwirft beide. Pro Geraet, wie jede Anzeige-Einstellung.
+// Entwurf und verworfene Varianten: docs/exploration/lagenwahl-im-record-modus.md
+let fbPins = new Map();      // "at|c" -> Voicing (Gitarre)
+let kbPins = new Map();      // "at|c" -> Voicing (Keyboard)
+let bassPins = new Map();    // "at"   -> Lage {s, f} (Bass)
+
+// Das Segment, das bei `now` zu hoeren ist - dieselbe Regel wie in animate().
+function hoerbaresSegment(now) {
+  let a = null;
+  for (const c of events) { if (c.at > now) break; a = c; }
+  return a;
+}
+
+// Der Kandidatenraum der Stelle fuer das aktive Instrument: die Alternativen
+// (aufsteigend nach Lage), die aktuelle Wahl, und wie ein Anker gesetzt wird.
+// `anker` invalidiert dabei NACH VORN: Alles schon Entschiedene ab diesem
+// Onset wird verworfen und beim naechsten Hoerbarwerden neu geplant - jetzt
+// vom Anker aus. Entscheidungen davor bleiben stehen.
+function lagenKontext(seg) {
+  if (!seg || !seg.c) return null;
+  const m = seg.c.match(/^([A-G]#?)(.*)$/);
+  if (!m) return null;
+  if (instrument === "guitar") {
+    const alts = candidates(m[1], m[2]).sort((a, b) => a.anchor - b.anchor);
+    if (!alts.length) return null;
+    const key = seg.at.toFixed(2) + "|" + seg.c;
+    const id = v => v.frets.join(",");
+    return { alts, id, pinned: fbPins.has(key),
+             cur: fbPins.get(key) || voicings.get(key) || decideVoicing(seg),
+             anker: v => {
+               fbPins.set(key, v);
+               for (const k of voicings.keys())
+                 if (parseFloat(k) >= seg.at) voicings.delete(k);
+               voicings.set(key, v); lastVoicing = v; fbShown = "";
+             } };
+  }
+  if (instrument === "keys") {
+    const alts = keyCandidates(m[1], m[2]).sort((a, b) => a.notes[0] - b.notes[0]);
+    if (!alts.length) return null;
+    const key = seg.at.toFixed(2) + "|" + seg.c;
+    const id = v => v.notes.join(",");
+    return { alts, id, pinned: kbPins.has(key),
+             cur: kbPins.get(key) || kbVoicings.get(key) || decideKeyVoicing(seg),
+             anker: v => {
+               kbPins.set(key, v);
+               for (const k of kbVoicings.keys())
+                 if (parseFloat(k) >= seg.at) kbVoicings.delete(k);
+               kbVoicings.set(key, v); lastKeyVoicing = v; kbShown = "";
+             } };
+  }
+  if (instrument === "bass") {
+    const line = bassLine(seg);
+    if (!line.length) return null;
+    const at = seg.at.toFixed(2);
+    const fest = bassPins.get(at) || null;
+    // `lastBassPos` IST die gerade gezeigte Lage - renderBassBoard setzt sie
+    // bei jedem Neuaufbau. Ein eigener Cache waere ein zweiter Zustand fuer
+    // dieselbe Zahl.
+    return { alts: bassPositions(line[0]), id: p => p.s + "," + p.f,
+             pinned: !!fest, cur: fest || lastBassPos,
+             anker: p => { bassPins.set(at, p); bbShown = ""; } };
+  }
+  return null;
+}
+
+// Durchschalten - nur im pausierten Record-Modus. Waehrend der Fahrt waere es
+// ein Blindflug, und die Zusage "ein gezeigtes Griffbild springt nie um"
+// fiele. +1 = hoehere Lage, -1 = tiefere; an den Enden wird umgebrochen.
+function wechsleLage(dir) {
+  if (!recording || !paused || !griffbrettAn) return;
+  const ctx = lagenKontext(hoerbaresSegment(streamNow()));
+  if (!ctx || ctx.alts.length < 2) return;
+  let i = ctx.cur ? ctx.alts.findIndex(v => ctx.id(v) === ctx.id(ctx.cur)) : -1;
+  i = ((i + dir) % ctx.alts.length + ctx.alts.length) % ctx.alts.length;
+  ctx.anker(ctx.alts[i]);
+}
+
+// Die Lagenwahl-Zeile nachfuehren. Sichtbar macht sie erst die Kombination
+// body.recording.rec-paused (CSS); hier wird nur entschieden, OB es an dieser
+// Stelle etwas zu waehlen gibt, und der Stand ("2/3") geschrieben.
+let fbswShown = "";
+function zeigeLagenwahl(seg) {
+  const ctx = recording && paused && griffbrettAn ? lagenKontext(seg) : null;
+  const ok = !!(ctx && ctx.alts.length > 1);
+  let text = "", angepinnt = false;
+  if (ok) {
+    const i = ctx.cur ? ctx.alts.findIndex(v => ctx.id(v) === ctx.id(ctx.cur)) : -1;
+    text = (i + 1 || "?") + "/" + ctx.alts.length;
+    angepinnt = ctx.pinned;
+  }
+  const stand = ok + "|" + text + "|" + angepinnt;
+  if (stand === fbswShown) return;
+  fbswShown = stand;
+  $("fbswitch").hidden = !ok;
+  $("fbswitch").classList.toggle("pinned", angepinnt);
+  $("fbpos").textContent = text;
 }
 
 // Auf dem Laufband steht im Bass-Modus der Slash-Akkord: C/E. Genau das ist die
@@ -1561,11 +1702,7 @@ function animate() {
   // Kopf beim Stummschalten ein - die Notloesung fuer "ich will den Akkord in
   // Ruhe ansehen", solange es keinen Transport gab. Den gibt es jetzt hinter
   // R, und er haelt den TON an, nicht nur das Bild.)
-  let audible = null;
-  for (const c of events) {
-    if (c.at > now) break;
-    audible = c;
-  }
+  const audible = hoerbaresSegment(now);
   setCurrent(audible);
   // Im Gitarrenmodus das Griffbild zum Akkord, im Bass-Modus das Griffbrett mit
   // dem gemessenen Basston, im Keyboard-Modus die Klaviatur - alles nur, wenn
@@ -1573,6 +1710,7 @@ function animate() {
   if (griffbrettAn && instrument === "guitar") renderFretboard(audible);
   else if (griffbrettAn && instrument === "bass") renderBassBoard(audible);
   else if (griffbrettAn && instrument === "keys") renderKeyboard(audible);
+  zeigeLagenwahl(audible);
 
   syncChips(now);
   for (const chip of chips.values()) {
@@ -1781,6 +1919,13 @@ function apply(state) {
     offset = null;
     shownOffset = null;
   }
+  // R aus verwirft den Mitschnitt - und mit ihm die Lagen-Anker: Ihre
+  // Schluessel sind Stream-Zeiten von Stellen, zu denen es kein Audio mehr
+  // gibt. Die schon entschiedenen Voicings bleiben - die Anzeige laeuft ja
+  // nahtlos an der Live-Kante weiter.
+  if (recording && !state.recording) {
+    fbPins.clear(); kbPins.clear(); bassPins.clear();
+  }
   recording = !!state.recording;
   recPending = !!state.record_pending;
   paused = recording && !!state.paused;
@@ -1965,8 +2110,24 @@ document.addEventListener("keydown", ev => {
   } else if (ev.key === "End") {
     ev.preventDefault();
     recordBefehl("end");
+  } else if (ev.key === "ArrowUp") {
+    // Zwei Achsen, zwei Tastenpaare: links/rechts faehrt den Akkord-Transport,
+    // hoch/runter schaltet die Lage durch (nur im pausierten Record-Modus -
+    // wechsleLage prueft das selbst).
+    ev.preventDefault();
+    wechsleLage(+1);
+  } else if (ev.key === "ArrowDown") {
+    ev.preventDefault();
+    wechsleLage(-1);
   }
 });
+
+for (const [knopf, dir] of [["fbprev", -1], ["fbnext", +1]])
+  $(knopf).addEventListener("click", ev => {
+    ev.stopPropagation();     // sonst schaltet der Body-Klick auch noch Vollbild
+    wechsleLage(dir);
+    ev.currentTarget.blur();  // sonst traefe die Leertaste danach den Knopf
+  });
 
 setzeInstrument(instrument);   // gespeicherte Wahl anwenden und markieren
 setzeModus(modus);
