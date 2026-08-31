@@ -352,6 +352,37 @@ class TestOhneArgument:
         assert an.called and an.call_args[0][0].file == "song.wav"
 
 
+class TestRefineFreshBounds:
+    """Verfeinerung frischer Grenzen - und ihre Leitplanke an der Commit-Grenze."""
+
+    def test_verfeinerung_zieht_die_grenze_aufs_ereignis(self):
+        timeline = [(0.0, "A"), (11.6, "D")]
+        cli._refine_fresh_bounds(timeline, [], frontier=10.5,
+                                 refine=lambda pos, prev, name: pos - 0.35)
+        assert timeline == [(0.0, "A"), (11.25, "D")]
+
+    def test_verfeinerte_grenze_faellt_nicht_hinter_die_wasserlinie(self):
+        # Befund 2026-08-30 (verschluckter Akkordanfang): Eine spaet erkannte
+        # Grenze taucht knapp UEBER der Commit-Grenze auf (10.55 > 10.5), die
+        # Verfeinerung zieht sie 0.35 s zurueck - hinter die Wasserlinie des
+        # vorigen Hops (10.25). Ohne Klemmung committet der Ledger sie nie:
+        # Die Anzeige zeigte den vorigen Akkord, bis das Stueck real wechselt.
+        led = cli.EventLedger()
+        timeline = [(0.0, "A")]
+        led.advance(timeline, [None], None, frontier=10.25)   # voriger Hop
+        timeline.append((10.55, "D"))                         # Merge, neuer Hop
+        cli._refine_fresh_bounds(timeline, [], frontier=10.5,
+                                 refine=lambda pos, prev, name: pos - 0.35)
+        led.advance(timeline, [None, None], None, frontier=10.5)
+        assert [(e["at"], e["c"]) for e in led.events] == [(0.0, "A"), (10.5, "D")]
+
+    def test_committetes_wird_nicht_angefasst(self):
+        timeline = [(0.0, "A"), (9.0, "D")]
+        cli._refine_fresh_bounds(timeline, [], frontier=10.5,
+                                 refine=lambda pos, prev, name: pos - 0.35)
+        assert timeline == [(0.0, "A"), (9.0, "D")]
+
+
 class TestEventLedger:
     """[Redesign 6.1] Publish-once-Kanal: committete Events sind unantastbar."""
 

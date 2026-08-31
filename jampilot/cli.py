@@ -779,25 +779,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # Frisch veroeffentlichte Grenzen einmalig aufs Audio-Ereignis
             # verfeinern (typisch 0-1 je Hop, ~100ms - dauert ein Hop mal
             # laenger, faellt nur ein Rasterpunkt aus, das Raster bleibt).
-            # Unterhalb der Commit-Grenze ist nichts mehr zu verfeinern -
-            # diese Eintraege sind bereits als Events ausgeliefert.
-            for idx in range(1, len(timeline)):
-                pos, name = timeline[idx]
-                if pos <= frontier:
-                    continue
-                if any(rn == name and abs(rp - pos) <= ONSET_HYSTERESIS
-                       for rp, rn in refined_bounds):
-                    continue
-                pos = window_start + refine_boundary(
-                    audio, sr, pos - window_start, timeline[idx - 1][1], name)
-                # Zum Vorgaenger mindestens ein Event-Abstand, zum Nachfolger
-                # bleibt die Reihenfolge gewahrt (der Nachfolger holt sich
-                # seinen Abstand bei seiner eigenen Verfeinerung).
-                pos = max(pos, timeline[idx - 1][0] + MIN_EVENT_GAP)
-                if idx + 1 < len(timeline):
-                    pos = min(pos, timeline[idx + 1][0] - 0.05)
-                timeline[idx] = (pos, name)
-                refined_bounds.append((pos, name))
+            _refine_fresh_bounds(
+                timeline, refined_bounds, frontier,
+                lambda pos, prev_name, name: window_start + refine_boundary(
+                    audio, sr, pos - window_start, prev_name, name))
             refined_bounds[:] = [(p, n) for p, n in refined_bounds
                                  if p > audible_pos - 2.0]
             lead = max(horizon - audible_pos, 0.0)
@@ -1118,6 +1103,22 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
     published.reverse()
     last = timeline[-1][1] if timeline else None
 
+    def _confirmed_late_boundary(pos: float, name: str) -> bool:
+        if previous is None:
+            return False
+        if _label_at(previous, base) == name:
+            return True
+        if any(prev_name == name and base < prev_pos <= base + BTC_DEBOUNCE_MATCH
+               and abs(prev_pos - pos) <= BTC_DEBOUNCE_MATCH
+               for prev_pos, prev_name in previous):
+            return True
+        return any(
+            alt_name == name and base < alt_pos
+            and -ONSET_HYSTERESIS <= pos - alt_pos
+            <= ONSET_HYSTERESIS + _REFINED_LOOKBACK
+            for alt_pos, alt_name in published
+        )
+
     for i, (pos, name) in enumerate(segments):
         if pos > horizon:
             break
@@ -1128,8 +1129,7 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
             if not timeline:            # Anlauf: noch nichts veroeffentlicht
                 timeline.append((pos, name))
                 last = name
-            elif (name != last and previous is not None
-                    and _label_at(previous, base) == name):
+            elif name != last and _confirmed_late_boundary(pos, name):
                 # Zu spaet erkannte Grenze (siehe Docstring): Committetes
                 # bleibt stehen, aber ab der Commit-Grenze gilt das neue
                 # Etikett - sonst kaeme es nie mehr in ein Event. Liegt das
@@ -1185,6 +1185,38 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
                 timeline.pop(i)
             else:
                 i += 1
+
+
+def _refine_fresh_bounds(timeline, refined_bounds, frontier, refine):
+    """Frisch veroeffentlichte Grenzen einmalig aufs Audio-Ereignis verfeinern.
+
+    `refine(pos, prev_name, name)` liefert die verfeinerte Position (im
+    Live-Loop: btc.refine_boundary uebers Analysefenster). Unterhalb der
+    Commit-Grenze ist nichts mehr zu verfeinern - diese Eintraege sind
+    bereits als Events ausgeliefert.
+    """
+    for idx in range(1, len(timeline)):
+        pos, name = timeline[idx]
+        if pos <= frontier:
+            continue
+        if any(rn == name and abs(rp - pos) <= ONSET_HYSTERESIS
+               for rp, rn in refined_bounds):
+            continue
+        pos = refine(pos, timeline[idx - 1][1], name)
+        # Zum Vorgaenger mindestens ein Event-Abstand, zum Nachfolger
+        # bleibt die Reihenfolge gewahrt (der Nachfolger holt sich
+        # seinen Abstand bei seiner eigenen Verfeinerung).
+        pos = max(pos, timeline[idx - 1][0] + MIN_EVENT_GAP)
+        if idx + 1 < len(timeline):
+            pos = min(pos, timeline[idx + 1][0] - 0.05)
+        # Nie rueckwaerts ueber die Commit-Grenze: Der Ledger committet nur
+        # vorwaerts, eine hinter seine Wasserlinie (voriger Hop) verfeinerte
+        # Grenze bekaeme NIE ein Event - die Anzeige zeigte den vorigen
+        # Akkord, bis das Stueck real wechselt. Das Band ist real:
+        # REFINE_BACK (0.40) > Hop-Vorschub (~0.25).
+        pos = max(pos, frontier)
+        timeline[idx] = (pos, name)
+        refined_bounds.append((pos, name))
 
 
 class EventLedger:

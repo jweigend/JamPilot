@@ -255,6 +255,27 @@ class TestMergeModelSegments:
                               audible_pos=5.0, horizon=10.0, previous=segs)
         assert timeline == [(0.0, "D"), (2.0, "A"), (7.0, "D")]
 
+    def test_grenze_die_knapp_unter_den_commit_rutscht_bleibt_nicht_haengen(self):
+        # Der vorige Lauf sah G noch knapp NACH der Commit-Grenze, der neue
+        # knapp DAVOR. Das ist dieselbe bestaetigte Grenze; ihr Anfang darf
+        # nicht verschluckt werden, sonst bliebe C einen Hop zu lang stehen.
+        timeline = [(0.0, "C"), (7.2, "G")]
+        _merge_model_segments(timeline, [(0.0, "C"), (6.95, "G")],
+                              audible_pos=5.0, horizon=10.0,
+                              previous=[(0.0, "C"), (7.2, "G")])
+        assert timeline == [(0.0, "C"), (7.0, "G")]
+
+    def test_bestaetigte_grenze_aus_dem_vorigen_lauf_schreibt_ab_commit(self):
+        # Dieselbe Kante kann im vorigen Lauf noch jenseits des Horizonts
+        # gelegen haben und deshalb noch gar nicht in `timeline` stehen.
+        # Rueckt sie im naechsten Lauf knapp unter den Commit, muss sie ab der
+        # Commit-Grenze gelten - auch ohne vorher veroeffentlichten Chip.
+        timeline = [(0.0, "C")]
+        _merge_model_segments(timeline, [(0.0, "C"), (6.95, "G")],
+                              audible_pos=5.0, horizon=10.0,
+                              previous=[(0.0, "C"), (7.15, "G")])
+        assert timeline == [(0.0, "C"), (7.0, "G")]
+
     def test_revision_unter_den_commit_braucht_zwei_laeufe(self):
         # Der vorige Lauf sah an der Hoergrenze noch A: Ein-Hop-Launen des
         # Modells duerfen das laufende Etikett nicht umschreiben.
