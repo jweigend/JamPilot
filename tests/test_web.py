@@ -365,6 +365,33 @@ console.log(JSON.stringify(out));""")
             assert js[name][1] == accidental_for_key(pc, True), f"{name}-Moll"
 
 
+@pytest.fixture(autouse=True)
+def _eigenes_config_home(tmp_path, monkeypatch):
+    """Das Token ist persistent (XDG_CONFIG_HOME) - Tests gehoeren nicht an
+    die echte Konfiguration des Nutzers, und frisch soll es auch sein."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+
+class TestPersistentesToken:
+    """Die Seite am Notenstaender bleibt offen, waehrend die Anwendung neu
+    startet. Wuerfelte jeder Start ein neues Token, liefe dort jeder Eingriff
+    (Record, Mute) still in ein 403 - die Anzeige (ohne Token) verbindet sich
+    ja anstandslos neu und sieht voellig gesund aus."""
+
+    def test_neustart_behaelt_das_token(self):
+        erstes = web._persistent_token()
+        assert web._persistent_token() == erstes
+
+    def test_tokendatei_gehoert_nur_dem_nutzer(self, tmp_path):
+        web._persistent_token()
+        datei = tmp_path / "jampilot" / "token"
+        assert datei.stat().st_mode & 0o777 == 0o600
+
+    def test_unlesbares_config_home_faellt_auf_lauf_token_zurueck(self, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", "/proc/gibt-es-nicht")
+        assert web._persistent_token()  # kein Absturz, Token nur fuer den Lauf
+
+
 @pytest.fixture
 def server():
     """Echter Server auf einem freien Port - die Token-Pruefung sitzt im

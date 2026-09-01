@@ -8,6 +8,7 @@ self-contained (kein CDN), damit alles ohne Internet funktioniert.
 """
 
 import json
+import os
 import queue
 import secrets
 import socket
@@ -84,6 +85,39 @@ def lan_ip() -> str:
         return "127.0.0.1"
     finally:
         s.close()
+
+
+def _persistent_token() -> str:
+    """Das Session-Token ueberlebt Neustarts - Neuwuerfeln waere ein Bug.
+
+    Die Seite auf dem Notenstaender bleibt offen, waehrend der Rechner die
+    Anwendung neu startet. Die Anzeige (SSE, ohne Token) verbindet sich dann
+    von selbst wieder - aber jeder Eingriff (Record, Mute) truege noch das
+    alte Token in der URL und liefe still in ein 403. Darum wird das Token
+    einmal erzeugt und in der Konfiguration abgelegt; alte URLs, QR-Scans und
+    Home-Bildschirm-Eintraege bleiben gueltig.
+
+    Laesst sich die Datei weder lesen noch schreiben, gilt das Token eben nur
+    fuer diesen Lauf - wie vorher, nur ohne den Komfort.
+    """
+    datei = Path(os.environ.get("XDG_CONFIG_HOME")
+                 or Path.home() / ".config") / "jampilot" / "token"
+    try:
+        token = datei.read_text().strip()
+        if token:
+            return token
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(8)
+    try:
+        datei.parent.mkdir(parents=True, exist_ok=True)
+        datei.write_text(token + "\n")
+        # Das Token IST die Eingriffs-Berechtigung - anderen Nutzern auf dem
+        # Rechner gehoert es nicht in die Haende.
+        datei.chmod(0o600)
+    except OSError:
+        pass
+    return token
 
 
 def _qr_svg(url: str) -> bytes:
@@ -244,7 +278,7 @@ def start(port: int = DEFAULT_PORT) -> WebDisplay:
     broadcaster = ChordBroadcaster()
     handler = type("Handler", (_Handler,), {
         "broadcaster": broadcaster,
-        "token": secrets.token_urlsafe(8),
+        "token": _persistent_token(),
     })
     server = ThreadingHTTPServer(("0.0.0.0", port), handler)
     # URL und QR erst NACH dem Binden: bei port=0 (Tests) vergibt erst das
