@@ -32,6 +32,9 @@ COUNTIN_SILENCE_RMS = 1e-4
 # waechst um denselben Betrag; die Anzeige bleibt exakt, weil audible_position
 # ueber den DAC-Zeitstempel rechnet und output_latency aus dem Stream liest.
 OUTPUT_LATENCY_SECONDS = 0.2
+# So viele Aussetzer merkt sich der Stream MIT Position (s. xrun_log); alle
+# weiteren werden nur gezaehlt.
+XRUN_LOG_SIZE = 16
 
 
 class DelayedLoopback:
@@ -157,6 +160,13 @@ class DelayedLoopback:
         # die Referenz zu halten kostet nichts, str() passiert beim Ausgeben.
         self.xruns = 0
         self.last_status = None
+        # Die ersten Aussetzer mit Stream-Position: Die naechste Diagnose soll
+        # wissen, WANN es passierte - in den ersten Sekunden (Uebersetzung,
+        # Modell, volle GC-Sammlung) oder mittendrin. Vorbelegt, denn im
+        # Callback wird nicht allokiert; die Statusreferenz zu halten kostet
+        # nichts, str() passiert erst in xrun_log.
+        self._xrun_frames = np.zeros(XRUN_LOG_SIZE, dtype=np.int64)
+        self._xrun_status: list = [None] * XRUN_LOG_SIZE
 
     def _render_beep(self, dauer: float, amp: float) -> np.ndarray:
         """Ein Ton des Einzaehlers (Mono). Sinus statt Sprache: braucht keine
@@ -184,6 +194,9 @@ class DelayedLoopback:
 
     def _callback(self, indata, outdata, frames, time_info, status):
         if status:
+            if self.xruns < XRUN_LOG_SIZE:
+                self._xrun_frames[self.xruns] = self._frames_seen
+                self._xrun_status[self.xruns] = status
             self.xruns += 1
             self.last_status = status
 
@@ -434,6 +447,16 @@ class DelayedLoopback:
             if sound is not None:
                 events.append((int(round(onset * self.samplerate)), sound))
         self._control_events = tuple(events)
+
+    @property
+    def xrun_log(self) -> list[tuple[float, str]]:
+        """(Sekunden seit Stream-Start, PortAudio-Status) der ersten Aussetzer.
+
+        Hoechstens XRUN_LOG_SIZE Eintraege; `xruns` zaehlt weiter.
+        """
+        n = min(self.xruns, XRUN_LOG_SIZE)
+        return [(float(self._xrun_frames[i]) / self.samplerate,
+                 str(self._xrun_status[i])) for i in range(n)]
 
     @property
     def capture_dropouts(self) -> tuple[int, int] | None:

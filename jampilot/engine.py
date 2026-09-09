@@ -182,6 +182,11 @@ class Engine:
 
         self._loop = None
         self._route = None
+        # Das Akkordmodell, geladen im Warmup (cli.vorheizen) - BEVOR der Stream
+        # laeuft. Frueher lud die Anzeigeschleife es selbst, nach dem
+        # Stream-Start, und die volle GC-Sammlung, die das Laden ausloest (60-80
+        # ms), traf den laufenden Callback. None: die Schleife laedt selbst.
+        self.modell = None
         # Der Mitschnitt (record_buffer). None, bis zum ersten R - der Speicher
         # (eine halbe Stunde Stereo sind 659 MiB) wird erst dann reserviert,
         # und zwar in einem Hintergrundthread, nicht im Audio-Callback.
@@ -230,6 +235,11 @@ class Engine:
             return 0
         fremd = self._loop.capture_dropouts
         return int(self._loop.xruns) + (sum(fremd) if fremd else 0)
+
+    @property
+    def dropout_log(self) -> list[tuple[float, str]]:
+        """Die ersten Aussetzer mit Sekunde seit Stream-Start und Grund."""
+        return list(self._loop.xrun_log) if self._loop else []
 
     def toggle_mute(self) -> bool:
         if not self._loop:

@@ -140,6 +140,9 @@ In der Reihenfolge des erwarteten Hebels:
    Schwellen (`gc.set_threshold`), aber freeze ist das gezieltere Werkzeug.
    Lohnt nur, wenn der Z820-Lauf volle Sammlungen NACH dem Start zeigt;
    sonst ist Punkt 1 allein die Antwort.
+   **Umgesetzt (2026-09-09):** Der Z820-Lauf zeigte sie (77-84 ms bei
+   t=3.8 s und 8.0 s). `vorheizen` laedt jetzt auch das Modell und friert
+   danach den Heap ein.
 3. **refine_boundary in einen Worker-Thread** (`_display_loop`): Die
    Verfeinerung gilt dann einen Hop spaeter, was der Ledger schon heute
    vertraegt (sie klemmt an der Commit-Grenze, s. 1.3.1). Hop-Budget 166 ->
@@ -201,8 +204,51 @@ alle Knoten. Noch nicht behandelt.
 
 **Ausserhalb von JamPilot zu tun:** Neustart stellt rtkits Echtzeit her, bis
 zum naechsten "canary"-Vorfall; dauerhaft hilft `usermod -aG pipewire
-johannes` (limits.conf gibt der Gruppe rtprio 95). Die `schleife`-Messung
-(GC-Pausen) steht auf dieser Maschine noch aus.
+johannes` (limits.conf gibt der Gruppe rtprio 95). Erledigt am 9.9.; danach
+liefen PipeWires Datenschleifen und die im JamPilot-Prozess mit FIFO 83, und
+`pw-top` zaehlte in der naechsten Session keinen einzigen Fehler mehr.
+
+### Zweite Runde: zwei Aussetzer beim Start (Bundle, 2026-09-09)
+
+Mit Echtzeit, einem BLAS-Thread und 0.2 s Puffer blieb ein Muster: Das
+Bundle (`dist/jampilot`) meldete zwei Aussetzer in den ersten Sekunden,
+danach nichts mehr. PipeWire zaehlte dabei auf keinem JamPilot-Knoten einen
+Fehler, ein frisch geoeffneter Stream lieferte in 12 s keinen Statusflag -
+die Ursache lag im Prozess. Zwei Messungen (`schleife` 40 s auf dem Z820,
+und ein Takt-Thread neben den einzelnen Startschritten):
+
+| Startschritt                         | Cache kalt | Cache warm | Callback max spaet |
+|--------------------------------------|------------|------------|--------------------|
+| vorheizen (features_from_audio)      | 24.4 s     | 2.0 s      | 81 ms / 8 ms       |
+| BTCModel()                           | 61 ms      | 51 ms      | 0 ms               |
+| erstes Fenster                       | 63 ms      | 54 ms      | 0 ms               |
+| **erste refine_boundary**            | **4.4 s**  | **465 ms** | **55 ms / 35 ms**  |
+| jede weitere refine_boundary         | 130 ms     | 127 ms     | 0 ms               |
+
+Dazu die vollen GC-Sammlungen: gen2 bei t=2.3 s (12 ms), 3.8 s (77 ms),
+8.0 s (84 ms); der Callback kam dabei 61 und 69 ms zu spaet - zwei Ereignisse
+ueber einem Block in 40 s, beide in der Startphase, danach keine.
+
+Zwei Dinge kamen zusammen: **Das Bundle entpackt sich je Start in ein neues
+Verzeichnis, numbas Cache ist nach Quellpfad verschluesselt und damit jedes
+Mal kalt** (`~/.cache/numba` traegt je Start neue Eintraege - einen Satz aus
+dem Warmup, einen weiteren eine Minute spaeter aus der ersten Verfeinerung).
+Und `vorheizen` uebersetzte nur den Merkmalspfad; die Kerne der
+Grenzverfeinerung (HPSS, Chroma-CQT, Onset) kamen beim ersten Akkordwechsel
+dran, mit laufendem Stream. Das allein (55 ms) passt in den Puffer; mit einer
+vollen Sammlung (80 ms) obendrauf nicht mehr.
+
+**Umgesetzt:** `vorheizen` ruft `refine_boundary` einmal mit synthetischem
+Audio, laedt das Modell (`engine.modell`, die Anzeigeschleife nimmt es
+entgegen) und friert danach den Heap ein (`gc.freeze`). Der Stream merkt
+sich die ersten 16 Aussetzer mit Stream-Sekunde und Grund (`xrun_log`), die
+Anzeigeschleife meldet sie ins Startprotokoll, das Fenster zeigt sie als
+Tooltip am Zaehler - die naechste Session sagt dann selbst, ob es der Start
+war.
+
+**Offen:** numbas Cache fuer das Bundle an einen festen Ort legen
+(`NUMBA_CACHE_DIR`), damit nicht jeder Start 25 s uebersetzt - Startzeit,
+kein Aussetzer-Thema.
 
 ## Naechste Schritte auf dem Z820
 

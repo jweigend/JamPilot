@@ -34,6 +34,7 @@ class FakeEngine:
         self.record_paused = False
         self.record_offset = 0.0
         self.dropouts = 0
+        self.dropout_log = []
         self.gerufen = []
 
     running = property(lambda self: self._running)
@@ -376,6 +377,17 @@ class TestAussetzerImFenster:
         e.dropouts = 3
         f.nachziehen()
         assert "Lead" in f.info.text() and f.info.text().endswith("3 dropouts")
+
+    def test_wann_steht_im_tooltip(self, fenster):
+        f, e = fenster
+        e.start()
+        e.dropouts, e.dropout_log = 2, [(3.8, "output underflow"), (8.0, "output underflow")]
+        f.nachziehen()
+        assert f.info.toolTip() == ("3.8 s after start: output underflow\n"
+                                    "8.0 s after start: output underflow")
+        e.dropouts, e.dropout_log = 0, []
+        f.nachziehen()
+        assert f.info.toolTip() == ""
 
     def test_auch_im_record_modus(self, fenster):
         f, e = fenster

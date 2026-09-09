@@ -235,6 +235,16 @@ class TestAussetzer:
         loop.xruns, loop.capture_dropouts = 3, (1, 2)
         assert engine.dropouts == 6
 
+    def test_das_log_kommt_vom_stream(self, engine):
+        assert engine.dropout_log == []
+        engine.start()
+        engine._Loop.return_value.xrun_log = [(3.8, "output underflow")]
+        assert engine.dropout_log == [(3.8, "output underflow")]
+
+    def test_das_modell_kommt_aus_dem_warmup(self, engine):
+        # None heisst: die Anzeigeschleife laedt selbst (analyze, Tests).
+        assert engine.modell is None
+
 
 class TestStartprotokoll:
     """Die Etappen des Starts: lesbar, mit Dauer, aus jedem Thread.

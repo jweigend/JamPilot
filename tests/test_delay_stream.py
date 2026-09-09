@@ -476,3 +476,29 @@ class TestPuffertiefe:
                             blocksize=64, channels=2, analysis_seconds=1.0,
                             capture=object())
         assert Stream.call_args.kwargs["latency"] == OUTPUT_LATENCY_SECONDS
+
+
+class TestAussetzerLog:
+    """Die ersten Aussetzer mit Position - WANN ist die halbe Diagnose."""
+
+    def test_merkt_sich_position_und_grund(self, loop):
+        from jampilot.delay_stream import XRUN_LOG_SIZE
+        indata = np.zeros((64, 2), dtype=np.float32)
+        out = np.zeros((64, 2), dtype=np.float32)
+        for _ in range(10):                       # 640 Frames = 0.64 s bei 1 kHz
+            loop._callback(indata, out, 64, Zeit(0.0), None)
+        loop._callback(indata, out, 64, Zeit(0.0), "output underflow")
+        loop._callback(indata, out, 64, Zeit(0.0), None)
+        loop._callback(indata, out, 64, Zeit(0.0), "input overflow")
+        assert loop.xruns == 2
+        assert loop.xrun_log == [(0.64, "output underflow"), (0.768, "input overflow")]
+        assert len(loop._xrun_frames) == XRUN_LOG_SIZE   # vorbelegt, waechst nie
+
+    def test_jenseits_des_logs_wird_nur_gezaehlt(self, loop):
+        from jampilot.delay_stream import XRUN_LOG_SIZE
+        indata = np.zeros((64, 2), dtype=np.float32)
+        out = np.zeros((64, 2), dtype=np.float32)
+        for _ in range(XRUN_LOG_SIZE + 5):
+            loop._callback(indata, out, 64, Zeit(0.0), "output underflow")
+        assert loop.xruns == XRUN_LOG_SIZE + 5
+        assert len(loop.xrun_log) == XRUN_LOG_SIZE

@@ -439,6 +439,14 @@ class Fenster(QWidget):
             aussetzer = getattr(e, "dropouts", 0)
             if aussetzer:
                 zeile += f"   ·   {aussetzer} dropout{'s' if aussetzer != 1 else ''}"
+                # WANN, als Tooltip: "3.8 s after start" ist der Start selbst
+                # (Uebersetzung, Modell), "412.0 s" ist etwas anderes. Ohne
+                # Terminal ist das die einzige Stelle, an der man das erfaehrt.
+                self.info.setToolTip("\n".join(
+                    f"{sek:.1f} s after start: {grund}"
+                    for sek, grund in getattr(e, "dropout_log", ())))
+            else:
+                self.info.setToolTip("")
             self.info.setText(zeile)
         else:
             self.info.setText("")
