@@ -454,3 +454,25 @@ def _letzter_ausgang(loop):
     outdata = np.zeros((64, 2), dtype=np.float32)
     loop._callback(indata, outdata, 64, Zeit(0.0), None)
     return outdata
+
+
+class TestPuffertiefe:
+    """"high" ergab unter Linux einen einzigen Block (43 ms) - jede volle
+    GC-Sammlung war laenger. Ein Zahlenwert gibt echte Reserve
+    (docs/exploration/audio-aussetzer-analyse.md)."""
+
+    def test_vollduplex_oeffnet_mit_zahlenwert(self):
+        from jampilot.delay_stream import OUTPUT_LATENCY_SECONDS
+        with patch("sounddevice.Stream") as Stream:
+            DelayedLoopback(None, None, delay_seconds=0.5, samplerate=1000,
+                            blocksize=64, channels=2, analysis_seconds=1.0)
+        latenz = Stream.call_args.kwargs["latency"]
+        assert latenz == OUTPUT_LATENCY_SECONDS and 0.1 <= latenz <= 0.5
+
+    def test_nur_ausgabe_ebenso(self):
+        from jampilot.delay_stream import OUTPUT_LATENCY_SECONDS
+        with patch("sounddevice.OutputStream") as Stream:
+            DelayedLoopback(None, None, delay_seconds=0.5, samplerate=1000,
+                            blocksize=64, channels=2, analysis_seconds=1.0,
+                            capture=object())
+        assert Stream.call_args.kwargs["latency"] == OUTPUT_LATENCY_SECONDS

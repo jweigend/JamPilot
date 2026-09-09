@@ -33,6 +33,7 @@ class FakeEngine:
         self.recording = False
         self.record_paused = False
         self.record_offset = 0.0
+        self.dropouts = 0
         self.gerufen = []
 
     running = property(lambda self: self._running)
@@ -353,3 +354,40 @@ class TestRecordAnzeige:
         e.start()
         f.nachziehen()
         assert "Lead" in f.info.text() and "REC" not in f.info.text()
+
+
+class TestAussetzerImFenster:
+    """Xruns standen nur beim Beenden im Terminal - wer per Doppelklick
+    startet, hat keins. Das Fenster ist die Diagnoseflaeche, hier gehoert die
+    Zahl hin (docs/exploration/audio-aussetzer-analyse.md)."""
+
+    def test_ohne_aussetzer_steht_da_nichts(self, fenster):
+        f, e = fenster
+        e.start()
+        f.nachziehen()
+        assert "dropout" not in f.info.text()
+
+    def test_aussetzer_stehen_in_der_info_zeile(self, fenster):
+        f, e = fenster
+        e.start()
+        e.dropouts = 1
+        f.nachziehen()
+        assert f.info.text().endswith("1 dropout")
+        e.dropouts = 3
+        f.nachziehen()
+        assert "Lead" in f.info.text() and f.info.text().endswith("3 dropouts")
+
+    def test_auch_im_record_modus(self, fenster):
+        f, e = fenster
+        e.start()
+        e.recording, e.record_offset, e.dropouts = True, 12.0, 2
+        f.nachziehen()
+        assert "REC 12 s back" in f.info.text() and "2 dropouts" in f.info.text()
+
+    def test_die_attrappe_ohne_zaehler_stoert_nicht(self, fenster):
+        # Der Selbsttest bringt eine SimpleNamespace-Engine mit - ohne Zaehler.
+        f, e = fenster
+        e.start()
+        del e.dropouts
+        f.nachziehen()
+        assert "Lead" in f.info.text()

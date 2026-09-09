@@ -425,12 +425,21 @@ class Fenster(QWidget):
             # Sekundenangabe stehen, die die Webanzeige bewusst verschweigt.
             if getattr(e, "recording", False):
                 zurueck = getattr(e, "record_offset", 0.0)
-                self.info.setText(f"Delay {e.delay_seconds:.1f} s   ·   "
-                                  f"REC {zurueck:.0f} s back" if zurueck >= 0.5
-                                  else f"Delay {e.delay_seconds:.1f} s   ·   REC")
+                zeile = (f"Delay {e.delay_seconds:.1f} s   ·   "
+                         f"REC {zurueck:.0f} s back" if zurueck >= 0.5
+                         else f"Delay {e.delay_seconds:.1f} s   ·   REC")
             else:
-                self.info.setText(f"Delay {e.delay_seconds:.1f} s   ·   "
-                                  f"Lead {max(e.lead, 0.0):.1f} s")
+                zeile = (f"Delay {e.delay_seconds:.1f} s   ·   "
+                         f"Lead {max(e.lead, 0.0):.1f} s")
+            # Aussetzer, die der Stream selbst gezaehlt hat (Xruns). Erst ab
+            # dem ersten - eine "0" wuerde nur Fragen aufwerfen. Danach bleibt
+            # die Zahl stehen: Ruckelt es im Proberaum, sagt ein Blick hierher,
+            # ob es JamPilot war. Sonst steht das nur beim Beenden im Terminal,
+            # das bei einem Start per Doppelklick niemand hat.
+            aussetzer = getattr(e, "dropouts", 0)
+            if aussetzer:
+                zeile += f"   ·   {aussetzer} dropout{'s' if aussetzer != 1 else ''}"
+            self.info.setText(zeile)
         else:
             self.info.setText("")
 

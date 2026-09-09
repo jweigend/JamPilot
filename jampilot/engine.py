@@ -215,6 +215,22 @@ class Engine:
     def delay_seconds(self) -> float:
         return self._loop.delay_seconds if self._loop else float(self.args.delay)
 
+    @property
+    def dropouts(self) -> int:
+        """Ton-Aussetzer seit dem Start, wie der Stream sie selbst zaehlt.
+
+        PortAudio-Xruns (der Callback kam zu spaet - unter Linux reicht dafuer
+        eine GC-Pause, s. docs/exploration/audio-aussetzer-analyse.md) plus,
+        unter Windows, die Unter- und Ueberlaeufe des Loopback-Mitschnitts.
+        Bisher standen diese Zahlen nur beim Beenden im Terminal; wer aus dem
+        Fenster startet, sah sie nie und musste raten, ob ein Ruckeln aus
+        JamPilot kam oder von davor (PipeWire, Treiber) bzw. dahinter.
+        """
+        if not self._loop:
+            return 0
+        fremd = self._loop.capture_dropouts
+        return int(self._loop.xruns) + (sum(fremd) if fremd else 0)
+
     def toggle_mute(self) -> bool:
         if not self._loop:
             return False
