@@ -119,7 +119,16 @@ glance, while both your hands are busy:
   that `G` the start of the next bar, or a change on the three? A learned
   beat tracker (Beat This!, ISMIR 2024) finds the pulse; the ticks only
   appear while the beat is steady and the downbeat is settled — no tick is
-  better than a wrong one, and a rubato ballad gets none. The same beat grid pulls
+  better than a wrong one, and a rubato ballad gets none.
+  One thing you will notice with the ticks in place: **chords often change
+  on the four, not on the one.** That is the record, not a mistake. A singer
+  or a lead line frequently steers into the next chord a beat early — a
+  pickup, an anticipation — and JamPilot hears the whole mix, with no
+  instrument singled out, so it reports the harmony the moment it actually
+  turns. A chord sheet would write the change on the bar line; the band
+  plays it where JamPilot shows it. For improvising and for transitions that
+  is the more useful truth: it shows you where the *feel* changes, and the
+  tick under it shows you where the bar does. The same beat grid pulls
   every chord change onto its nearest quarter note, which halves the timing
   error of the chips. Off in the gear menu if you hear the one yourself.
 - **The key badge**, top left, once there is enough music to be sure of it.
