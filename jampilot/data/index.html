@@ -408,10 +408,13 @@
      Playtest zu unruhig (10.09.); die Ticks stoeren kaum und geben die
      Orientierung. Dezent heisst: kein Text, keine Zahl, kein Zaehler.
      Bewegung per transform wie die Chips. */
+  /* Der Akzent der Seite (JETZT-Linie, Bassnote: #6ea8ff), stark
+     abgedunkelt - ein Hauch Blau statt Grau, damit die Ticks zur Linie
+     gehoeren, auf die sie zulaufen. */
   .beat { position: absolute; bottom: 3.6vh; left: 0; width: 1px; height: 1.4vh;
-          background: #2a2e33; z-index: 0; will-change: transform;
+          background: #6ea8ff3a; z-index: 0; will-change: transform;
           pointer-events: none; }
-  .beat.bar { height: 2.8vh; background: #3d434a; }
+  .beat.bar { height: 2.8vh; background: #6ea8ff70; }
   body.nobeats .beat { display: none; }
 
   #hint { position: fixed; bottom: 24.5vh; right: 2.6vmin; color: #333;
