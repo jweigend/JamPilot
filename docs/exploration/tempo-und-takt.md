@@ -445,8 +445,10 @@ Semantik - es kommt eine zweite Ereignisart durch einen bestehenden Kanal.
 ## 9. Naechste Schritte, falls es weitergeht
 
 1. ~~Isophonics-Beat-Annotationen besorgen~~ - erledigt (§4.3), drei Titel.
-2. **Beat This! (und ggf. BeatNet) in einem Scratch-venv mit PyTorch
-   evaluieren:** Beat-F, Downbeat-F, Phase auf den drei Beatles-Titeln plus
+2. **Beat This! (und ggf. BeatNet) evaluieren - im ML-Repo nebenan**
+   ([../../../JamPilotML/docs/beat-tracking-evaluierung.md](../../../JamPilotML/docs/beat-tracking-evaluierung.md):
+   GPU, Torch, 180 Beatles-Titel mit Beat-Ground-Truth und Offsets statt
+   drei; dort steht der Fahrplan mit Schwellen):** Beat-F, Downbeat-F, Phase auf den drei Beatles-Titeln plus
    den Realaudio-Dateien; CPU-Zeit je 10-s-Fenster. Ein Tag. Das ist die
    Entscheidungszahl fuer Stufe 3.
 3. Faellt sie gut aus: Quantisierungsmessung (§4.4) mit dem *Modell*-Raster
