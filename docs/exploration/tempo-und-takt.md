@@ -445,7 +445,13 @@ Semantik - es kommt eine zweite Ereignisart durch einen bestehenden Kanal.
 ## 9. Naechste Schritte, falls es weitergeht
 
 1. ~~Isophonics-Beat-Annotationen besorgen~~ - erledigt (§4.3), drei Titel.
-2. **Beat This! (und ggf. BeatNet) evaluieren - im ML-Repo nebenan**
+2. ~~Beat This! evaluieren~~ - **erledigt 2026-09-10**, Ergebnisse und
+   Einbau-Rezept in [beat-tracking-ergebnisse.md](beat-tracking-ergebnisse.md):
+   Beat-F 0,99, Phase 8 ms, Viertel-Snap halbiert den Grenzfehler auf
+   Oracle-Niveau; CPU ein Drittel Kern, GPU 27 ms; Modell als ONNX in
+   `jampilot/data/`, Referenz und Golden-Test liegen bei. Punkt 3 unten ist
+   damit ebenfalls erledigt. Urspruenglicher Auftrag:
+   Beat This! (und ggf. BeatNet) evaluieren - im ML-Repo nebenan
    ([../../../JamPilotML/docs/beat-tracking-evaluierung.md](../../../JamPilotML/docs/beat-tracking-evaluierung.md):
    GPU, Torch, 180 Beatles-Titel mit Beat-Ground-Truth und Offsets statt
    drei; dort steht der Fahrplan mit Schwellen):** Beat-F, Downbeat-F, Phase auf den drei Beatles-Titeln plus
