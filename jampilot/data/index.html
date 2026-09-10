@@ -402,15 +402,16 @@
   body.invdegrees .chip .eta { order: 3; }
 
   /* Taktstriche: die Eins als duenne Linie ueber die ganze Hoehe der Spur,
-     die anderen Schlaege nur ein Hauch am Boden (ueber dem NOW-Label,
-     unter dem Countdown der Chips) - dezent heisst: kein Text, keine Zahl,
-     kein Zaehler. Bewegung per transform wie die Chips; z-index 0, damit
-     ein Chip mit seinem deckenden Hintergrund darueber liegt und die Linie
-     nicht durch den Akkordnamen schneidet. */
+     VOR den Chips (z-index ueber deren Stapel, unter der JETZT-Linie) - der
+     Chip beginnt am Wechsel, die Linie zeigt, ob das die Eins ist, und das
+     soll man auch dann sehen, wenn der Chip darueber laeuft. Die anderen
+     Schlaege nur ein Hauch am Boden (ueber dem NOW-Label, unter dem
+     Countdown). Dezent heisst: kein Text, keine Zahl, kein Zaehler.
+     Bewegung per transform wie die Chips. */
   .beat { position: absolute; bottom: 3.6vh; left: 0; width: 1px; height: 1.4vh;
           background: #2a2e33; z-index: 0; will-change: transform;
           pointer-events: none; }
-  .beat.bar { top: 0; bottom: 0; height: auto; background: #383d44; }
+  .beat.bar { top: 0; bottom: 0; height: auto; background: #383d44; z-index: 40; }
   body.nobeats .beat { display: none; }
 
   #hint { position: fixed; bottom: 24.5vh; right: 2.6vmin; color: #333;
