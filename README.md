@@ -114,12 +114,13 @@ glance, while both your hands are busy:
   `NOW` line. Each chord carries its countdown (`in 1.3s`). A chord flips to the
   centre in exactly the frame in which its chip touches the line — big chord and
   lane run off the same clock, so they cannot drift apart.
-- **Bar lines under the lane** — a faint tick per beat, the downbeat a little
-  taller. The chip says *what* comes, the tick says *where in the bar*: is that
-  `G` the one of the next bar, or a change on the three? A learned beat
-  tracker (Beat This!, ISMIR 2024) finds the pulse; the ticks only appear
-  while the beat is steady and the downbeat is settled — no tick is better
-  than a wrong one, and a rubato ballad gets none. The same beat grid pulls
+- **Bar lines in the lane** — a thin line across the lane on every downbeat,
+  a faint tick at the bottom for the other beats. The chip says *what* comes,
+  the line says *where in the bar*: is that `G` the one of the next bar, or a
+  change on the three? A learned beat tracker (Beat This!, ISMIR 2024) finds
+  the pulse; the lines only appear while the beat is steady and the downbeat
+  is settled — no line is better than a wrong one, and a rubato ballad gets
+  none. The same beat grid pulls
   every chord change onto its nearest quarter note, which halves the timing
   error of the chips. Off in the gear menu if you hear the one yourself.
 - **The key badge**, top left, once there is enough music to be sure of it.

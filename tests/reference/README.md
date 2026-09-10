@@ -181,6 +181,11 @@ verankert; `--fit` rechnet ihn neu):
 Bei Eight Days liegen die beiden Referenzen 0,1 s auseinander; Zahlen gegen
 den Chroma-Offset sind fuer diesen Titel nicht belastbar. Ergebnisse
 (Gewichte iso-only) und Lesart: docs/exploration/beat-tracking-ergebnisse.md
-§8.3 - mit den v7-Gewichten (seit 2026-09-10) Let It Be 120 -> 70 ms /
-39 -> 71 %, Eight Days 226 -> 79 ms / 14 -> 51 % (median |dt| / Anteil
-<= 93 ms, driftkorrigiert); Something folgt.
+§8.3. Mit den v7-Gewichten (seit 2026-09-10), median |dt| / Anteil <= 93 ms,
+driftkorrigiert, ohne Tracker -> mit Viertel-Snap:
+
+| Track | Events | ohne Tracker | mit Snap | Beat-F | Downbeat-F |
+|---|---|---|---|---|---|
+| let_it_be | 158 | 120 ms / 39 % | **70 ms / 71 %** | 0,96 | 0,65 (Modell zaehlt Halbtakte) |
+| eight_days_a_week | 99 | 226 ms / 14 % | **79 ms / 51 %** | 0,99 | 0,995 |
+| something | 109 | 137 ms / 30 % | **54 ms / 74 %** | 0,85 | 0,66 |

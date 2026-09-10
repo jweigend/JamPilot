@@ -401,16 +401,16 @@
                   font-size: 2.4vmin; color: #6b7480; font-weight: 500; }
   body.invdegrees .chip .eta { order: 3; }
 
-  /* Taktstriche: ein Strich je Beat in der unteren Haelfte der Spur, unter
-     den Chips (die laufen auf 42 % Hoehe, ihr Countdown endet ~5 vh ueber dem
-     Boden), ueber dem NOW-Label (1 vh). Die Eins etwas laenger und heller,
-     die anderen Schlaege nur ein Hauch - dezent heisst: kein Text, keine
-     Zahl, kein Zaehler. Bewegung per transform wie die Chips; z-index 0,
-     damit ein Chip mit seinem deckenden Hintergrund darueber liegt. */
+  /* Taktstriche: die Eins als duenne Linie ueber die ganze Hoehe der Spur,
+     die anderen Schlaege nur ein Hauch am Boden (ueber dem NOW-Label,
+     unter dem Countdown der Chips) - dezent heisst: kein Text, keine Zahl,
+     kein Zaehler. Bewegung per transform wie die Chips; z-index 0, damit
+     ein Chip mit seinem deckenden Hintergrund darueber liegt und die Linie
+     nicht durch den Akkordnamen schneidet. */
   .beat { position: absolute; bottom: 3.6vh; left: 0; width: 1px; height: 1.4vh;
           background: #2a2e33; z-index: 0; will-change: transform;
           pointer-events: none; }
-  .beat.bar { width: 2px; height: 3.2vh; background: #4a5158; }
+  .beat.bar { top: 0; bottom: 0; height: auto; background: #383d44; }
   body.nobeats .beat { display: none; }
 
   #hint { position: fixed; bottom: 24.5vh; right: 2.6vmin; color: #333;
@@ -550,16 +550,17 @@
       </button>
 
       <h2 class="second">Bar lines</h2>
-      <p class="sub">Faint ticks under the timeline, one per beat, the
-         downbeat a little taller: the chord chip tells you <em>what</em>, the
-         tick tells you <em>where in the bar</em>. They only appear while the
-         beat is steady and the downbeat is settled &ndash; no tick is better
-         than a wrong one. If you hear the one, turn them off.</p>
+      <p class="sub">A thin line across the timeline on every downbeat, a
+         faint tick at the bottom for the other beats: the chord chip tells
+         you <em>what</em>, the line tells you <em>where in the bar</em>. They
+         only appear while the beat is steady and the downbeat is settled
+         &ndash; no line is better than a wrong one. If you hear the one, turn
+         them off.</p>
       <button class="opt" data-beats="on" role="radio">
         <span class="glyph">&#9475;</span>
         <span class="text">
           <span class="label">Shown</span>
-          <span class="desc">Beats as small ticks, the downbeat taller.</span>
+          <span class="desc">A line per bar, a small tick per beat.</span>
         </span>
       </button>
       <button class="opt" data-beats="off" role="radio">

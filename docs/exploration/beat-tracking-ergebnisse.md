@@ -169,7 +169,7 @@ Was aus dem Rezept in §4 geworden ist, und wo der Einbau davon abweicht.
 | Raster | `beats.BeatGrid` | Commit-Zone [Ende−3, Ende−1), Mitteln < 60 ms, publish-once ueber `commit(frontier)`; `prune` mit Record-Rueckhalt wie der EventLedger |
 | Snap | `cli.EventLedger.advance(snap=)` | beim Commit: Event-Onset = naechster Beat, wenn einer in Reichweite (0,6 Schlag, Loecher werden nicht ueberbrueckt); die Zeitleiste behaelt die rohe Grenze, die Kontrollgitarre spielt auf dem Event-Onset |
 | Kanal | `"beats": [{at, n}]` | zweiter Publish-once-Kanal, geschnitten wie `committed`; `n` Schlag im Takt, 1 = Eins, 0 = unbekannt |
-| Anzeige | `index.html` `.beat` / `.beat.bar` | Striche unter den Chips, Eins laenger und heller; Schalter im Zahnrad (`jampilot.beats`, pro Geraet, Standard an); dieselbe Formel und Uhr wie die Chips, kein Client-Raster |
+| Anzeige | `index.html` `.beat` / `.beat.bar` | Eins als duenne Linie ueber die ganze Spurhoehe (unter den Chips, die sie mit ihrem Hintergrund decken), andere Schlaege als Hauch am Boden; Schalter im Zahnrad (`jampilot.beats`, pro Geraet, Standard an); dieselbe Formel und Uhr wie die Chips, kein Client-Raster |
 | Selbsttest | `selftest._beats_pruefen` | laedt das Modell aus dem Paket und prueft auf einem 120-bpm-Loop den Viertelabstand — fehlt die ONNX-Datei im Bundle, faellt der Bau, nicht der Nutzer |
 | Paket | `pyproject.toml`, `requirements.lock`, `jampilot.spec` | `onnxruntime>=1.17` (gesperrt 1.30.0, dazu flatbuffers/protobuf), `data/*.onnx`, `collect_all("onnxruntime")` |
 
@@ -273,6 +273,11 @@ Lesart:
   Schlaege hat. Das ist der Preis dafuer, keine Eins-Abstimmung aus
   Akkordwechseln (§4.2 in tempo-und-takt) zu fuehren; ob sie als
   Halbtakt-Waechter lohnt, ist ein Punkt fuer den Playtest.
+- **Mit den v7-Gewichten** (Drop-in am selben Tag, nachtraining-kampagnen-
+  2026-08.md) dasselbe Bild: 120 → 70 ms / 39 → 71 % (Let It Be), 226 → 79 ms /
+  14 → 51 % (Eight Days), 137 → 54 ms / 30 → 74 % (Something); Tabelle in
+  tests/reference/README.md. Something liefert mit v7 109 statt 145 Events —
+  weniger Flackern, dieselbe Trefferquote.
 - **Verfeinerung + Snap statt roh + Snap** (§8.2) kostet nichts: Die
   Events liegen auf dem Beat, wo einer ist, und dort ist es egal, was die
   Verfeinerung davor tat.
