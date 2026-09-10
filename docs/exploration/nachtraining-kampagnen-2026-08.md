@@ -142,3 +142,63 @@ JamPilotML: Notebooks 00–06 (Doku + Fahrplan), `scripts/kampagne_1000.py`
 (pipeline/train). Ergebnisdaten: `data/*.parquet`, Streit-Details je Song in
 `data/cache/compare_cn/<id>.json`, Modelle in `data/runs/<name>/best.npz`
 (Drop-in für `btc_large_voca.npz`, bitkompatibel validiert).
+
+## Nachtrag 2026-09-10: Multi-View-Teacher und v7 — die erste Verbesserung seit iso-only
+
+Nach dem Friedhof oben blieb eine Idee unvermessen liegen (Dateien vom
+26.08. abends, erst am 10.09. ausgewertet): **derselbe gute Klassifikator,
+aber gezielt veränderte Beobachtungen.** Demucs (htdemucs) zerlegt jeden
+Song in Gesang, Bass, Schlagzeug, Rest; daraus fünf Ansichten (Full Mix,
+ohne Gesang, ohne Schlagzeug, …), auf jeder der iso-only-BTC, die
+Wahrscheinlichkeiten gemittelt, dann Viterbi mit Wechselstrafe statt
+Frame-argmax (`chordml/views.py`, `chordml/decode.py`,
+`scripts/teacher_duell.py`). Das ist ein *Offline*-Teacher — Demucs ist für
+den Live-Pfad zu teuer — und dient als Label-Quelle: **run_v7** ist der
+BTC, nachtrainiert auf den Teacher-Labels von 1000 Songs
+(`scripts/teacher_labels_alle.py`, Rezept wie iso-only).
+
+Drei Messungen, alle für den Teacher bzw. v7:
+
+| Messung | Champion (iso-only) | Teacher | v7 |
+|---|---|---|---|
+| Chart-Urteile Teacher vs. Champion, 1000 Songs | 320 | **538** (63 %) | — |
+| dito v7 vs. Teacher | — | 459 | 382 |
+| Referenz-Set exakt / Wurzel (5 Tracks, 10 056 Frames) | 0,731 / 0,791 | **0,742 / 0,800** | 0,736 / 0,797 |
+| Radar ganze Bibliothek, Urteile gegen ChordNet (6285 Songs) | 51,5 % | — | **55,3 %** |
+
+Auf dem Referenz-Set kommen zwei Drittel des Gewinns aus den Ansichten
+(argmax auf dem Ensemble 0,739), ein Drittel aus Viterbi (Full Mix +
+Viterbi 0,734); ungleich verteilt (*Crazy Little Thing* +4,7 Punkte,
+*Let It Be* und *Something* minimal schlechter). Der Radar-Schritt
+iso-only → v7 (+3,8 Punkte Urteilsanteil, `scripts/radar_modelle.py`, alt
+48,0 %) ist so groß wie der Schritt alt → iso-only, der den Einsatz in
+JamPilot begründet hat. Pro Genre:
+
+| Genre | n | alt | iso-only | v7 |
+|---|---|---|---|---|
+| Rock | 1589 | 49 % | 52 % | 56 % |
+| Latin | 1352 | 49 % | 53 % | 55 % |
+| Progressive | 449 | 46 % | 49 % | 53 % |
+| Jazz | 408 | 25 % | 31 % | 35 % |
+| Pop | 366 | 56 % | 65 % | 66 % |
+| Metal / Alternative / World | 74 / 106 / 182 | 52 / 41 / 39 % | 57 / 45 / 45 % | 65 / 53 / 52 % |
+| R&B | 108 | 47 % | 37 % | 36 % |
+
+Lesart: **Jazz bleibt die Lücke** (ChordNet gewinnt dort zwei von drei
+Urteilen; Richtung stimmt, aber das ist das Gebiet für neue echte Labels,
+nicht für weitere Destillation). **R&B ist die einzige Verschlechterung**,
+und die kam schon mit iso-only — das Isophonics-Finetuning hat dort etwas
+verlernt. Die Einigkeit mit ChordNet sinkt weiter (alt 0,683, v7 0,644),
+während die Urteile steigen — die Metrik-Warnung oben gilt.
+
+Caveats: ein Punkt auf fünf Referenztracks ist real, aber klein; die
+Best-Epoch-Auswahl am Referenz-Set schmeichelt allen Läufen gleich; die
+Isophonics-Labels, mit denen iso-only und v7 trainiert wurden, liegen bei
+einem Drittel der Titel > 100 ms neben dem Audio
+([beat-tracking-ergebnisse.md](beat-tracking-ergebnisse.md) §5) — ein
+Neu-Training mit korrigierten Offsets steht aus.
+
+**Stand:** `data/runs/run_v7/best.npz` ist der Drop-in für
+`btc_large_voca.npz` (Golden-Test in `test_btc.py` wartet per Hash). Der
+Test in JamPilot mit Hörprobe auf den Radar-Fällen (ELP, Jobim, Sade, Rush)
+wartet, bis die laufende Baustelle dort durch ist.
