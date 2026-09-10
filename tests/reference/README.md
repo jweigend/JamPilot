@@ -122,3 +122,38 @@ liegen zwei Skripte direkt hier:
   Annotationen bei 2 s / 3 s / Vollsegment-Pooling (Ergebnis: Urteil ab 2 s
   identisch zum Vollsegment; die Instabilitaet kam vom beweglichen
   Intervallende, daher jetzt `BASS_POOL_SECONDS`).
+
+
+## Beat-Annotationen (2026-09-10)
+
+Fuer die drei Beatles-Titel liegen die Isophonics-Beat-/Downbeat-Annotationen
+als `<track>.beats` bei (`zeit schlagnummer`, 1 = Eins; Quelle
+isophonics.net, "The Beatles Annotations"). Queen und Carole King haben bei
+Isophonics keine Beat-Annotationen. Die Chordlabs des Tarballs sind
+byte-identisch mit den `.lab` hier - die Chroma-Korrelations-Offsets oben
+gelten also auch fuer die Beats.
+
+Messung `messung_takt_quantisierung.py` (librosa ueber den ganzen Track,
+BTC-Grenzen der Offline-Pipeline; Details und Lesart in
+docs/exploration/tempo-und-takt.md §4.3/4.4):
+
+| Track | GT bpm | librosa bpm | Beat-F (±70 ms) | Phase med \|dt\| | Downbeat-F (Eins-Abstimmung auf GT-Beats) |
+|---|---|---|---|---|---|
+| let_it_be | 69,8 | 143,6 (×2) | 0,23 | 211 ms | 0,00 (Wechsel auf 1 und 3, unentscheidbar) |
+| eight_days_a_week | 139,5 | 136,0 | 0,39 | 94 ms | 1,00 |
+| something | 66,3 | 136,0 (×2) | 0,54 | 107 ms | 1,00 |
+
+Quantisierung der verfeinerten Akkordgrenzen auf ein **Oracle**-Raster
+(GT-Beats), median |dt| / Anteil ≤93 ms:
+
+| Track | heute | → Viertel | → Achtel | → 16tel |
+|---|---|---|---|---|
+| let_it_be | 157 ms / 29 % | **64 ms / 79 %** | 75 ms / 55 % | 124 ms / 35 % |
+| eight_days_a_week | 149 ms / 26 % | **41 ms / 66 %** | 197 ms / 33 % | 148 ms / 35 % |
+| something | 105 ms / 48 % | **58 ms / 80 %** | 70 ms / 65 % | 82 ms / 52 % |
+
+Auf dem librosa-Raster bringt dasselbe Schnappen nichts (Let It Be, Eight
+Days identisch zu heute) - der frueher verworfene Beat-Snap scheiterte am
+Raster, nicht an der Idee. Achtel sind bei ~150 ms Grenzfehler zu fein
+(Eight Days wird schlechter als ohne); das Raster muss groeber sein als der
+Fehler.
