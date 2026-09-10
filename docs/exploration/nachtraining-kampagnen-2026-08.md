@@ -198,7 +198,13 @@ einem Drittel der Titel > 100 ms neben dem Audio
 ([beat-tracking-ergebnisse.md](beat-tracking-ergebnisse.md) §5) — ein
 Neu-Training mit korrigierten Offsets steht aus.
 
-**Stand:** `data/runs/run_v7/best.npz` ist der Drop-in für
-`btc_large_voca.npz` (Golden-Test in `test_btc.py` wartet per Hash). Der
-Test in JamPilot mit Hörprobe auf den Radar-Fällen (ELP, Jobim, Sade, Rush)
-wartet, bis die laufende Baustelle dort durch ist.
+**Stand:** `data/runs/run_v7/best.npz` ist seit **2026-09-10** als
+`btc_large_voca.npz` in JamPilot (Branch `analysis/tempo-und-takt`, zusammen
+mit dem Beat-Tracker; Golden-Test in `test_btc.py` wartet weiter per Hash).
+Gegencheck im NumPy-Port von JamPilot auf den fünf Referenztracks (10 640
+Frames, eigene Rasterung): Wurzel 0,792 → 0,800, exakt 0,736 → 0,742 —
+derselbe Schritt wie im ML-Repo gemessen, kein Portierungsverlust. Der
+Gewinn sitzt bei *Something* (Wurzel 0,738 → 0,764) und *Crazy Little
+Thing*; *Let It Be* unverändert, *Its Too Late* exakt einen Punkt
+schlechter. Die Hörprobe auf den Radar-Fällen (ELP, Jobim, Sade, Rush)
+steht aus — sie gehört in denselben Playtest wie die Taktstriche.

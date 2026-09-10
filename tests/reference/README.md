@@ -157,3 +157,30 @@ Days identisch zu heute) - der frueher verworfene Beat-Snap scheiterte am
 Raster, nicht an der Idee. Achtel sind bei ~150 ms Grenzfehler zu fein
 (Eight Days wird schlechter als ohne); das Raster muss groeber sein als der
 Fehler.
+
+## Live-Pfad-Messung mit Beat-Tracker (2026-09-10)
+
+`messung_live_pfad.py` laesst `_display_loop` hop fuer hop ueber die drei
+Beatles-Titel laufen (Fake-Loop statt Soundkarte, Tracker synchron) und
+misst die COMMITTETEN Events - das, was die Anzeige zeigt - gegen die
+annotierten Wechsel, einmal ohne Beat-Tracker (Verfeinerung wie 1.3.1) und
+einmal mit Viertel-Snap; dazu die committeten Beats gegen die `.beats`.
+
+**Referenzkorrektur:** Die Isophonics-Beats driften gegen die Rips hier
+(Eight Days ~0,3 s ueber den Titel; mit festem Offset Beat-F 0,36, segment-
+weise 0,95). Das Skript traegt deshalb je Titel einen linearen Fit
+(Skalierung + Versatz, aus den Modell-Beats, Familie am Chroma-Offset
+verankert; `--fit` rechnet ihn neu):
+
+| Track | scale | shift | Versatz Titelmitte | Chroma-Offset oben |
+|---|---|---|---|---|
+| let_it_be | 1,00135 | -0,090 s | +0,07 s | +0,08 |
+| eight_days_a_week | 1,00210 | -0,208 s | -0,04 s | -0,15 |
+| something | 1,00040 | -0,100 s | -0,06 s | -0,06 |
+
+Bei Eight Days liegen die beiden Referenzen 0,1 s auseinander; Zahlen gegen
+den Chroma-Offset sind fuer diesen Titel nicht belastbar. Ergebnisse
+(Gewichte iso-only) und Lesart: docs/exploration/beat-tracking-ergebnisse.md
+§8.3 - mit den v7-Gewichten (seit 2026-09-10) Let It Be 120 -> 70 ms /
+39 -> 71 %, Eight Days 226 -> 79 ms / 14 -> 51 % (median |dt| / Anteil
+<= 93 ms, driftkorrigiert); Something folgt.
