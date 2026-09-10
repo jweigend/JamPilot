@@ -607,3 +607,25 @@ class TestSeiteKenntDenRecordModus:
         # Die einzige Schrift des Record-Modus - nur im Fehlerfall, kurz.
         assert 'id="recbadge" hidden' in PAGE
         assert "if (state.record_hint) zeigeRecordHinweis(state.record_hint)" in PAGE
+
+
+class TestTaktstriche:
+    """Beats sind ein zweiter Publish-once-Kanal, die Striche abschaltbar."""
+
+    def test_taktstriche_sind_abschaltbar(self):
+        for wahl in ("on", "off"):
+            assert f'data-beats="{wahl}"' in PAGE, wahl
+        assert "jampilot.beats" in PAGE
+        assert "nobeats" in PAGE
+
+    def test_die_seite_liest_den_beat_kanal(self):
+        assert "state.beats" in PAGE
+        assert "syncBeats" in PAGE
+        assert 'className = b.n === 1 ? "beat bar" : "beat"' in PAGE
+
+    def test_beats_fahren_im_snapshot_mit(self):
+        broadcaster = ChordBroadcaster()
+        q, _ = broadcaster.subscribe()
+        broadcaster.publish({"t": 1.0, "frontier": 3.0, "committed": [],
+                             "beats": [{"at": 2.0, "n": 1}, {"at": 2.5, "n": 2}]})
+        assert _leeren(q)[0]["beats"] == [{"at": 2.0, "n": 1}, {"at": 2.5, "n": 2}]

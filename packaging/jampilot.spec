@@ -55,12 +55,13 @@ datas, binaries, hiddenimports = [], [], []
 #   soundfile   -> libsndfile
 #   sounddevice -> libportaudio      (ohne das gibt es keine Audiogeraete)
 #   llvmlite    -> libllvmlite       (numbas JIT, ~170 MB, unvermeidbar)
+#   onnxruntime -> libonnxruntime    (das Beat-Modell, beats.py; ~15 MB)
 # PySide6 steht bewusst NICHT in dieser Liste: Fuer Qt bringt PyInstaller einen
 # eigenen Hook mit, der genau die benoetigten Bibliotheken und Plattform-Plugins
 # einsammelt. Es zusaetzlich per collect_all einzuziehen holt die ganze
 # Qt-Welt herein und kostete gemessen 38 MB - ohne dass etwas mehr funktioniert.
 for paket in ("librosa", "numba", "llvmlite", "soundfile", "sounddevice",
-              "soxr", "lazy_loader", "audioread", "msgpack"):
+              "soxr", "lazy_loader", "audioread", "msgpack", "onnxruntime"):
     d, b, h = collect_all(paket)
     datas += d
     binaries += b
@@ -85,8 +86,8 @@ for paket in ("librosa", "numba", "llvmlite", "soundfile", "sounddevice",
 datas = [(quelle, ziel) for quelle, ziel in datas
          if not quelle.endswith((".nbc", ".nbi"))]
 
-# Die Paketdaten: Modellgewichte des BTC-Erkenners (11 MB) und die Seiten der
-# Weboberflaeche. Der statische Scanner sieht nur Importe, keine Datendateien -
+# Die Paketdaten: Modellgewichte des BTC-Erkenners (11 MB), das Beat-Modell
+# (ONNX, 11 MB) und die Seiten der Weboberflaeche. Der statische Scanner sieht nur Importe, keine Datendateien -
 # sie muessen also hier stehen.
 #
 # ALLES aus dem Verzeichnis, keine Namensliste. Hier standen einmal zwei Dateien

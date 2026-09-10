@@ -266,7 +266,13 @@ an improvisation aid: everything shown there *fits* what is sounding.
   is an honest listening protocol (where exactly does it tip over?) before
   thinking about solutions.
 - **Timing:** both paths scatter about ±150 ms around the change; getting
-  tighter takes a finer time grid, not better labels.
+  tighter takes a finer time grid, not better labels. That grid exists now:
+  a learned beat tracker (Beat This!, ISMIR 2024) lays beats under the
+  signal, and every chord change snaps to the nearest quarter note — measured
+  against annotated changes, the median error halves (103 → 52 ms). What
+  remains is a chord problem, not a grid problem: changes the recogniser
+  hears a beat late or not at all. The evaluation and the design are in
+  [docs/exploration/beat-tracking-ergebnisse.md](docs/exploration/beat-tracking-ergebnisse.md).
 
 For a deeper dive: the measurement methodology is in
 [tests/reference/README.md](tests/reference/README.md), the original model

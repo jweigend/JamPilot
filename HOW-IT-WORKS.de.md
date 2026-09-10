@@ -273,7 +273,14 @@ angezeigt wird, *passt* zu dem, was klingt.
   ehrliches Hörprotokoll nötig (wo genau kippt es?), bevor an Lösungen zu
   denken ist.
 - **Timing:** Beide Pfade streuen ~±150 ms um den Wechsel; enger geht es nur
-  mit besserem Zeitraster, nicht mit besseren Labels.
+  mit besserem Zeitraster, nicht mit besseren Labels. Dieses Raster gibt es
+  inzwischen: Ein gelernter Beat-Tracker (Beat This!, ISMIR 2024) legt
+  Beats unter das Signal, und jeder Akkordwechsel schnappt auf das nächste
+  Viertel — gegen annotierte Wechsel gemessen halbiert sich der
+  Median-Fehler (103 → 52 ms). Was bleibt, ist ein Akkord-, kein
+  Rasterproblem: Wechsel, die der Erkenner einen Schlag zu spät oder gar
+  nicht hört. Evaluierung und Entwurf in
+  [docs/exploration/beat-tracking-ergebnisse.md](docs/exploration/beat-tracking-ergebnisse.md).
 
 Wer tiefer einsteigen will: Die Messmethodik steht in
 [tests/reference/README.md](tests/reference/README.md), der ursprüngliche

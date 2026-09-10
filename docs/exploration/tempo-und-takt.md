@@ -1,7 +1,9 @@
 # Tempo und Takt: Wie aufwaendig sind dezente Taktstriche in der Zeitleiste?
 
 Stand: 2026-09-10 · Status: **Exploration mit vier Messungen (zwei davon
-gegen Isophonics-Beat-Ground-Truth), kein Produktcode geaendert.** Baut auf
+gegen Isophonics-Beat-Ground-Truth); Stufe 3 (Beat This!) am selben Tag
+evaluiert und eingebaut — Ergebnisse, Entwurf und Abweichungen in
+[beat-tracking-ergebnisse.md](beat-tracking-ergebnisse.md) §8.** Baut auf
 [zeitleiste-redesign.md](zeitleiste-redesign.md) (Publish-once-Kanal) und
 dem Timing-Abschnitt in [tests/reference/README.md](../../tests/reference/README.md)
 auf.
@@ -457,12 +459,15 @@ Semantik - es kommt eine zweite Ereignisart durch einen bestehenden Kanal.
    drei; dort steht der Fahrplan mit Schwellen):** Beat-F, Downbeat-F, Phase auf den drei Beatles-Titeln plus
    den Realaudio-Dateien; CPU-Zeit je 10-s-Fenster. Ein Tag. Das ist die
    Entscheidungszahl fuer Stufe 3.
-3. Faellt sie gut aus: Quantisierungsmessung (§4.4) mit dem *Modell*-Raster
-   statt Oracle wiederholen - dann steht der reale Gewinn fest, bevor
-   irgendetwas portiert wird.
-4. Erst danach Port und Einbau; Anzeige (Stufe 1/2-Teile: Beat-Chips,
-   Commit-Semantik, Gate) laesst sich parallel und tracker-unabhaengig
-   bauen.
+3. ~~Faellt sie gut aus: Quantisierungsmessung (§4.4) mit dem *Modell*-Raster
+   statt Oracle wiederholen~~ - erledigt (Q4 in beat-tracking-ergebnisse.md
+   §1: 103 → 52 ms, gleich Oracle).
+4. ~~Erst danach Port und Einbau; Anzeige (Stufe 1/2-Teile: Beat-Chips,
+   Commit-Semantik, Gate)~~ - **eingebaut 2026-09-10**
+   (beat-tracking-ergebnisse.md §8): kein Port, sondern ONNX Runtime im
+   eigenen Thread; Beat-Kanal publish-once wie die Events, Striche unter den
+   Chips mit Schalter im Zahnrad, Tempo-Gate und Takt-Phase mit Hysterese,
+   Viertel-Snap im Ledger. Playtest offen.
 5. Oktav-Regel aus Stufe 1 (Akkorddauer vs. Taktlaenge) ist nach §4.3
    **verworfen**: Eight Days (136 richtig) und Something (136 doppelt) sind
    aus Tempo und Akkorddauer nicht zu trennen.

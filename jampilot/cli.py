@@ -40,6 +40,12 @@ ANALYSIS_HOP = 0.25
 BTC_LIVE_WINDOW = 10.0
 BTC_EDGE_GUARD = 1.0
 
+# Beat-Modell (beats.py): dasselbe 10-s-Fenster, aber nur jeden vierten Hop
+# (beats.BEAT_INTERVAL = 1 s) und in einem eigenen Thread - ein Lauf kostet
+# ~400 ms auf einem Kern, im 250-ms-Hop-Budget ist dafuer kein Platz. Beats
+# aendern sich langsam; jede Stelle sieht trotzdem zwei Fenster.
+BEAT_RUN_HOPS = 4
+
 # Eine schon veroeffentlichte Akkordgrenze bleibt liegen, solange die frische
 # Modellausgabe sie nur um so viel verschiebt: Das Frameraster wandert pro Hop
 # (s. _merge_model_segments), und staendig springende Grenzen zerlegen die
@@ -655,6 +661,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     aktuellen Vorlauf fuer die GUI-Statusanzeige.
     """
     from . import bass as bassmodul
+    from .beats import BeatTracker
     from .engine import Startprotokoll
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
                       fold_bass_chroma, fold_chroma, label_mode_votes,
@@ -669,6 +676,14 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     protokoll = engine.protokoll if engine is not None else Startprotokoll()
     with protokoll.etappe("Loading the chord model"):
         model = BTCModel()
+    # Das Beat-Modell laedt in SEINEM Thread (~1 s), der Start wartet nicht
+    # darauf; ohne onnxruntime laeuft alles wie zuvor, nur ohne Taktstriche
+    # und ohne Viertel-Snap.
+    tracker = BeatTracker.create()
+    if tracker is None:
+        protokoll.melden("Beat model unavailable (no onnxruntime) - no bar lines")
+    beat_modell_gemeldet = tracker is None
+    hop_count = 0
     # Zwei Zeitskalen: langes Histogramm fuer die Ruhe (an der Tonika haengen
     # Stufen und Schreibweise), kurzes als Modulations-/Songwechsel-Detektor.
     # Messwerte: tests/realaudio/REPORT_key_window.md.
@@ -752,6 +767,23 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                                                  offset=window_start,
                                                  silence_rms=SILENCE_RMS)
 
+            # Beat-Raster: jeden vierten Hop bekommt der Beat-Thread dasselbe
+            # Fenster; was er fertig hat, wandert hier ins Raster. `raster`
+            # bleibt None, solange es kein Modell gibt - dann laeuft unten
+            # alles wie vor dem Beat-Tracker.
+            hop_count += 1
+            raster = None
+            if tracker is not None:
+                if hop_count % BEAT_RUN_HOPS == 0:
+                    tracker.submit(audio, sr, window_start, window_end / sr)
+                tracker.poll()
+                raster = tracker.grid
+                if not beat_modell_gemeldet and (tracker.ready or tracker.error):
+                    beat_modell_gemeldet = True
+                    protokoll.melden(
+                        f"Beat model ready ({tracker.provider})" if tracker.ready
+                        else f"Beat model failed - no bar lines: {tracker.error}")
+
             audible_pos = loop.audible_position()
             # ZWEI Zeiten, und ihre Trennung ist der ganze Trick des
             # Mitschnitts:
@@ -779,6 +811,14 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # Frisch veroeffentlichte Grenzen einmalig aufs Audio-Ereignis
             # verfeinern (typisch 0-1 je Hop, ~100ms - dauert ein Hop mal
             # laenger, faellt nur ein Rasterpunkt aus, das Raster bleibt).
+            # Die Verfeinerung bleibt auch MIT Beat-Raster: Gemessen ist
+            # roh+Snap = verfeinert+Snap, sie waere also entbehrlich - aber
+            # nur, wenn der Snap auch kommt. Eine frische Grenze steht am
+            # Horizont (Ende-1 s), das Raster reicht zu dem Zeitpunkt bis
+            # Ende-2 s und trifft erst einen Lauf spaeter ein; faellt der
+            # Lauf aus (Worker beschaeftigt) oder das Gate zu (Rubato), gaebe
+            # es ohne Verfeinerung die nackte 93-ms-Grenze. Die ~100 ms je
+            # Grenze sind der Preis fuer einen Pfad statt zweier.
             _refine_fresh_bounds(
                 timeline, refined_bounds, frontier,
                 lambda pos, prev_name, name: window_start + refine_boundary(
@@ -806,12 +846,6 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # hinter der JETZT-Linie noch aus.
             while len(timeline) > 1 and timeline[1][0] <= audible_pos - 2.0:
                 timeline.pop(0)
-            # Kontrollgitarre ohne Safe-Voicing-Filter (drittes Feld None):
-            # sie schlaegt den VOLLEN Akkord an, auch dim7/sus/6 - die
-            # Tonstrukturen kommen aus btc.BTC_CHORD_TONES.
-            loop.set_control_timeline([
-                (pos, name, None) for pos, name in timeline
-            ])
             current = timeline[-1][1] if timeline else "-"
 
             # Bassnote je Segment aus dem Tiefband - der Vorlauf gilt fuer den
@@ -826,17 +860,36 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             key = keys.key
             key_dict = key.as_dict(keys.accidental) if key else None
 
+            # Beats, die die Commit-Grenze passiert haben, genau einmal
+            # ausliefern - VOR den Akkorden, damit der Snap unten auf
+            # committete Beats trifft, wo es welche gibt.
+            if raster is not None:
+                raster.commit(frontier)
             # Eintraege, die die Commit-Grenze passiert haben, genau einmal
             # mit eingefrorenen Attributen committen. Die Zeitleiste selbst
-            # bleibt jenseits der Grenze weiter revidierbar.
-            ledger.advance(timeline, basslinie, key_dict, frontier)
+            # bleibt jenseits der Grenze weiter revidierbar. Der Onset des
+            # Events ist der naechste Beat (Viertel-Snap), wenn das Raster
+            # einen in Reichweite hat - die Zeitleiste behaelt die rohe
+            # Modellgrenze, nur das Event liegt auf dem Schlag.
+            ledger.advance(timeline, basslinie, key_dict, frontier,
+                           snap=raster.snap if raster is not None else None)
             # Rueckhalt: Im Record-Modus muessen die Events so weit
             # zurueckreichen wie der Mitschnitt, sonst springt man in Audio
             # zurueck, zu dem es keine Akkorde mehr gibt. Ohne Record-Modus
             # bleibt es bei den zwei Sekunden von vorher - was vor dem R lag,
             # ist ohnehin nicht aufgezeichnet.
-            ledger.prune(heard_pos, rueckhalt=(loop.record_capacity_seconds
-                                               if loop.recording else 0.0))
+            rueckhalt = loop.record_capacity_seconds if loop.recording else 0.0
+            ledger.prune(heard_pos, rueckhalt=rueckhalt)
+            if raster is not None:
+                raster.prune(heard_pos, rueckhalt=rueckhalt)
+            # Kontrollgitarre ohne Safe-Voicing-Filter (drittes Feld None):
+            # sie schlaegt den VOLLEN Akkord an, auch dim7/sus/6 - die
+            # Tonstrukturen kommen aus btc.BTC_CHORD_TONES. Sie spielt auf
+            # dem Onset des EVENTS (geschnappt/nachgerueckt), nicht auf der
+            # rohen Zeitleistengrenze: dasselbe, was die Anzeige zeigt.
+            loop.set_control_timeline([
+                (ledger.published_at(pos), name, None) for pos, name in timeline
+            ])
             if engine is not None:
                 # Die Sprungziele der Pfeiltasten. Ein Tupel aus floats, atomar
                 # ersetzt - die Engine liest es aus einem anderen Thread.
@@ -869,6 +922,12 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                     "frontier": round(sicht_frontier, 3),
                     "committed": _im_fenster(ledger.events, heard_pos,
                                              sicht_frontier),
+                    # Der zweite Publish-once-Kanal: committete Beats
+                    # {at, n} (n = Schlag im Takt, 1 = Eins, 0 = unbekannt),
+                    # geschnitten wie `committed`. Leer ohne Beat-Modell.
+                    "beats": (raster.window(heard_pos - PUBLISH_BACK_SECONDS,
+                                            sicht_frontier + PUBLISH_AHEAD_MARGIN)
+                              if raster is not None else []),
                     "chords": [{"c": name, "at": round(pos, 3), "b": bassnote}
                                for (pos, name), bassnote in zip(timeline, basslinie)
                                if heard_pos - PUBLISH_BACK_SECONDS <= pos
@@ -918,6 +977,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
+        if tracker is not None:
+            tracker.stop()
         if debug:
             debug.close()
     if loop.xruns:
@@ -1246,9 +1307,11 @@ class EventLedger:
     def __init__(self):
         self._until = float("-inf")
         self.events: list[dict] = []
-        # Nachgerueckte Events: Event-Onset -> Zeitleisten-Onset, damit die
-        # Bass-Persistenz weiter unter dem gemessenen Onset gefunden wird.
+        # Nachgerueckte und geschnappte Events: Event-Onset -> Zeitleisten-
+        # Onset, damit die Bass-Persistenz weiter unter dem gemessenen Onset
+        # gefunden wird - und die Umkehrung fuer die Kontrollgitarre.
         self._origin: dict[float, float] = {}
+        self._at_of: dict[float, float] = {}
         # Bass-Persistenz je Segment-Onset: (zuletzt gemessene Note, Hops in
         # Folge mit genau dieser Note). Schwellen-Flattern von slash_note
         # erreicht so nie ein Event.
@@ -1258,7 +1321,22 @@ class EventLedger:
         note, hops = self._streaks.get(pos_key, (None, 0))
         return note if note is not None and hops >= BASS_COMMIT_HOPS else None
 
-    def advance(self, timeline, basslinie, key_dict, frontier: float):
+    def published_at(self, pos: float) -> float:
+        """Der Event-Onset zu einem Zeitleisten-Onset - derselbe, wenn das
+        Event weder geschnappt noch nachgerueckt wurde (oder noch keins ist)."""
+        return self._at_of.get(round(pos, 3), pos)
+
+    def advance(self, timeline, basslinie, key_dict, frontier: float,
+                snap=None):
+        """Ein Hop: was die Commit-Grenze passiert hat, wird Event.
+
+        `snap(pos)` liefert den Beat, auf den der Onset gelegt wird (Viertel-
+        Snap, beats.BeatGrid.snap), oder None - dann bleibt der gemessene
+        Onset. Der Snap darf den Onset auch ein Stueck VOR die Wasserlinie
+        des vorigen Hops legen: Der Ledger merkt sich, WAS er committet hat,
+        am Zeitleisten-Onset, nicht am Event-Onset - anders als die
+        Verfeinerung (1.3.1) kann der Snap deshalb kein Event verschlucken.
+        """
         # Bass-Streaks fortschreiben (ein Aufruf = ein Hop); verschwundene
         # Onsets vergessen.
         live = set()
@@ -1276,6 +1354,9 @@ class EventLedger:
                 continue
             k = round(pos, 3)
             at, bass = k, self._stable_bass(k)
+            beat = snap(pos) if snap is not None else None
+            if beat is not None:
+                at = round(beat, 3)
             while self.events:
                 last = self.events[-1]
                 if last["c"] == name and last["b"] == bass:
@@ -1285,7 +1366,7 @@ class EventLedger:
                 if fresh and last is fresh[-1]:
                     self.events.pop()           # gleicher Hop: der spaetere gewinnt
                     fresh.pop()
-                    self._origin.pop(last["at"], None)
+                    self._at_of.pop(self._origin.pop(last["at"], None), None)
                     continue
                 at = round(last["at"] + MIN_EVENT_GAP, 3)   # nachruecken
                 break
@@ -1296,6 +1377,7 @@ class EventLedger:
             event = {"at": at, "c": name, "b": bass, "key": key_dict}
             if at != k:
                 self._origin[at] = k
+                self._at_of[k] = at
             self.events.append(event)
             fresh.append(event)
         self._until = max(self._until, frontier)
@@ -1321,7 +1403,7 @@ class EventLedger:
         """
         grenze = heard_pos - max(rueckhalt, 2.0)
         while len(self.events) > 1 and self.events[1]["at"] <= grenze:
-            self._origin.pop(self.events.pop(0)["at"], None)
+            self._at_of.pop(self._origin.pop(self.events.pop(0)["at"], None), None)
 
 
 def _bass_per_segment(timeline, track, front: float) -> list[str | None]:

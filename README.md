@@ -114,6 +114,14 @@ glance, while both your hands are busy:
   `NOW` line. Each chord carries its countdown (`in 1.3s`). A chord flips to the
   centre in exactly the frame in which its chip touches the line — big chord and
   lane run off the same clock, so they cannot drift apart.
+- **Bar lines under the lane** — a faint tick per beat, the downbeat a little
+  taller. The chip says *what* comes, the tick says *where in the bar*: is that
+  `G` the one of the next bar, or a change on the three? A learned beat
+  tracker (Beat This!, ISMIR 2024) finds the pulse; the ticks only appear
+  while the beat is steady and the downbeat is settled — no tick is better
+  than a wrong one, and a rubato ballad gets none. The same beat grid pulls
+  every chord change onto its nearest quarter note, which halves the timing
+  error of the chips. Off in the gear menu if you hear the one yourself.
 - **The key badge**, top left, once there is enough music to be sure of it.
 - **The QR code** — scan it with a phone on the same Wi-Fi and you get the same
   display on your music stand. The computer does the listening; every other
@@ -131,8 +139,8 @@ glance, while both your hands are busy:
 - Click or tap for fullscreen, `Space` (or `M`) to mute — sound off, everything
   on screen keeps running. The **gear** switches the
   instrument mode (chords, bass, guitar or keyboard), the diagram on or off,
-  spelling (♯/♭), scale degrees — and lets you pin the key. All of it is
-  per-device, so your phone and your laptop may disagree.
+  bar lines, spelling (♯/♭), scale degrees — and lets you pin the key. All of
+  it is per-device, so your phone and your laptop may disagree.
 
 ![Zoom on the QR code in the corner of the display: Connect your phone](docs/bilder/connect-your-phone.png)
 
@@ -381,6 +389,11 @@ Honesty section — the things JamPilot does *not* do (yet):
 - **Recognition is very good, not perfect** — pop, rock, blues and folk are its
   home turf; dense or unusual material degrades gracefully rather than failing
   loudly ([the numbers](HOW-IT-WORKS.md)).
+- **Bar lines assume a steady pulse.** The beat tracker was measured on pop
+  (Beat-F 0.99 on 169 Beatles titles); on jazz, prog or rubato it falls
+  silent rather than guessing, and a downbeat it hears one beat off stays
+  off for that bar. Time signatures come from the model; there is no
+  count-in and no tempo number on screen.
 - **macOS routing is still manual** (BlackHole + two flags), and macOS/Windows
   have not had long musical sessions yet — see the platform table.
 
@@ -389,9 +402,11 @@ Honesty section — the things JamPilot does *not* do (yet):
 The short version: system audio → ring buffer (played back delayed, otherwise
 untouched) → a learned chord recogniser (BTC, a bidirectional transformer,
 ported to pure NumPy — no PyTorch) labels the fresh signal every 250 ms → a
-separately **measured** bass line makes inversions visible → boundaries are
-pulled onto the audible attack → the browser renders it all off one shared
-clock, so nothing drifts.
+separately **measured** bass line makes inversions visible → a learned beat
+tracker (Beat This!, as an ONNX model in its own thread) lays a beat grid
+under it, chord changes snap to the nearest quarter note and the downbeats
+become bar lines → the browser renders it all off one shared clock, so
+nothing drifts.
 
 - **The concept and the recognition** — including why it can never be 100 %,
   with measurements: [HOW-IT-WORKS.md](HOW-IT-WORKS.md)

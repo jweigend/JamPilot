@@ -4,6 +4,7 @@ certifi==2026.6.17
 cffi==2.1.0
 charset-normalizer==3.4.9
 decorator==5.3.1
+flatbuffers==25.12.19
 idna==3.18
 joblib==1.5.3
 lazy-loader==0.5
@@ -13,9 +14,11 @@ msgpack==1.2.1
 narwhals==2.24.0
 numba==0.66.0
 numpy==2.4.6
+onnxruntime==1.30.0
 packaging==26.2
 platformdirs==4.10.0
 pooch==1.9.0
+protobuf==7.36.1
 pycparser==3.0
 pyinstaller==6.21.0
 pyinstaller-hooks-contrib==2026.6

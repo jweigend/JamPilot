@@ -52,6 +52,23 @@ a user sees is English.
    audio event (`refine_boundary`). Measured against hand-annotated changes,
    that takes the median error from 187 ms to 117 ms without ever pushing a
    boundary late into the bar.
+   The bigger lever is the **beat grid**: a learned beat tracker — Beat This!
+   (Foscarin et al., ISMIR 2024), checkpoint `small0`, 2 M parameters, shipped
+   as an ONNX model and run through ONNX Runtime (`beats.py`, no PyTorch) —
+   sees the same 10-second window once a second in its own thread and returns
+   beats and downbeats. Only the beats from the middle of the window are
+   trusted (the edges lack context); two consecutive windows see every spot,
+   and their beats are averaged. When a chord boundary passes the commit
+   line, it **snaps to the nearest beat** — the quarter note, not the eighth:
+   measured against hand-annotated changes, the quarter snap halves the
+   median error (103 → 52 ms), while snapping to eighths lands on the *wrong*
+   eighth more often than not. The refinement above stays in place for the
+   cases where the grid is not there yet (a busy worker, a rubato passage).
+   The model costs about 0.4 s of one core per second of audio — the
+   architecture, not the runtime; int8 and fusion were measured and do not
+   help — so it never runs inside the 250 ms hop. With the GPU package
+   (`pip install "onnxruntime-gpu[cuda,cudnn]"` into the venv, NVIDIA only)
+   the same window takes 10 ms; the code picks the provider by itself.
    A segment shorter than **250 ms** is not a chord, it is flicker of the
    recogniser, and it is merged away. Because the lead shows every chord
    seconds before it becomes audible, a corrected reading is *withdrawn* rather
@@ -66,6 +83,17 @@ a user sees is English.
    always positive) and derives **the big chord and the running lane from the
    same clock**. They cannot drift apart: the chord flips in exactly the frame
    in which its chip touches the NOW line.
+   The beats travel the same channel as the chords — `beats: [{at, n}]`,
+   `n` the position in the bar, `1` the downbeat, `0` unknown — and under the
+   same rule: a beat is published exactly once when it passes the commit line
+   and never moves afterwards. No client-side grid extrapolated from a tempo
+   and a phase: that would drift against the chips. Which beat is the one
+   comes from the model, held across windows with hysteresis: a downbeat vote
+   is accepted where the running bar expects it (±1 beat), a vote elsewhere
+   needs a second one a bar later before the phase flips, a missing vote is
+   extrapolated for at most two bars, then the bar is declared unknown and
+   only plain beat ticks remain. A beat whose spacing does not fit the local
+   tempo gets no tick at all.
 
 ## Audio routing, transactional
 
@@ -527,7 +555,8 @@ run.ps1            the same for Windows - same three jobs, same options
 run.cmd            the shell around run.ps1 - gets past the execution policy
 jampilot/
   btc.py           the chord recogniser: BTC transformer (NumPy port) + boundary refinement
-  data/            model weights (btc_large_voca.npz) and the web page (index.html)
+  beats.py         the beat tracker: Beat This! (ONNX), beat grid, bar phase, quarter snap
+  data/            model weights (btc_large_voca.npz, beat_this_small0.onnx) and the web page (index.html)
   chroma.py        FFT → chroma vector (12 pitch classes), CQT frame chroma
   chords.py        chord templates + matching (kept for the self-test)
   bass.py          the measured bass note → inversions / slash chords
@@ -550,7 +579,7 @@ packaging/
   build.ps1        the same build for Windows, plus the release ZIP
   jampilot.spec    PyInstaller: one file on Linux, a real .app on macOS,
                    a folder on Windows (SmartScreen - see the file's header)
-tests/             pytest suite (419 tests)
+tests/             pytest suite (580 tests)
 docs/exploration/  design documents (in German)
 ```
 
@@ -558,7 +587,7 @@ docs/exploration/  design documents (in German)
 
 ```bash
 ./run.sh selftest                 # the pipeline, no sound card needed
-.venv/bin/python -m pytest        # the suite (419 tests)
+.venv/bin/python -m pytest        # the suite (580 tests)
 ```
 
 On Windows: `run.cmd selftest` and `.venv\Scripts\python -m pytest`.
@@ -568,6 +597,12 @@ The suite covers the places where bugs creep in *quietly*:
 - **The recogniser port** (`test_btc.py`) — the NumPy port reproduces the
   original Torch model bit-exactly on a golden window; segment merging and
   boundary refinement behave.
+- **The beat tracker** (`test_beats.py`) — log-mel front end, ONNX model and
+  peak picking reproduce the original Beat This! on a golden window; the
+  grid commits each beat once, drops beats that do not fit the tempo, holds
+  the bar phase against a stray downbeat vote and flips it on two consistent
+  ones; the snap in the ledger (`test_cli.py`) lands events on the beat and
+  cannot swallow one.
 - **Onset accuracy** (`test_onset_accuracy.py`, `test_frame_history.py`) — pins
   down that a chord change is found to within < 100 ms and with < 50 ms spread.
   Fires as soon as anyone touches the window, the pooling or the onset search.

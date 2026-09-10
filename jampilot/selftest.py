@@ -178,6 +178,65 @@ def _fenster_pruefen() -> bool | None:
     return ok
 
 
+def _drum_loop(seconds: float, bpm: float, samplerate: int, rng) -> np.ndarray:
+    """Ein Schlagzeug-Loop in 4/4: Bassdrum auf 1 und 3, Snare auf 2 und 4,
+    HiHat-Achtel - genug Puls fuer das Beat-Modell, ohne ein Stueck zu sein."""
+    n = int(seconds * samplerate)
+    out = np.zeros(n, dtype=np.float32)
+
+    def hit(at, dur, freq, amp):
+        i0, length = int(at * samplerate), int(dur * samplerate)
+        if i0 + length > n:
+            return
+        k = np.arange(length)
+        env = np.exp(-k / (dur * samplerate / 5))
+        if freq:
+            sig = np.sin(2 * np.pi * freq * k / samplerate
+                         * np.exp(-k / (0.02 * samplerate)))
+        else:
+            sig = rng.standard_normal(length)
+        out[i0:i0 + length] += (amp * env * sig).astype(np.float32)
+
+    beat = 60.0 / bpm
+    for b in range(int(seconds / beat)):
+        at = b * beat
+        if b % 4 == 0:
+            hit(at, 0.25, 60, 1.0)
+        if b % 4 == 2:
+            hit(at, 0.25, 60, 0.7)
+        if b % 2 == 1:
+            hit(at, 0.15, None, 0.5)
+        hit(at, 0.05, None, 0.2)
+        hit(at + beat / 2, 0.05, None, 0.15)
+    return out / max(np.abs(out).max(), 1e-9)
+
+
+def _beats_pruefen(rng) -> tuple[bool | None, str]:
+    """Das Beat-Modell laden und auf einem 120-bpm-Loop laufen lassen.
+
+    Ohne onnxruntime laeuft JamPilot ohne Taktstriche - das ist kein Fehler
+    (None). Ist es DA, muss das Modell aus dem Paket laden (die ONNX-Datei
+    ist Paketdatum wie die BTC-Gewichte - fehlt sie im Bundle, faellt es
+    hier auf, nicht beim Nutzer) und den Puls treffen: Beats im Abstand des
+    Viertels, nicht der Achtel und nicht der Halben.
+    """
+    from . import beats
+
+    if not beats.onnxruntime_available():
+        return None, "skipped (no onnxruntime - no bar lines)"
+    try:
+        model = beats.BeatModel()
+        found, downs = model.run(_drum_loop(10.0, 120.0, beats.SR, rng))
+    except Exception as exc:
+        return False, f"FAILED to load or run: {exc}"
+    if len(found) < 12:
+        return False, f"FAILED - only {len(found)} beats in 10 s of 120 bpm"
+    interval = float(np.median(np.diff(found)))
+    ok = abs(interval - 0.5) < 0.03
+    return ok, (f"{'ok' if ok else 'FAILED'} - {len(found)} beats, "
+                f"{60 / interval:.0f} bpm ({model.provider})")
+
+
 def _webseite_pruefen() -> bool:
     """Sind die Paketdaten der Weboberflaeche da? Der Import beantwortet es.
 
@@ -295,6 +354,10 @@ def run() -> bool:
     else:
         print("  Web display: FAILED - a data file is missing from this build")
 
+    # Das Beat-Modell: laedt es aus dem Paket, und trifft es den Puls?
+    takt, takt_text = _beats_pruefen(rng)
+    print(f"  Beat model: {takt_text}")
+
     return (scores["cqt_clean"] == total and scores["cqt_real"] >= total - 1
             and inv["clean"] == inv_total and inv["noisy"] >= inv_total - 1
-            and fenster is not False and seite)
+            and fenster is not False and seite and takt is not False)

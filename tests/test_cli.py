@@ -693,3 +693,185 @@ class TestLiveZeileRecord:
                                 zurueck=12.0, pausiert=True)
         assert zeile.startswith("Paused at C") and "next G" not in zeile
         assert cli._aufnahme_text(True, 12.0, True).strip() == "| REC paused 12s back"
+
+
+class TestViertelSnap:
+    """Viertel-Snap: der Event-Onset liegt auf dem naechsten Beat (beats.py),
+    die Zeitleiste behaelt die rohe Modellgrenze."""
+
+    def test_event_liegt_auf_dem_beat(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C"), (6.13, "G")]
+        led.advance(zeitleiste, [None, None], None, frontier=7.0,
+                    snap=lambda pos: 6.0 if abs(pos - 6.0) < 0.3 else None)
+        assert [(e["at"], e["c"]) for e in led.events] == [(1.0, "C"), (6.0, "G")]
+        assert zeitleiste == [(1.0, "C"), (6.13, "G")]   # Hypothese bleibt roh
+
+    def test_ohne_beat_in_reichweite_bleibt_der_gemessene_onset(self):
+        led = cli.EventLedger()
+        led.advance([(1.0, "C"), (6.13, "G")], [None, None], None, frontier=7.0,
+                    snap=lambda pos: None)
+        assert [e["at"] for e in led.events] == [1.0, 6.13]
+
+    def test_snap_vor_die_wasserlinie_verschluckt_kein_event(self):
+        # Der Beat liegt VOR der Wasserlinie des vorigen Hops - anders als
+        # bei der Verfeinerung (1.3.1) ist das unschaedlich: Der Ledger merkt
+        # sich den Zeitleisten-Onset, nicht den Event-Onset.
+        led = cli.EventLedger()
+        zeitleiste = [(0.0, "A")]
+        led.advance(zeitleiste, [None], None, frontier=10.25)
+        zeitleiste.append((10.4, "D"))
+        led.advance(zeitleiste, [None, None], None, frontier=10.5,
+                    snap=lambda pos: 10.1)
+        assert [(e["at"], e["c"]) for e in led.events] == [(0.0, "A"), (10.1, "D")]
+        led.advance(zeitleiste, [None, None], None, frontier=10.75,
+                    snap=lambda pos: 10.1)
+        assert len(led.events) == 2                       # und nur einmal
+
+    def test_zwei_grenzen_auf_demselben_beat_der_spaetere_gewinnt(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C"), (5.9, "F"), (6.1, "G")]
+        led.advance(zeitleiste, [None] * 3, None, frontier=7.0,
+                    snap=lambda pos: 6.0 if abs(pos - 6.0) < 0.3 else None)
+        assert [(e["at"], e["c"]) for e in led.events] == [(1.0, "C"), (6.0, "G")]
+
+    def test_der_bass_findet_seine_messung_unter_dem_rohen_onset(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C"), (6.13, "G")]
+        for _ in range(cli.BASS_COMMIT_HOPS):
+            led.advance(zeitleiste, [None, "B"], None, frontier=7.0,
+                        snap=lambda pos: 6.0 if abs(pos - 6.0) < 0.3 else None)
+        assert led.events[-1]["at"] == 6.0 and led.events[-1]["b"] == "B"
+
+    def test_kontrollgitarre_spielt_auf_dem_event_onset(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C"), (6.13, "G"), (9.07, "A")]
+        snap = lambda pos: round(pos * 2) / 2 if abs(pos - round(pos * 2) / 2) < 0.3 else None
+        led.advance(zeitleiste, [None] * 3, None, frontier=7.0, snap=snap)
+        assert led.published_at(6.13) == 6.0
+        assert led.published_at(1.0) == 1.0          # unveraendert committet
+        assert led.published_at(9.07) == 9.07        # noch kein Event
+        led.advance(zeitleiste, [None] * 3, None, frontier=10.0, snap=snap)
+        assert led.published_at(9.07) == 9.0
+        led.prune(heard_pos=100.0)                   # laesst nur das letzte Event
+        assert led.published_at(6.13) == 6.13        # vergessen mit dem Event
+        assert led.published_at(9.07) == 9.0
+
+
+class TestBeatsImAnzeigepfad:
+    """_display_loop mit Attrappen fuer Akkordmodell und Beat-Tracker: Beats
+    kommen als zweiter Kanal an, die Grenze liegt auf dem Beat, die
+    Kontrollgitarre spielt dort - und die Verfeinerung laeuft weiter."""
+
+    SR = 22050
+    WECHSEL = [(0.0, "C"), (6.13, "G"), (12.1, "C")]
+
+    class Loop:
+        xruns, last_status, capture_dropouts = 0, None, None
+        recording = record_paused = muted = control_guitar = False
+        record_epoch, record_offset_seconds, record_capacity_seconds = 0, 0.0, 0.0
+
+        def __init__(self, sr, sekunden, stop):
+            self.sr, self.delay_seconds, self._stop = sr, 5.0, stop
+            self.hop, self.ende, self._pos = int(0.25 * sr), int(sekunden * sr), 0
+            self.control = []
+
+        @property
+        def captured_frames(self):
+            self._pos = min(self._pos + self.hop, self.ende)
+            if self._pos >= self.ende:
+                self._stop.set()
+            return self._pos
+
+        def audio_ending_at(self, end, length):
+            return np.zeros(length, dtype=np.float32) if end - length >= 0 else None
+
+        def audible_position(self):
+            return self._pos / self.sr - self.delay_seconds
+
+        heard_position = audible_position
+
+        def set_control_timeline(self, tl):
+            self.control = list(tl)
+
+    class Tracker:
+        """Beats alle 0,5 s, die Eins alle 2 s - synchron, ohne Thread."""
+        ready, error, provider = True, None, "fake"
+
+        def __init__(self):
+            from jampilot.beats import BeatGrid
+            self.grid = BeatGrid()
+
+        def submit(self, audio, sr, start, end):
+            alle = np.arange(np.ceil(start * 2) / 2, end, 0.5)
+            self.grid.absorb(alle - start, alle[alle % 2 == 0] - start, start, end)
+            return True
+
+        def poll(self):
+            return 0
+
+        def stop(self):
+            pass
+
+    def _lauf(self, monkeypatch, tracker):
+        from jampilot import beats, btc
+        wechsel = self.WECHSEL
+        verfeinert = []
+
+        class Modell:
+            def predict(self, features):
+                return np.zeros(len(features), dtype=int)
+
+        def segmente(labels, audio, sr, offset=0.0, **kw):
+            ende = offset + len(audio) / sr
+            out = [(pos, name) for pos, name in wechsel if offset <= pos < ende]
+            if not out or out[0][0] > offset:
+                davor = [n for p, n in wechsel if p <= offset]
+                out.insert(0, (offset, davor[-1] if davor else wechsel[0][1]))
+            return out
+
+        monkeypatch.setattr(btc, "BTCModel", Modell)
+        monkeypatch.setattr(btc, "features_from_audio",
+                            lambda audio, sr: np.zeros((108, 144), dtype=np.float32))
+        monkeypatch.setattr(btc, "live_segments_from_labels", segmente)
+        monkeypatch.setattr(btc, "refine_boundary",
+                            lambda *a: verfeinert.append(a[2]) or a[2])
+        monkeypatch.setattr(beats.BeatTracker, "create", classmethod(lambda cls: tracker))
+        stop = threading.Event()
+        loop = self.Loop(self.SR, 22.0, stop)
+        zustaende = []
+
+        class Broadcaster:
+            def publish(self, s):
+                zustaende.append(s)
+
+        args = argparse.Namespace(samplerate=self.SR, delay=5.0, record_buffer=0)
+        cli._display_loop(loop, args, Broadcaster(), stop=stop)
+        return zustaende, loop, verfeinert
+
+    def test_grenze_liegt_auf_dem_beat_und_beats_kommen_mit(self, monkeypatch):
+        zustaende, loop, verfeinert = self._lauf(monkeypatch, self.Tracker())
+        events = {}
+        beats = {}
+        for s in zustaende:
+            for e in s["committed"]:
+                events[e["at"]] = e["c"]
+            for b in s["beats"]:
+                beats[b["at"]] = b["n"]
+        assert events[6.0] == "G" and events[12.0] == "C"
+        assert 6.13 not in events and 12.1 not in events
+        assert len(verfeinert) == 2                    # verfeinert wird weiterhin
+        assert beats[6.0] == 1 and beats[6.5] == 2 and beats[7.5] == 4
+        assert all(round(at * 2) == at * 2 for at in beats)
+        # Die Kontrollgitarre spielt auf dem Event-Onset, nicht der rohen Grenze
+        # (am Ende des Laufs steht nur noch der letzte Wechsel in der Zeitleiste).
+        assert loop.control == [(12.0, "C", None)]
+
+    def test_ohne_tracker_wie_zuvor(self, monkeypatch):
+        zustaende, loop, verfeinert = self._lauf(monkeypatch, None)
+        events = {}
+        for s in zustaende:
+            for e in s["committed"]:
+                events[e["at"]] = e["c"]
+        assert events[6.13] == "G" and all(s["beats"] == [] for s in zustaende)
+        assert len(verfeinert) == 2                    # Verfeinerung wie in 1.3.1
