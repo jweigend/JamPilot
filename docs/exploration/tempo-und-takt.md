@@ -273,6 +273,29 @@ Drei Befunde, alle drei mit Konsequenz:
    Beat-Snap, nun mit Ground Truth erklaert: nicht die Idee war falsch,
    sondern das Raster.
 
+**Geht es ohne Modell? Phase aus den eigenen Onsets - gemessen, nein.**
+Die naheliegende Abkuerzung: Periode von librosa (bei Pop/Rock stabil), die
+Phase aber nicht von librosa, sondern als lokaler Median der Abweichung der
+verfeinerten Akkord-Onsets zum naechsten Beat (±5 s) - das Raster wuerde sich
+an die eigenen Grenzen haengen, die Quantisierung waere dann ein Entrauschen
+ueber viele Onsets. Skript:
+[tests/reference/messung_phase_aus_onsets.py](../../tests/reference/messung_phase_aus_onsets.py).
+
+| Track | heute | Oracle-Beats | Oracle-Periode, Phase aus Onsets | librosa-Periode, Phase aus Onsets | dito, Spaet-Bias 50 ms raus |
+|---|---|---|---|---|---|
+| let_it_be | 157 ms / 29 % | 64 ms / 79 % | 150 ms / 36 % | 150 ms / 32 % | 116 ms / 43 % |
+| eight_days_a_week | 149 ms / 26 % | 41 ms / 66 % | 171 ms / 26 % | 145 ms / 28 % | 134 ms / 37 % |
+| something | 105 ms / 48 % | 58 ms / 80 % | 91 ms / 51 % | 86 ms / 52 % | 73 ms / 62 % |
+
+Selbst mit der *richtigen* Periode (GT-Beats, absichtlich um 150 ms
+verschoben) findet die Phase aus den Onsets den Beat nicht wieder: Die
+Grenzfehler sind kein symmetrisches Rauschen um den Beat, sondern ein
+breiter Nachlauf (Median +50 ms, Ausreisser bis 300 ms), und der Median der
+Nachbarn zieht das Raster in denselben Nachlauf. Die Bias-Korrektur holt ein
+Drittel des Weges, mehr nicht. **Die Phase muss aus dem Audio kommen**
+(Schlagzeug, Anschlaege) - das ist genau das, was ein Beat-Tracker tut, und
+was librosas Tracker auf diesem Material nur zu 23-54 % schafft.
+
 Was 1-3 zusammen bedeuten: **Die Quantisierung macht den echten Beat-Tracker
 zum lohnenden Investment.** Ohne sie war Stufe 3 "nur fuer Taktarten und
 Balladen"; mit ihr ist sie der Weg zu Akkordgrenzen, die doppelt so genau
