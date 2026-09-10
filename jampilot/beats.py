@@ -491,8 +491,18 @@ class BeatTracker:
             n += 1
 
     def stop(self) -> None:
+        """Worker anhalten und auf ihn WARTEN (hoechstens ein Fenster lang).
+
+        Ohne das Warten stirbt der Prozess womoeglich, waehrend der Thread
+        noch in ORT rechnet - dann raeumt der Interpreter die Session unter
+        ihm weg, und ORT antwortet mit "terminate called without an active
+        exception" und einem Core-Dump beim Strg+C. Ein Schoenheitsfehler,
+        aber einer, der wie ein Absturz aussieht.
+        """
         self._stop.set()
         self._wake.set()
+        if threading.current_thread() is not self._thread:
+            self._thread.join(timeout=3.0)
 
     def _work(self) -> None:
         try:
@@ -518,6 +528,7 @@ class BeatTracker:
                     return
                 self.runs += 1
                 self._results.put((beats, downs, start, end))
+        del model                      # Session im eigenen Thread freigeben
 
 
 def _to_model_rate(audio: np.ndarray, samplerate: int) -> np.ndarray:
