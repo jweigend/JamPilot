@@ -622,8 +622,6 @@ class TestTaktstriche:
         assert "state.beats" in PAGE
         assert "syncBeats" in PAGE
         assert 'className = b.n === 1 ? "beat bar" : "beat"' in PAGE
-        # Der Chip auf der Eins traegt die Kante - als Klasse, ohne Neuaufbau.
-        assert 'classList.toggle("eins"' in PAGE and ".chip.eins" in PAGE
 
     def test_beats_fahren_im_snapshot_mit(self):
         broadcaster = ChordBroadcaster()

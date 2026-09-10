@@ -403,21 +403,16 @@
 
   /* Taktstriche: kurze Ticks am Boden der Spur (ueber dem NOW-Label, unter
      dem Countdown der Chips), die Eins doppelt so hoch und etwas heller,
-     alles HINTER den Chips. Die eigentliche Antwort - "ist dieses G die
-     Eins?" - steht am Chip selbst: Ein Chip, dessen Wechsel auf der Eins
-     liegt, bekommt eine helle linke Kante (.chip.eins). Linien ueber die
-     ganze Spur, vor oder hinter den Chips, waren zu unruhig (10.09.).
-     Dezent heisst: kein Text, keine Zahl, kein Zaehler. Bewegung per
-     transform wie die Chips. */
+     alles HINTER den Chips. Mehr nicht - Linien ueber die ganze Spur (vor
+     wie hinter den Chips) und eine Kante am Chip der Eins waren im
+     Playtest zu unruhig (10.09.); die Ticks stoeren kaum und geben die
+     Orientierung. Dezent heisst: kein Text, keine Zahl, kein Zaehler.
+     Bewegung per transform wie die Chips. */
   .beat { position: absolute; bottom: 3.6vh; left: 0; width: 1px; height: 1.4vh;
           background: #2a2e33; z-index: 0; will-change: transform;
           pointer-events: none; }
   .beat.bar { height: 2.8vh; background: #3d434a; }
-  /* Die Kante sitzt an der linken Chipkante, also GENAU am Zeitpunkt; der
-     Name rueckt dafuer einen Hauch nach rechts. */
-  .chip.eins { border-left: 2px solid #5a6270; padding-left: .1em; }
   body.nobeats .beat { display: none; }
-  body.nobeats .chip.eins { border-left: none; padding-left: 0; }
 
   #hint { position: fixed; bottom: 24.5vh; right: 2.6vmin; color: #333;
           font-size: 1.7vmin; z-index: 5; }
@@ -557,18 +552,15 @@
 
       <h2 class="second">Bar lines</h2>
       <p class="sub">Faint ticks under the timeline, one per beat, the
-         downbeat a little taller &ndash; and a chord that changes <em>on</em>
-         the downbeat gets a bright left edge on its chip: the chip tells you
-         <em>what</em>, the edge tells you <em>it is the one</em>. They only
-         appear while the beat is steady and the downbeat is settled &ndash;
-         no mark is better than a wrong one. If you hear the one, turn them
-         off.</p>
+         downbeat a little taller: the chord chip tells you <em>what</em>, the
+         ticks tell you <em>where in the bar</em>. They only appear while the
+         beat is steady and the downbeat is settled &ndash; no tick is better
+         than a wrong one. If you hear the one, turn them off.</p>
       <button class="opt" data-beats="on" role="radio">
         <span class="glyph">&#9475;</span>
         <span class="text">
           <span class="label">Shown</span>
-          <span class="desc">Ticks per beat, a bright edge on chords that
-                             land on the one.</span>
+          <span class="desc">Beats as small ticks, the downbeat taller.</span>
         </span>
       </button>
       <button class="opt" data-beats="off" role="radio">
@@ -1725,19 +1717,11 @@ function syncChips(now) {
 // gebaut - nicht nur versteckt.
 function syncBeats(now) {
   const wanted = new Map();
-  const einsen = [];
   if (taktstriche)
     for (const b of beats) {
-      if (b.n === 1) einsen.push(b.at);
       if (b.at < now - 0.3) continue;        // durchgelaufen
       wanted.set(b.at.toFixed(2), b);
     }
-  // Chips, deren Wechsel auf der Eins liegt (der Snap legt den Onset exakt
-  // auf den Beat), bekommen die Kante - auch nachtraeglich, falls der Beat
-  // nach dem Chip eintrifft. Nur eine Klasse, kein Neuaufbau.
-  for (const chip of chips.values())
-    chip.el.classList.toggle("eins",
-      einsen.some(at => Math.abs(at - chip.at) <= 0.03));
   for (const [key, b] of wanted) {
     if (ticks.has(key)) continue;
     const el = document.createElement("div");
