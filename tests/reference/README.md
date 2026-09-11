@@ -204,9 +204,16 @@ Verfeinerung (bis dahin -0,40/+0,05 s) konnte nicht nach vorn und zog die
 Grenze mit dem Onset-Gewicht auf den Anschlag des VORIGEN Schlags (median
 weitere -170 ms), der Viertel-Snap nahm dann diesen Schlag.
 
-Das relativiert die Timing-Messung oben: Die Chroma-Korrelations-Offsets
-stammen selbst aus vorecho-behafteter `chroma_cqt`, der "Nachlauf" der
-rohen BTC-Grenze ist gegen das Beat-Grid nicht zu sehen.
+Das relativiert die Timing-Messung oben - und der Grund ist inzwischen
+gefunden (Meilenstein-Vergleich, docs/exploration/meilenstein-vergleich-
+2026-09.md): `features_from_audio` rechnet die CQT in 10-s-Chunks zu je
+108 Frames, 108 Frames sind aber 10,031 s. Die Offline-Zeitachse driftet
++31 ms je Chunk (+558 ms nach drei Minuten); der "Nachlauf der rohen
+BTC-Grenze" von +138 ms war dieser Drift. Der Live-Pfad (ein Fenster = ein
+Chunk) ist nicht betroffen, `jampilot analyze` und alle Offline-Zahlen in
+diesem README sind es. Das ML-Repo trainiert mit derselben Funktion - die
+nachtrainierten Gewichte haben den Versatz als Vorlauf gelernt (Uebergabe:
+../JamPilotML/docs/rueckmeldung-jampilot-2026-09-11.md).
 
 Varianten im Live-Pfad (`messung_onset_shift.py`; A = `cli.BTC_ONSET_SHIFT`,
 B = `btc.REFINE_FORWARD` 0,40 statt 0,05):
@@ -230,3 +237,62 @@ Late liegt schon ohne Korrektur spaet (+111 ms) und wird spaeter (+171 ms):
 der Bias ist materialabhaengig. Eine Sperre gegen die Blips in der
 Merge-Regel wurde verworfen - das zweite Event des Blips lag zufaellig
 richtig, ohne Blip wurde das Timing schlechter (Crazy 85 -> 211 ms).
+
+## Nachtrainierte Gewichte auf zeittreuer CQT: v7_2b als Drop-in (2026-09-11)
+
+Das ML-Repo hat die gestueckelte CQT durch die CQT am Stueck ersetzt und
+`iso_only`/`v7` darauf neu trainiert (`../JamPilotML/docs/rueckmeldung-
+jampilot-2026-09-11.md` §5-6). Dasselbe gilt seit heute fuer
+`btc.features_from_audio` hier: `jampilot analyze` und alle Offline-
+Messungen in diesem README laufen auf der echten Zeitachse (Frame *i* bei
+*i*·93 ms; die Frames sind bitgleich zum ML-Repo, `tests/test_btc.py::
+TestZeitachse`). Der Live-Pfad rechnet unveraendert (ein 10-s-Fenster =
+ein Stueck). Die Offline-Timing-Zahlen weiter oben ("Nachlauf +138 ms",
+Isophonics-Nachlauf) stammen noch von der driftenden Achse.
+
+Referenz-Set im ML-Repo, korrekte Achse, 10 595 Frames (`:6` seit heute
+als maj6 gelesen): Original 0,776 / 0,850, `iso_only_2` 0,775 / 0,856,
+`v7_2b` 0,767 / 0,854 (exakt / Wurzel); Grenz-Timing aller drei +19 … +40 ms
+median, also kein Vorlauf mehr. Bibliotheks-Radar (Urteile Modell : ChordNet,
+6285 Songs): Original 48,1 %, `iso_only_2` 49,6 %, **`v7_2b` 52,1 %**
+(Pop 64, Country 56, Jazz 37, R&B 52 statt 47; Welt 44 statt 49). Reiche
+Qualitaeten: `v7_2b` maj7-Recall 0,81 (Original 0,76), m7 0,95, aber
+Sextakkorde 0,16 (Original 0,47, `iso_only_2` 0,57) - It's Too Late stabile
+Mitte 0,72 statt 0,805. Das ist der Vereinfachungs-Bias des Teachers, nicht
+mehr der Drift.
+
+Live-Simulation mit Viertel-Snap (`messung_onset_shift.py <track> <shift>
+0.40 <out.pkl> <weights.npz>`, `REFINE_FORWARD` 0,40; Referenztitel
+median |dt| / median dt / Event auf demselben GT-Beat, Telegraph Road
+Hauptwechsel auf der Taktlinie / Schlag davor):
+
+| Gewichte, Korrektur | Eight Days | Let It Be | Something | Crazy | It's Too Late | Telegraph |
+|---|---|---|---|---|---|---|
+| v7 alt, 2 Frames (Stand vorher) | 40 / -27 / 84 % | 70 / +67 / 93 % | 42 / +35 / 92 % | 55 | 195 | 69 / 29 % |
+| Original, 0 | 41 / -30 / 84 % | 68 / +66 / 94 % | 43 / +32 / 92 % | 59 | 211 | 68 / 20 % |
+| Original, 1 Frame | 51 / -29 / 87 % | 66 / +65 / 94 % | 42 / +36 / 93 % | 49 | 250 | 82 / 18 % |
+| Original, 2 Frames | 42 / -27 / 88 % | 66 / +66 / 95 % | 41 / +36 / 94 % | 46 | 251 | 83 / 9 % |
+| `iso_only_2`, 0 | 40 / -28 / 88 % | 70 / +68 / 94 % | 41 / +32 / 92 % | 55 | 201 | 64 / 32 % |
+| `iso_only_2`, 1 Frame | 40 / -27 / 88 % | 67 / +65 / 93 % | 41 / +31 / 94 % | 49 | 197 | 70 / 18 % |
+| `iso_only_2`, 2 Frames | 43 / -27 / 87 % | 67 / +65 / 93 % | 41 / +32 / 95 % | 49 | 229 | 72 / 21 % |
+| `v7_2b`, 0 | 37 / -25 / 87 % | 70 / +69 / 94 % | 43 / +32 / 93 % | 60 | 207 | 73 / 15 % |
+| **`v7_2b`, 1 Frame (heute)** | 45 / -29 / 87 % | 69 / +69 / 95 % | 41 / +33 / 92 % | 50 | 207 | **83 / 17 %** |
+| `v7_2b`, 2 Frames | 43 / -29 / 90 % | 69 / +69 / 95 % | 41 / +34 / 96 % | 48 | 244 | 80 / 7 % |
+
+(`v7_2a`, gleiches Rezept, zweiter Lauf: praktisch dieselben Zahlen wie
+`v7_2b`. Let It Be und Something zeigen median dt +65 ms bei jeder
+Variante: die Events sitzen auf dem Schlag, die annotierten Wechsel liegen
+dort ~60 ms vor dem Schlag.)
+
+Lesart: Im Live-Pfad sind Original, `iso_only_2` und `v7_2b` beim Timing
+nicht zu unterscheiden, der Snap schluckt die Modellgrenze bis auf den
+Schlag-Entscheid. Die Vorwaertskorrektur wirkt nur noch dort, wo sie den
+Schlag kippt (Telegraph, Crazy Little Thing) - ein Frame holt davon fast
+alles, zwei Frames kaufen weniger "Schlag davor" bei Telegraph (17 -> 7 %)
+mit einem spaeteren It's Too Late (207 -> 244 ms). Seit heute:
+`jampilot/data/btc_large_voca.npz` = `run_v7_2b/last.npz`
+(sha256 73d18940…), `cli.BTC_ONSET_SHIFT` = 1 Frame. Gegen den Stand davor
+(v7 alt, 2 Frames) nirgends schlechter, Telegraph 69 -> 83 % auf der Linie.
+Nicht gemessen: Proberaum. Offen: ob der Sextakkord-Verlust von `v7_2b`
+(Klavier-Jazzpop) im Spiel auffaellt - dann ist `iso_only_2` der Kandidat
+(Sext 0,57, Radar 49,6 %), Timing identisch.

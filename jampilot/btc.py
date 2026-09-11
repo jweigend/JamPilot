@@ -309,10 +309,19 @@ def _speed_up_librosa_cqt() -> None:
 
 
 def features_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
-    """Audio -> Log-CQT-Frames (T, 144), wie audio_dataset.py des Originals.
+    """Audio -> Log-CQT-Frames (T, 144), T = 1 + len // BTC_HOP, Frame i bei i*F.
 
-    Die CQT laeuft in 10-s-Stuecken, nicht am Stueck - das repliziert die
-    Referenz (und haelt die Latenz im Live-Pfad konstant).
+    Die CQT laeuft AM STUECK. Bis 2026-09-11 lief sie wie in audio_dataset.py
+    des Originals in 10-s-Stuecken, die aneinandergehaengt wurden; librosa
+    liefert je Stueck aber 108 Frames (1 + 220500 // 2048), also 10,031 s
+    Feature-Zeit fuer 10 s Audio. Die Feature-Zeitachse lief der Audio-Zeit
+    davon (+31 ms je Stueck, +558 ms nach drei Minuten) - der "Nachlauf der
+    rohen BTC-Grenze" in den Offline-Messungen war dieser Drift, und die im
+    ML-Repo nachtrainierten Gewichte hatten ihn als Vorlauf gelernt
+    (docs/exploration/meilenstein-vergleich-2026-09.md). Der Live-Pfad
+    (ein 10-s-Fenster = ein Stueck mit eigenem Offset) war nie betroffen und
+    rechnet hier weiterhin dasselbe; `jampilot analyze` und die
+    Offline-Messungen in tests/reference sind seitdem zeittreu.
     """
     import librosa
 
@@ -320,18 +329,8 @@ def features_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
     y = np.asarray(samples, dtype=np.float32)
     if samplerate != BTC_SR:
         y = librosa.resample(y, orig_sr=samplerate, target_sr=BTC_SR)
-    chunk = int(BTC_SR * BTC_WINDOW_SECONDS)
-    parts = []
-    for start in range(0, max(len(y) - chunk, 0) + 1, chunk):
-        parts.append(librosa.cqt(
-            y[start : start + chunk], sr=BTC_SR, n_bins=BTC_N_BINS,
-            bins_per_octave=BTC_BINS_PER_OCTAVE, hop_length=BTC_HOP))
-    rest = len(parts) * chunk
-    if rest < len(y) or not parts:
-        parts.append(librosa.cqt(
-            y[rest:], sr=BTC_SR, n_bins=BTC_N_BINS,
-            bins_per_octave=BTC_BINS_PER_OCTAVE, hop_length=BTC_HOP))
-    feature = np.concatenate(parts, axis=1)
+    feature = librosa.cqt(y, sr=BTC_SR, n_bins=BTC_N_BINS,
+                          bins_per_octave=BTC_BINS_PER_OCTAVE, hop_length=BTC_HOP)
     return np.log(np.abs(feature) + 1e-6).T.astype(np.float32)
 
 

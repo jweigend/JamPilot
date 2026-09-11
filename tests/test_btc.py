@@ -144,6 +144,39 @@ class TestFilterbankMemo:
         assert np.array_equal(with_memo, without)
 
 
+class TestZeitachse:
+    """Frame i liegt bei i * BTC_HOP / BTC_SR - auch hinter der 10-s-Marke.
+
+    Regressionstest zum Zeitachsen-Drift (2026-09-11): gestueckelt lieferte
+    features_from_audio 108 Frames je 10 s (= 10,031 s) und lief der
+    Audio-Zeit davon.
+    """
+
+    @staticmethod
+    def _ton(sekunden, start=0.0, f0=220.0):
+        t = np.arange(int(sekunden * btc.BTC_SR)) / btc.BTC_SR
+        return (np.sin(2 * np.pi * f0 * t) * (t >= start)).astype(np.float32)
+
+    def test_frameanzahl_ist_zeittreu(self):
+        y = self._ton(60.0)
+        feats = btc.features_from_audio(y, btc.BTC_SR)
+        assert feats.shape == (1 + len(y) // btc.BTC_HOP, 144)
+        assert feats.shape[0] == 646            # gestueckelt: 6 x 108 = 648
+
+    def test_live_fenster_bleibt_108_frames(self):
+        y = self._ton(10.0)
+        assert btc.features_from_audio(y, btc.BTC_SR).shape[0] == 108
+
+    def test_einsatz_am_songende_liegt_auf_dem_richtigen_frame(self):
+        start = 55.0                            # hinter fuenf 10-s-Marken
+        feats = btc.features_from_audio(self._ton(60.0, start=start), btc.BTC_SR)
+        energie = feats.mean(axis=1)
+        einsatz = int(np.argmax(np.diff(energie))) + 1
+        erwartet = int(round(start / btc.BTC_FRAME_SECONDS))
+        # gestueckelt laege der Einsatz ~2 Frames (5 x 31 ms) spaeter
+        assert abs(einsatz - erwartet) <= 1, (einsatz, erwartet)
+
+
 class TestMergeModelSegments:
     def test_gehoertes_bleibt_unantastbar(self):
         timeline = [(0.0, "C"), (2.0, "G")]

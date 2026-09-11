@@ -115,21 +115,28 @@ _REFINED_LOOKFORWARD = 0.35
 
 # Konstante Vorwaertskorrektur der Modellgrenze (Sekunden), bevor sie in die
 # Zeitleiste kommt. BTC setzt seine Grenzen systematisch VOR den echten
-# Wechsel: ein synthetischer Wechsel bei exakt 5,000 s kommt bei 4,737 s
-# heraus (-263 ms, in jeder Tonlage gleich - kein CQT-Vorecho, ein Bias des
-# Modells); live gegen die Beat-This-Taktlinie median -184 ms (Telegraph
-# Road). Die Verfeinerung konnte das nicht heilen, sie suchte nur rueckwaerts
-# und zog die Grenze auf den Anschlag des VORIGEN Schlags - der Viertel-Snap
-# landete dann einen Schlag vor der Taktlinie ("Wechsel auf der 4").
-# Gemessen (Live-Simulation, tests/reference/messung_onset_shift.py,
-# 2026-09-11), zwei Frames Korrektur plus Vorwaerts-Verfeinerung: Telegraph
-# Road Hauptwechsel auf der Linie 45 -> 69 %, Eight Days gleicher GT-Beat
-# 58 -> 84 % (med|dt| 79 -> 40 ms), Something 87 -> 92 %, Crazy Little Thing
-# med|dt| 85 -> 55 ms, Let It Be unveraendert; Kurz-Events auf dem Niveau von
-# vorher. Drei Frames waren nicht besser. Ausreisser: It's Too Late liegt
-# schon ohne Korrektur spaet (+111 ms) und wird spaeter (+171 ms) - der Bias
-# ist materialabhaengig, die zwei Frames sind der Kompromiss.
-BTC_ONSET_SHIFT = 2 * 2048 / 22050          # zwei BTC-Frames, ~186 ms
+# Wechsel, die Verfeinerung konnte das nicht heilen (sie suchte nur
+# rueckwaerts und zog die Grenze auf den Anschlag des VORIGEN Schlags - der
+# Viertel-Snap landete dann einen Schlag vor der Taktlinie, "Wechsel auf
+# der 4"). Seit 2026-09-11 gilt darum Korrektur plus symmetrische
+# Verfeinerung (btc.REFINE_FORWARD).
+#
+# Wie gross der Vorlauf ist, haengt an den Gewichten: die im ML-Repo auf der
+# gestueckelten CQT nachtrainierten Modelle (iso_only, v7) hatten deren
+# Zeitachsen-Drift als Vorlauf gelernt (synthetisch -263 ms, Original-BTC
+# -56..-127 ms; docs/exploration/meilenstein-vergleich-2026-09.md) - dafuer
+# waren zwei Frames (~186 ms) kalibriert. Mit den auf zeittreuer CQT
+# nachtrainierten Gewichten (v7_2b, seit 2026-09-11 in jampilot/data) bleibt
+# ein Frame: Live-Simulation (tests/reference/messung_onset_shift.py, mit
+# Viertel-Snap) ohne / ein / zwei Frames - Telegraph Road Hauptwechsel auf
+# der Taktlinie 73 / 83 / 80 %, Schlag davor 15 / 17 / 7 %; Crazy Little
+# Thing med|dt| 60 / 50 / 48 ms; It's Too Late 207 / 207 / 244 ms (liegt
+# ohne Korrektur schon spaet, zwei Frames machen es spaeter); Eight Days,
+# Let It Be, Something unabhaengig davon (der Snap schluckt den Rest).
+# Ein Frame ist nirgends schlechter als der Stand davor (v7 alt, zwei
+# Frames), zwei Frames kaufen weniger "Schlag davor" mit einem spaeteren
+# It's Too Late - Proberaum entscheidet.
+BTC_ONSET_SHIFT = 1 * 2048 / 22050          # ein BTC-Frame, ~93 ms
 
 # Mindestabstand zweier Events im Publish-once-Kanal. Das Modell haelt
 # btc.MIN_SEGMENT_SECONDS zwischen seinen Grenzen, aber der Live-Pfad konnte

@@ -7,7 +7,7 @@ auf den vorigen Schlag - der Viertel-Snap landete "auf der 4". Ergebnisse
 (2026-09-11) in README.md hier, Abschnitt "Vorwaertskorrektur".
 
 Aufruf:
-  python tests/reference/messung_onset_shift.py <track|telegraph> <shift_s> <refine_forward_s> <out.pkl>
+  python tests/reference/messung_onset_shift.py <track|telegraph> <shift_s> <refine_forward_s> <out.pkl> [weights.npz]
 
   track     Referenztrack (let_it_be, eight_days_a_week, something,
             its_too_late, crazy_little_thing) oder "telegraph" fuer den
@@ -15,6 +15,10 @@ Aufruf:
             (nicht im Repo; Dire Straits, Telegraph Road, Albumversion)
   shift_s   BTC_ONSET_SHIFT in Sekunden (0 = aus, 0.186 = zwei Frames)
   fwd_s     REFINE_FORWARD in Sekunden (0.05 = alt, 0.40 = symmetrisch)
+  weights   optional: andere BTC-Gewichte (.npz) statt jampilot/data/
+            btc_large_voca.npz - fuer den Vergleich nachtrainierter Modelle
+            (git show <commit>:jampilot/data/btc_large_voca.npz, oder
+            ../JamPilotML/data/runs/<run>/last.npz)
 
 Telegraph: Anteil der Events auf einer Taktlinie (Schlag n=1 des Beat-Grids)
 bzw. auf dem Schlag davor; "Hauptwechsel" = Events mit >= 1,5 s Dauer.
@@ -33,6 +37,12 @@ sys.path.insert(0, str(PROJEKT)); sys.path.insert(0, str(PROJEKT / "tests" / "re
 from jampilot import cli, btc
 import messung_live_pfad as m
 track, shift, fwd, out = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), Path(sys.argv[4])
+weights = Path(sys.argv[5]) if len(sys.argv) > 5 else None
+if weights is not None:
+    class Modell(btc.BTCModel):
+        def __init__(self, weights_path=None, num_heads=4):
+            super().__init__(weights, num_heads)
+    btc.BTCModel = Modell
 cli.BTC_ONSET_SHIFT = shift
 btc.REFINE_FORWARD = fwd
 cli._REFINED_LOOKFORWARD = max(0.0, fwd - 0.05)
@@ -43,11 +53,12 @@ else:
     y, _ = librosa.load(m.REF / f"{track}.mp3", sr=m.SR, mono=True)
 y = y.astype(np.float32)
 bc, dauer = m.lauf(y, True)
-pickle.dump({"events": bc.events, "beats": bc.beats, "track": track, "shift": shift, "fwd": fwd}, open(out, "wb"))
+pickle.dump({"events": bc.events, "beats": bc.beats, "track": track, "shift": shift, "fwd": fwd,
+             "weights": str(weights) if weights else None}, open(out, "wb"))
 ev = sorted(bc.events.values(), key=lambda e: e["at"])
 bts = sorted(bc.beats.values(), key=lambda b: b["at"])
 b_at = np.array([b["at"] for b in bts]); b_n = np.array([b["n"] for b in bts])
-tag = f"{track:18s} shift {shift:+.3f} fwd {fwd:.2f}"
+tag = f"{track:18s} {(weights.stem if weights else 'data'):10s} shift {shift:+.3f} fwd {fwd:.2f}"
 if track == "telegraph":
     cls = {1: 0, 2: 0, 0: 0}; haupt = {1: 0, 2: 0, 0: 0}
     for i, e in enumerate(ev):
