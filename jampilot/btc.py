@@ -339,20 +339,21 @@ def features_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
 # Band, das chroma.analyze_window fuer bass.py zog (2 Bins je Halbton).
 BTC_BASS_BINS = 72
 
-# Grenz-Verfeinerung: Die Modellgrenze liegt auf dem 93-ms-Raster und im
-# Schnitt ~140 ms HINTER dem annotierten Wechsel. Im Fenster darum sucht ein
-# Akkordton-Schnitt im HPSS-Chroma (23-ms-Raster) den echten Umschlagpunkt,
-# Onset-Staerke gewichtet mit - Wechsel fallen auf Anschlaege.
+# Grenz-Verfeinerung: Die Modellgrenze liegt auf dem 93-ms-Raster; im Fenster
+# darum sucht ein Akkordton-Schnitt im HPSS-Chroma (23-ms-Raster) den echten
+# Umschlagpunkt, Onset-Staerke gewichtet mit - Wechsel fallen auf Anschlaege.
 #
-# Das Fenster ist bewusst ASYMMETRISCH: weit zurueck, kaum vorwaerts. Der
-# wahre Wechsel liegt fast immer VOR der Modellgrenze (Nachlauf-Bias), und auf
-# einer chaotischen Eins (Beckencrash, Bassdrum, Gesangseinsatz) ist das
-# Chroma verschmiert - eine symmetrische Suche schob die Grenze dort nach
-# hinten, teils bis auf die Zwei. Gegen die Isophonics-Referenz gemessen
-# (tests/reference/README.md): median |dt| 187 -> 111 ms, Anteil <=1 Frame
-# 25% -> 44%, Nach-hinten-Schiebungen > 150 ms: 50 -> 0.
+# Das Fenster war lange ASYMMETRISCH (-0.40/+0.05 s), unter der Annahme, der
+# wahre Wechsel liege fast immer VOR der Modellgrenze (Isophonics-Messung:
+# median |dt| 187 -> 111 ms). Die Annahme hielt nicht: Das Modell setzt seine
+# Grenze systematisch ZU FRUEH (cli.BTC_ONSET_SHIFT), und eine Suche, die nur
+# rueckwaerts darf, zog sie auf den Anschlag des vorigen Schlags. Seit der
+# konstanten Vorwaertskorrektur ist das Fenster symmetrisch; allein bewegt
+# die Vorwaertssuche das Timing kaum (das chroma_cqt-Vorecho zieht ohnehin
+# frueh), zusammen mit der Korrektur haelt sie die Kurz-Events auf dem alten
+# Niveau (Live-Simulation 2026-09-11, tests/reference/messung_onset_shift.py).
 REFINE_BACK = 0.40         # Suchweite VOR die Modellgrenze
-REFINE_FORWARD = 0.05      # ... und dahinter (nur Raster-Restfehler)
+REFINE_FORWARD = 0.40      # ... und dahinter
 REFINE_CONTEXT = 0.75      # Audio-Slice je Seite (HPSS braucht Kontext)
 REFINE_ONSET_WEIGHT = 1.0
 _FINE_HOP = 512            # 23-ms-Raster der Feinsuche (bei 22050 Hz)

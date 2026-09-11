@@ -109,6 +109,27 @@ BTC_DEBOUNCE_MATCH = 0.3
 # sind um diesen Betrag nach hinten verlaengert, sonst wuerde dieselbe Grenze
 # jeden Hop neu verfeinert. Muss btc.REFINE_BACK entsprechen.
 _REFINED_LOOKBACK = 0.40
+# ... und seit der Vorwaerts-Verfeinerung (btc.REFINE_FORWARD 0.40) auch bis
+# zu so viel SPAETER - die Hysterese reicht deshalb in beide Richtungen.
+_REFINED_LOOKFORWARD = 0.35
+
+# Konstante Vorwaertskorrektur der Modellgrenze (Sekunden), bevor sie in die
+# Zeitleiste kommt. BTC setzt seine Grenzen systematisch VOR den echten
+# Wechsel: ein synthetischer Wechsel bei exakt 5,000 s kommt bei 4,737 s
+# heraus (-263 ms, in jeder Tonlage gleich - kein CQT-Vorecho, ein Bias des
+# Modells); live gegen die Beat-This-Taktlinie median -184 ms (Telegraph
+# Road). Die Verfeinerung konnte das nicht heilen, sie suchte nur rueckwaerts
+# und zog die Grenze auf den Anschlag des VORIGEN Schlags - der Viertel-Snap
+# landete dann einen Schlag vor der Taktlinie ("Wechsel auf der 4").
+# Gemessen (Live-Simulation, tests/reference/messung_onset_shift.py,
+# 2026-09-11), zwei Frames Korrektur plus Vorwaerts-Verfeinerung: Telegraph
+# Road Hauptwechsel auf der Linie 45 -> 69 %, Eight Days gleicher GT-Beat
+# 58 -> 84 % (med|dt| 79 -> 40 ms), Something 87 -> 92 %, Crazy Little Thing
+# med|dt| 85 -> 55 ms, Let It Be unveraendert; Kurz-Events auf dem Niveau von
+# vorher. Drei Frames waren nicht besser. Ausreisser: It's Too Late liegt
+# schon ohne Korrektur spaet (+111 ms) und wird spaeter (+171 ms) - der Bias
+# ist materialabhaengig, die zwei Frames sind der Kompromiss.
+BTC_ONSET_SHIFT = 2 * 2048 / 22050          # zwei BTC-Frames, ~186 ms
 
 # Mindestabstand zweier Events im Publish-once-Kanal. Das Modell haelt
 # btc.MIN_SEGMENT_SECONDS zwischen seinen Grenzen, aber der Live-Pfad konnte
@@ -766,6 +787,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             segments = live_segments_from_labels(labels, audio, sr,
                                                  offset=window_start,
                                                  silence_rms=SILENCE_RMS)
+            if BTC_ONSET_SHIFT:
+                segments = [(pos + BTC_ONSET_SHIFT, name) for pos, name in segments]
 
             # Beat-Raster: jeden vierten Hop bekommt der Beat-Thread dasselbe
             # Fenster; was er fertig hat, wandert hier ins Raster. `raster`
@@ -1175,7 +1198,7 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
             return True
         return any(
             alt_name == name and base < alt_pos
-            and -ONSET_HYSTERESIS <= pos - alt_pos
+            and -ONSET_HYSTERESIS - _REFINED_LOOKFORWARD <= pos - alt_pos
             <= ONSET_HYSTERESIS + _REFINED_LOOKBACK
             for alt_pos, alt_name in published
         )
@@ -1208,7 +1231,7 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
             # Asymmetrisch: eine veroeffentlichte Grenze wurde ggf. verfeinert
             # und liegt dann bis REFINE_BACK FRUEHER als die rohe Modellgrenze.
             if (alt_name == name
-                    and -ONSET_HYSTERESIS <= pos - alt_pos
+                    and -ONSET_HYSTERESIS - _REFINED_LOOKFORWARD <= pos - alt_pos
                     <= ONSET_HYSTERESIS + _REFINED_LOOKBACK):
                 if not timeline or alt_pos > timeline[-1][0]:
                     pos = alt_pos       # bekannte Grenze: liegen lassen
@@ -1230,7 +1253,7 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
             # `>=`: auch die Korrektur-Grenze AN der Commit-Grenze besetzt
             # den Platz - sonst kehrte der gerade ersetzte Eintrag einen Hop
             # spaeter zurueck.
-            if any(-ONSET_HYSTERESIS <= pos - alt_pos
+            if any(-ONSET_HYSTERESIS - _REFINED_LOOKFORWARD <= pos - alt_pos
                    <= ONSET_HYSTERESIS + _REFINED_LOOKBACK
                    for pos, _ in timeline if pos >= base):
                 continue                # Platz neu besetzt: das WAR die Revision

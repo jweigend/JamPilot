@@ -189,3 +189,44 @@ driftkorrigiert, ohne Tracker -> mit Viertel-Snap:
 | let_it_be | 158 | 120 ms / 39 % | **70 ms / 71 %** | 0,96 | 0,65 (Modell zaehlt Halbtakte) |
 | eight_days_a_week | 99 | 226 ms / 14 % | **79 ms / 51 %** | 0,99 | 0,995 |
 | something | 109 | 137 ms / 30 % | **54 ms / 74 %** | 0,85 | 0,66 |
+
+## Vorwaertskorrektur der Modellgrenze (2026-09-11)
+
+Ausloeser: Telegraph Road (Dire Straits, Outro ab 11:09, D-F-G-D sauber auf
+der Eins) - JamPilot zeigte einen Teil der Wechsel einen Schlag VOR der
+Taktlinie. Diagnose mit dem Beat-This-Raster als Zeitreferenz (Klicks
++12 ms, Onset-Peaks -31 ms): Die rohe BTC-Grenze liegt live im Median
+**184 ms vor** der Taktlinie; ein synthetischer Wechsel bei exakt 5,000 s
+kommt bei 4,737 s heraus (-263 ms, in jeder Tonlage gleich - kein
+CQT-Vorecho, ein Bias des Modells). Kein Fenster-Drift: gleitende Fenster
+liefern -170..-330 ms, der Rest ist das 93-ms-Frame-Dither. Die
+Verfeinerung (bis dahin -0,40/+0,05 s) konnte nicht nach vorn und zog die
+Grenze mit dem Onset-Gewicht auf den Anschlag des VORIGEN Schlags (median
+weitere -170 ms), der Viertel-Snap nahm dann diesen Schlag.
+
+Das relativiert die Timing-Messung oben: Die Chroma-Korrelations-Offsets
+stammen selbst aus vorecho-behafteter `chroma_cqt`, der "Nachlauf" der
+rohen BTC-Grenze ist gegen das Beat-Grid nicht zu sehen.
+
+Varianten im Live-Pfad (`messung_onset_shift.py`; A = `cli.BTC_ONSET_SHIFT`,
+B = `btc.REFINE_FORWARD` 0,40 statt 0,05):
+
+| Track / Mass | heute | B | A +0,186 | A +0,186 und B |
+|---|---|---|---|---|
+| Telegraph Road, Hauptwechsel auf der Taktlinie | 45 % | 45 % | 59 % | **69 %** |
+| Eight Days, Event auf demselben GT-Beat wie der Wechsel | 58 % | 63 % | 84 % | **84 %** |
+| Eight Days, median \|dt\| | 79 ms | 70 ms | 40 ms | 40 ms |
+| Something, gleicher GT-Beat | 87 % | 90 % | 91 % | **92 %** |
+| Let It Be, gleicher GT-Beat | 94 % | 93 % | 94 % | 93 % |
+| Crazy Little Thing, median \|dt\| | 85 ms | 83 ms | 57 ms | **55 ms** |
+| It's Too Late, median \|dt\| | 203 ms | 198 ms | 194 ms | 195 ms |
+
+A allein erzeugt mehr Kurz-Events (X-Y-X-Blips: die verfeinerte Grenze
+wird committet, das Modell meldet an der Commit-Grenze noch den alten
+Akkord, die Spaetgrenzen-Regel setzt ihn wieder ein); B allein drueckt sie,
+bewegt das Timing aber kaum. A+B haelt die Kurz-Events auf dem alten Niveau
+und ist seitdem der Default (zwei Frames; drei waren nicht besser). It's Too
+Late liegt schon ohne Korrektur spaet (+111 ms) und wird spaeter (+171 ms):
+der Bias ist materialabhaengig. Eine Sperre gegen die Blips in der
+Merge-Regel wurde verworfen - das zweite Event des Blips lag zufaellig
+richtig, ohne Blip wurde das Timing schlechter (Crazy 85 -> 211 ms).

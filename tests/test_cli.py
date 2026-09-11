@@ -764,6 +764,9 @@ class TestBeatsImAnzeigepfad:
     Kontrollgitarre spielt dort - und die Verfeinerung laeuft weiter."""
 
     SR = 22050
+    # Wo die Grenzen in der Zeitleiste landen sollen. Die Modell-Attrappe
+    # liefert sie um BTC_ONSET_SHIFT FRUEHER - wie das echte Modell, dessen
+    # Bias die Korrektur im Anzeigepfad gerade ausgleicht.
     WECHSEL = [(0.0, "C"), (6.13, "G"), (12.1, "C")]
 
     class Loop:
@@ -824,7 +827,8 @@ class TestBeatsImAnzeigepfad:
 
         def segmente(labels, audio, sr, offset=0.0, **kw):
             ende = offset + len(audio) / sr
-            out = [(pos, name) for pos, name in wechsel if offset <= pos < ende]
+            out = [(round(pos - cli.BTC_ONSET_SHIFT, 6), name)
+                   for pos, name in wechsel if offset <= pos < ende]
             if not out or out[0][0] > offset:
                 davor = [n for p, n in wechsel if p <= offset]
                 out.insert(0, (offset, davor[-1] if davor else wechsel[0][1]))
