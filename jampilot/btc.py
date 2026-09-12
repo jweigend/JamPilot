@@ -425,9 +425,21 @@ def fold_bass_chroma(features: np.ndarray) -> np.ndarray:
     """Log-CQT-Frames (T, 144) -> Tiefband-Chroma (12, T) fuer bass.dominant.
 
     Orientierung wie chroma.analyze_window.bass_frames: Tonklassen x Frames.
+
+    Gefaltet wird nur der Bin, der AUF der Note sitzt (2 Bins je Halbton:
+    der gerade liegt auf der Note, der ungerade 50 Cent darueber). Der
+    Zwischenbin traegt das Leck der Nachbarnote - summiert man ihn mit, hat
+    fast jede Note einen fast gleich starken Nachbarn, und bass.MIN_DOMINANCE
+    faellt durch: Bis 2026-09-12 blieb der Bass so bei 75-89 % der Segmente
+    von Something, It's Too Late, Eight Days, Crazy Little Thing leer (offline
+    gegen die Isophonics-Slashes; der alte chroma_cqt-Pfad mit Mittelbin je
+    Halbton lag bei 16-32 %). Mit den Notenbins: 33 % leer, dieselben 44 %
+    gefundene Umkehrungen (tests/reference/README.md, Bass-Abschnitt).
     """
-    mag = np.exp(features[:, :BTC_BASS_BINS])
-    pcs = (np.arange(BTC_BASS_BINS) // 2) % 12
+    idx = np.arange(BTC_BASS_BINS)
+    noten = idx[idx % 2 == 0]
+    mag = np.exp(features[:, noten])
+    pcs = (noten // 2) % 12
     out = np.zeros((12, features.shape[0]), dtype=np.float32)
     for pc in range(12):
         out[pc] = mag[:, pcs == pc].sum(axis=1)

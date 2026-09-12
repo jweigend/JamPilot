@@ -107,6 +107,46 @@ Umkehrungen fehlt der Grundton unten gerade, bei Grundton-Bass gewinnt sonst
 gern die laute Quinte. Praxis-Check Peg: `G/B` bleibt (9 Stellen), der
 fruehere Fehlgriff `Cmaj7/B` verschwindet.
 
+### Nachtrag 2026-09-12: der Bass fehlte, er war nicht falsch
+
+Die Kalibrierung oben zaehlte falsche Slashes und gefundene Umkehrungen,
+nie die Leerquote. Live (v7_2b, ein Frame, Snap) war der Bass bei 60-90 %
+der Events leer - im Bass-Modus steht dann der Akkordname statt der Note,
+das Griffbrett zeigt den Grundton. Ursache: die Faltung des BTC-Tiefbands
+summierte beide Bins je Halbton, auch den bei +50 Cent, der das Leck der
+Nachbarnote traegt; `bass.MIN_DOMINANCE` fiel durch. Der bis 08.08. aktive
+chroma_cqt-Pfad (36 Bins je Oktave, Mittelbin je Halbton) hatte das Problem
+nicht. Publish-once/Persistenz verlieren nur 3-4 Baesse je Titel.
+
+Anteil Segmente >= 1 s ohne Bass, offline gegen die Annotation (2-s-Pooling):
+
+| | Let It Be | Something | It's Too Late | Eight Days | Crazy |
+|---|---|---|---|---|---|
+| alter chroma_cqt-Pfad | 11 % | 32 % | 16 % | 76 % | 88 % |
+| BTC-Tiefband, beide Bins (bis 12.09.) | 23 % | 78 % | 89 % | 75 % | 86 % |
+| BTC-Tiefband, nur Notenbins (**aktiv**) | 13 % | 25 % | 16 % | 71 % | 77 % |
+
+Eight Days und Crazy Little Thing bleiben in jeder Variante leer (dichtes
+Rock-Tiefband, kein klarer Gewinner); die Stimmung der Aufnahmen liegt
+innerhalb von 15 Cent und ist es nicht. Mit den Notenbins liess
+`SLASH_ROOT_RATIO` 2,0 live die Quinte als Slash durch (32 falsche auf fuenf
+Titeln, D/A ueber jedem D in Eight Days), 3,0 haelt sie: offline 0,3 %
+falsche Slashes bei 11/27 Umkehrungen (`messung_bass_gt.py`). Live, Events
+mit richtigem Grundton, Bass gegen die Annotation:
+
+| | gesetzt und richtig | gesetzt und falsch | leer |
+|---|---|---|---|
+| vorher (beide Bins, Ratio 2,0) | 143 | 12 | 332 |
+| Notenbins, Ratio 2,0 | 287 | 32 | 166 |
+| **Notenbins, Ratio 3,0** | **287** | **17** | **179** |
+
+Elf der 17 falschen sitzen in It's Too Late und sind systematisch (D/A ueber
+jedem D6, Fmaj7/E ueber jedem Fmaj7) - Quinte bzw. Septime als Oberwelle,
+oder der Bassist spielt es wirklich; das entscheidet das Ohr. Die
+chromatische Basslinie in der Bridge von Something (Umkehrungen 16 von 18
+weiter leer) loest das nicht: ein Event traegt einen Bass, Durchgangstoene
+innerhalb eines Akkords sind nicht vorgesehen. Proberaum-Test offen.
+
 Messskripte: Session-Scratchpad `verify_reference.py` (Versions-Check),
 Timing- und Bass-Auswertung; alle nutzen nur `jampilot.btc` + librosa.
 

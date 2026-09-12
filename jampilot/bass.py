@@ -61,9 +61,13 @@ BASS_SILENCE = 1e-6
 # um diesen Faktor schlaegt. Bei einer echten Umkehrung fehlt der Grundton
 # unten gerade - bei Grundton-Bass gewinnt sonst gern die (laute) Quinte die
 # Mehrheit und die Anzeige erfaende ein "C/G". Gegen die Isophonics-Slash-
-# Annotationen kalibriert: falsche Slashes 8%->2%, echte Umkehrungen bleiben
-# (13/27 gefunden; tests/reference/README.md).
-SLASH_ROOT_RATIO = 2.0
+# Annotationen kalibriert: mit 2,0 auf der alten Faltung falsche Slashes
+# 8%->2% bei 13/27 Umkehrungen. Seit die Faltung nur die Notenbins nimmt
+# (btc.fold_bass_chroma, 2026-09-12) kommt viel oefter ueberhaupt ein Ton
+# durch, und 2,0 liess live die Quinte als Slash durch (32 falsche auf 5
+# Titeln); 3,0: offline 0,3 % falsche Slashes bei 11/27 Umkehrungen, live
+# 17 falsche bei doppelt so vielen gesetzten Baessen (README, Bass-Abschnitt).
+SLASH_ROOT_RATIO = 3.0
 
 
 def dominant(bass_frames: np.ndarray | None) -> int | None:
