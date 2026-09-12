@@ -18,6 +18,18 @@ Viertel) am Chroma-Offset der Akkorde verankert (Titelmitte +-0,2 s);
 `--fit` rechnet ihn neu. Die Chroma-Offsets (README) werden zum Vergleich
 weiter mitgemessen.
 
+Messregeln (seit 2026-09-12, s. README "Was 'kein Event' wirklich war"):
+- Ein annotierter WECHSEL ist eine .lab-Zeile, deren Akkord (ohne Basston)
+  sich von der Zeile davor unterscheidet. Isophonics splittet Segmente an
+  Phrasengrenzen (C nach C) - das sind keine Wechsel. Zeilen, die nur den
+  Basston aendern (C nach C/7), werden getrennt gegen das Bass-Feld der
+  Events gemessen (`lab_changes`, `bass_treffer`).
+- Die Zuordnung Event <-> Wechsel gilt bis zu einem HALBEN SCHLAG (aus den
+  GT-Beats, sonst aus den Modell-Beats). Dahinter bis anderthalb Schlaege
+  ist das Event auf dem Nachbarschlag, dahinter fehlt es (`timing_stats`).
+- Die Simulation laeuft am Dateiende um die Verzoegerung mit Stille nach
+  (`lauf(drain=True)`), sonst fehlen die letzten `delay` Sekunden Anzeige.
+
 Aufruf: python tests/reference/messung_live_pfad.py [track ...] [--fit]
 """
 import argparse
@@ -100,16 +112,109 @@ def f_measure(est, ref, tol=0.07):
     return 0.0 if hits == 0 else 2 * p * r / (p + r)
 
 
-def timing(det, gt_changes):
-    dts = []
+# Harte-Intervall -> Halbtoene (fuer den Basston einer /-Angabe)
+_INTERVALL = {"1": 0, "2": 2, "b3": 3, "3": 4, "4": 5, "b5": 6, "5": 7,
+              "b6": 8, "6": 9, "b7": 10, "7": 11, "b2": 1, "#4": 6, "#5": 8}
+_NOTEN = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+_ROOT = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+
+
+def _note_index(name):
+    i = _ROOT[name[0]]
+    for c in name[1:]:
+        i += {"#": 1, "b": -1}[c]
+    return i % 12
+
+
+def bass_note(label):
+    """'C/3' -> 'E', 'A:min/b7' -> 'G', 'C' -> None (Grundton = kein Slash)."""
+    if "/" not in label:
+        return None
+    root, iv = label.split("/")
+    root = root.split(":")[0]
+    return _NOTEN[(_note_index(root) + _INTERVALL[iv]) % 12]
+
+
+def lab_changes(track, korr):
+    """Annotierte Wechsel aus <track>.lab, driftkorrigiert.
+
+    chords:    Zeiten, an denen der Akkord (ohne Basston) wechselt
+    bass_only: [(Zeit, erwarteter Basston)] - nur der Basston wechselt
+    gleich:    Anzahl Zeilen mit demselben Akkord wie davor (Phrasensplit)
+    """
+    zeilen = [l.split() for l in open(REF / f"{track}.lab") if l.strip()]
+    chords, bass_only, gleich, prev = [], [], 0, "N"
+    for a, _, c in zeilen:
+        if c == "N":
+            prev = c
+            continue
+        akkord = c.split("/")[0].removesuffix(":maj")
+        if akkord != prev.split("/")[0].removesuffix(":maj"):
+            chords.append(korr(float(a)))
+        elif bass_note(c) != bass_note(prev):
+            bass_only.append((korr(float(a)), bass_note(c)))
+        else:
+            gleich += 1
+        prev = c
+    return {"chords": np.array(chords), "bass_only": bass_only, "gleich": gleich,
+            "zeilen": sum(1 for z in zeilen if z[2] != "N")}
+
+
+def beat_intervall(gt_beats=None, model_beats=None):
+    """Median-Schlagabstand in Sekunden: GT-Beats, sonst Modell-Beats, sonst 0,5 s."""
+    for b in (gt_beats, model_beats):
+        if b is not None and len(b) > 3:
+            return float(np.median(np.diff(np.sort(np.asarray(b)))))
+    return 0.5
+
+
+def timing_stats(det, gt_changes, beat=0.5):
+    """Event je Wechsel: innerhalb eines halben Schlags -> dt; bis anderthalb
+    Schlaege -> Nachbarschlag; sonst fehlt."""
+    det = np.asarray(det)
+    dts, nachbar, fehlt = [], 0, 0
     for g in gt_changes:
+        if len(det) == 0:
+            fehlt += 1
+            continue
         i = np.argmin(np.abs(det - g))
-        if abs(det[i] - g) <= 0.5:
-            dts.append(det[i] - g)
-    d = np.array(dts)
-    return (f"n={len(d):3d} med|dt| {np.median(np.abs(d))*1000:4.0f} ms  "
+        d = det[i] - g
+        if abs(d) <= 0.5 * beat:
+            dts.append(d)
+        elif abs(d) <= 1.5 * beat:
+            nachbar += 1
+        else:
+            fehlt += 1
+    d = np.array(dts) if dts else np.zeros(0)
+    return {"dt": d, "n": len(gt_changes), "nachbar": nachbar, "fehlt": fehlt, "beat": beat}
+
+
+def timing(det, gt_changes, beat=0.5):
+    st = timing_stats(det, gt_changes, beat)
+    d = st["dt"]
+    if len(d) == 0:
+        return f"n={st['n']:3d} kein Event innerhalb eines halben Schlags"
+    n = st["n"]
+    return (f"n={n:3d} med|dt| {np.median(np.abs(d))*1000:4.0f} ms  "
             f"<=50 {np.mean(np.abs(d) <= .05):3.0%}  <=93 {np.mean(np.abs(d) <= .093):3.0%}  "
-            f"med dt {np.median(d)*1000:+4.0f} ms")
+            f"med dt {np.median(d)*1000:+4.0f} ms  "
+            f"| auf dem Schlag {len(d)/n:3.0%}, Nachbarschlag {st['nachbar']/n:3.0%}, "
+            f"fehlt {st['fehlt']/n:3.0%} (Schlag {st['beat']*1000:.0f} ms)")
+
+
+def bass_treffer(events, bass_only, beat=0.5):
+    """Anteil der Nur-Bass-Wechsel, bei denen das Event, das die Stelle
+    (bis einen halben Schlag spaeter) abdeckt, den erwarteten Basston traegt."""
+    if not bass_only:
+        return None
+    ev = sorted((e["at"], e.get("b")) for e in events if e["c"] != "-")
+    at = np.array([a for a, _ in ev])
+    hits = 0
+    for g, note in bass_only:
+        j = np.searchsorted(at, g + 0.5 * beat, side="right") - 1
+        if j >= 0 and ev[j][1] == note:
+            hits += 1
+    return hits / len(bass_only)
 
 
 class SyncTracker:
@@ -136,7 +241,11 @@ class SyncTracker:
         pass
 
 
-def lauf(y, mit_tracker, delay=5.0):
+def lauf(y, mit_tracker, delay=5.0, drain=True):
+    if drain:
+        # Die Anzeige laeuft `delay` s hinter dem Puffer; ohne Nachlauf mit
+        # Stille wuerden die letzten `delay` Sekunden des Titels nie gezeigt.
+        y = np.concatenate([y, np.zeros(int(delay * SR), dtype=np.float32)])
     stop = threading.Event()
     loop = FakeLoop(y, delay, stop)
     bc = Sammler()
@@ -190,21 +299,27 @@ def main():
         korr = lambda t: t * scale + shift                   # driftkorrigiert
         gt_beats = korr(gt[:, 0])
         gt_down = gt_beats[gt[:, 1] == 1]
-        roh = np.array([float(l.split()[0]) for l in open(REF / f"{track}.lab")
-                        if l.split()[2] != "N"])
-        gt_changes_alt = roh + off                          # Chroma-Offset wie bisher
-        gt_changes = korr(roh)
+        lab = lab_changes(track, korr)
+        gt_changes = lab["chords"]
+        gt_changes_alt = lab_changes(track, lambda t: t + off)["chords"]  # Chroma-Offset wie bisher
+        beat = beat_intervall(gt_beats)
         print(f"   Korrektur: scale {scale:.5f} shift {shift:+.3f} s "
               f"(Chroma-Offset {off:+.2f})", flush=True)
-        print(f"\n== {track}  ({len(y)/SR:.0f} s, {len(gt_changes)} annotierte Wechsel, "
-              f"{len(gt_beats)} Beats)", flush=True)
+        print(f"\n== {track}  ({len(y)/SR:.0f} s, {lab['zeilen']} .lab-Zeilen: "
+              f"{len(gt_changes)} Akkordwechsel, {len(lab['bass_only'])} nur Bass, "
+              f"{lab['gleich']} Phrasensplits; {len(gt_beats)} Beats, Schlag {beat*1000:.0f} ms)",
+              flush=True)
         for mit in (False, True):
             bc, dauer = lauf(y, mit)
             ev = np.array(sorted(at for at, e in bc.events.items() if e["c"] != "-"))
             name = "MIT  Tracker" if mit else "OHNE Tracker"
             print(f"  {name}: {len(ev)} Events, {dauer:.0f} s Rechenzeit", flush=True)
-            print(f"     vs .lab driftkorrigiert: {timing(ev, gt_changes)}", flush=True)
-            print(f"     vs .lab Chroma-Offset:   {timing(ev, gt_changes_alt)}", flush=True)
+            print(f"     vs .lab driftkorrigiert: {timing(ev, gt_changes, beat)}", flush=True)
+            print(f"     vs .lab Chroma-Offset:   {timing(ev, gt_changes_alt, beat)}", flush=True)
+            bt = bass_treffer(bc.events.values(), lab["bass_only"], beat)
+            if bt is not None:
+                print(f"     Nur-Bass-Wechsel: Basston getroffen {bt:3.0%} "
+                      f"(n={len(lab['bass_only'])})", flush=True)
             if mit:
                 b = np.array(sorted(bc.beats))
                 d = np.array(sorted(at for at, x in bc.beats.items() if x["n"] == 1))

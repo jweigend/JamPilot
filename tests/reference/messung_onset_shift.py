@@ -22,9 +22,10 @@ Aufruf:
 
 Telegraph: Anteil der Events auf einer Taktlinie (Schlag n=1 des Beat-Grids)
 bzw. auf dem Schlag davor; "Hauptwechsel" = Events mit >= 1,5 s Dauer.
-Referenztrack: Timing der Events gegen die .lab-Wechsel (driftkorrigiert wie
-in messung_live_pfad.py), Beat-F, und ob Event und annotierter Wechsel auf
-demselben GT-Beat liegen. Beispiel fuer alle Varianten:
+Referenztrack: Timing der Events gegen die .lab-Akkordwechsel (Messregeln
+in messung_live_pfad.py: Phrasensplits sind keine Wechsel, Nur-Bass-Wechsel
+getrennt, Zuordnung bis ein halber Schlag, Nachlauf am Dateiende), Beat-F,
+und ob Event und annotierter Wechsel auf demselben GT-Beat liegen. Beispiel fuer alle Varianten:
 
   for v in "0 0.05" "0.186 0.05" "0 0.40" "0.186 0.40"; do
       python tests/reference/messung_onset_shift.py eight_days_a_week $v /tmp/x.pkl; done
@@ -75,17 +76,21 @@ if track == "telegraph":
 else:
     scale, sh = m.ALIGNMENT.get(track, (1.0, m.OFF.get(track, 0.0)))
     korr = lambda t: t * scale + sh
-    roh = np.array([float(l.split()[0]) for l in open(m.REF / f"{track}.lab") if l.split()[2] != "N"])
-    gt_changes = korr(roh)
+    lab = m.lab_changes(track, korr)
+    gt_changes = lab["chords"]
     evt = np.array([e["at"] for e in ev if e["c"] != "-"])
-    line = f"{tag} | {len(evt)} Events | vs .lab: {m.timing(evt, gt_changes)}"
     beats_file = m.REF / f"{track}.beats"
-    if beats_file.exists():
-        gt = np.loadtxt(beats_file); gt_beats = korr(gt[:, 0])
+    gt_beats = korr(np.loadtxt(beats_file)[:, 0]) if beats_file.exists() else None
+    beat = m.beat_intervall(gt_beats, b_at)
+    line = f"{tag} | {len(evt)} Events | vs .lab: {m.timing(evt, gt_changes, beat)}"
+    bt = m.bass_treffer(ev, lab["bass_only"], beat)
+    if bt is not None:
+        line += f" | Bass {bt:3.0%} (n={len(lab['bass_only'])})"
+    if gt_beats is not None:
         same = before = after = n = 0
         for g in gt_changes:
             i = np.argmin(np.abs(evt - g))
-            if abs(evt[i] - g) > 0.6: continue
+            if abs(evt[i] - g) > 1.5 * beat: continue
             n += 1
             bg = np.argmin(np.abs(gt_beats - g)); be = np.argmin(np.abs(gt_beats - evt[i]))
             if be == bg: same += 1

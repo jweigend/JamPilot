@@ -12,6 +12,7 @@ Gewichte aus der Historie: git show <commit>:jampilot/data/btc_large_voca.npz
 (7d8cb69 Original-BTC, e7ad6f1 iso-only, b9cf896 v7). Pipelines: git
 worktree add <dir> <commit> (02cdb26 vor Publish-once, main, HEAD).
 """
+import sys, threading, argparse, time, io, contextlib, pickle
 from pathlib import Path
 import numpy as np, librosa
 repo, weights, track, out = sys.argv[1:5]

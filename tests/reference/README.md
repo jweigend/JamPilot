@@ -296,3 +296,48 @@ mit einem spaeteren It's Too Late (207 -> 244 ms). Seit heute:
 Nicht gemessen: Proberaum. Offen: ob der Sextakkord-Verlust von `v7_2b`
 (Klavier-Jazzpop) im Spiel auffaellt - dann ist `iso_only_2` der Kandidat
 (Sext 0,57, Radar 49,6 %), Timing identisch.
+
+## Was "kein Event" wirklich war: Messregeln seit 2026-09-12
+
+Gegen den Schlag gerechnet fehlte bei 13 % der annotierten Wechsel ein
+Event innerhalb von 0,5 s (bis 29 % bei It's Too Late). Die 72 Faelle
+einzeln angesehen (v7_2b, ein Frame, mit Snap): **kein einziger geht auf
+Publish-once oder den Mindestabstand zurueck.**
+
+- 44 waren keine Akkordwechsel: 23 .lab-Zeilen mit demselben Akkord wie
+  davor (Isophonics splittet an Phrasengrenzen), 21 aendern nur den
+  Basston (C -> C/7).
+- 5 lagen hinter dem Dateiende: die Simulation stoppte mit leerem Puffer,
+  die letzten 5 s (Verzoegerung) wurden nie angezeigt - das Outro von Crazy
+  Little Thing.
+- 14 Events waren da, aber einen Schlag daneben: Let It Be 7 mal F -> C
+  exakt einen Schlag frueher (das Modell nennt den Bass auf E schon C),
+  It's Too Late 7 mal 0,5-0,9 s spaet (Klavier-Nachlauf).
+- 13 Label-Fehler mit richtigem Grundton (D:maj6 -> D, F:maj6 -> F,
+  E:sus -> Em7): der Sextakkord-Verlust des Modells.
+- ~8 echt verpasst: Something Em/B (3,6 s, zweimal), C/E (dreimal), die
+  chromatische Passage ab 153 s; Crazy Little Thing ein F von 0,78 s.
+
+Seitdem gelten in `messung_live_pfad.py` (und damit in
+`messung_onset_shift.py`) vier Regeln: Phrasensplits sind keine Wechsel;
+Nur-Bass-Wechsel werden getrennt gegen das Bass-Feld der Events gemessen
+(`bass_treffer`); die Zuordnung Event <-> Wechsel reicht bis einen halben
+Schlag (aus den GT-Beats, sonst Modell-Beats), bis anderthalb Schlaege ist
+es der Nachbarschlag, dahinter fehlt es; die Simulation laeuft am Dateiende
+um die Verzoegerung mit Stille nach. Die Zahlen mit diesen Regeln (v7_2b,
+ein Frame, Snap, Referenz = annotierter Wechsel):
+
+| Titel | Akkordwechsel | auf dem Schlag | Nachbarschlag | fehlt | med \|dt\| | med dt | Nur-Bass getroffen |
+|---|---|---|---|---|---|---|---|
+| Eight Days a Week | 93 | 81 % | 13 % | 6 % | 37 ms | -32 ms | - |
+| Let It Be | 135 | 90 % | 10 % | 0 % | 65 ms | +65 ms | 0 % (n=9) |
+| Something | 84 | 90 % | 8 % | 1 % | 41 ms | +35 ms | 17 % (n=12) |
+| Crazy Little Thing | 92 | 77 % | 15 % | 8 % | 44 ms | -40 ms | - |
+| It's Too Late | 99 | 73 % | 24 % | 3 % | 190 ms | +172 ms | - |
+
+Uebrig bleibt, was das Modell wirklich verfehlt: der Klavier-Nachlauf bei
+It's Too Late (ein Viertel der Wechsel einen Schlag spaet), Sextakkorde,
+Umkehrungen mit fremdem Basston - und ein neuer Befund: **das Bass-Feld
+der Events trifft den annotierten Slash-Bass fast nie** (0 von 9, 2 von 12).
+Ob das an der Bassmessung oder an der Nachrueck-Regel ("nie zurueck")
+liegt, ist offen.
