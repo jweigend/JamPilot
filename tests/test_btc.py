@@ -144,6 +144,31 @@ class TestFilterbankMemo:
         assert np.array_equal(with_memo, without)
 
 
+class TestBassFaltung:
+    """fold_bass_chroma nimmt nur die Bins AUF den Noten (2026-09-12)."""
+
+    def test_zwischenbins_zaehlen_nicht(self):
+        feats = np.full((4, 144), np.log(1e-6), dtype=np.float32)
+        feats[:, 1] = 0.0                  # Bin 1 = C1 + 50 Cent, kein Notenbin
+        out = btc.fold_bass_chroma(feats)
+        assert out.shape == (12, 4)
+        assert np.allclose(out, 3 * 1e-6, atol=1e-7)   # je Tonklasse 3 Notenbins Rauschen
+
+    def test_notenbin_landet_auf_seiner_tonklasse(self):
+        feats = np.full((4, 144), np.log(1e-6), dtype=np.float32)
+        feats[:, 2 * 14] = 0.0             # Bin 28 = 14 Halbtoene ueber C1 = D2
+        out = btc.fold_bass_chroma(feats)
+        assert np.argmax(out[:, 0]) == 2   # D
+
+    def test_sinus_d2_gibt_d(self):
+        sr = btc.BTC_SR
+        t = np.arange(int(3.0 * sr)) / sr
+        y = (0.5 * np.sin(2 * np.pi * 73.42 * t)).astype(np.float32)   # D2
+        out = btc.fold_bass_chroma(btc.features_from_audio(y, sr))
+        from jampilot import bass
+        assert bass.dominant(out[:, 5:-5]) == 2
+
+
 class TestZeitachse:
     """Frame i liegt bei i * BTC_HOP / BTC_SR - auch hinter der 10-s-Marke.
 
