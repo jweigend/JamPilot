@@ -5,7 +5,7 @@
 # des macOS-Buendels, und packaging/build.ps1 fuer den Namen des Windows-ZIP.
 # Eine zweite Stelle waere eine Stelle, die irgendwann etwas anderes sagt - und
 # genau das war sie: pyproject stand auf 0.1.0, als hier schon 1.1.1 stand.
-__version__ = "1.3.1"
+__version__ = "1.4.0"
 
 import os
 

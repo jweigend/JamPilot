@@ -1,5 +1,166 @@
 # Changelog
 
+## 1.4.0 — 2026-09-12
+
+The theme of this release: **time.** JamPilot has always told you *what*
+comes next; now it also tells you *where in the bar* — and the same pulse
+pulls every chord change onto the beat it belongs to. Around it: a
+retrained chord model, an audio path that no longer stutters on a
+twenty-core rehearsal-room PC, and the bass that had gone quiet since
+August speaks again. Judged in the rehearsal room before it was tagged.
+Every number below is measured; methodology and raw results live in
+`docs/exploration/tempo-und-takt.md`,
+`docs/exploration/beat-tracking-ergebnisse.md`,
+`docs/exploration/audio-aussetzer-analyse.md` and `tests/reference/README.md`.
+
+### Bar lines: a beat tracker under the timeline
+
+A learned beat tracker (Beat This!, ISMIR 2024, shipped as a 10 MB ONNX
+model and run by ONNX Runtime in its own thread) listens alongside the
+chord model. Under the lane you now get a faint tick per beat, the downbeat
+a little taller, in a hint of the page's blue — the chip says *what* comes,
+the ticks say *where in the bar*: is that `G` the start of the next bar, or
+a change on the three? Three layouts were tried in the rehearsal room (a
+line over the whole lane, an edge on the chip, ticks at the floor); the
+ticks won, because everything else made the picture restless.
+
+The ticks appear only while the pulse is steady and the downbeat has
+settled — no tick is better than a wrong one, and a rubato ballad gets
+none. Beats travel as a second publish-once channel next to the chords, so
+a bar line, once drawn, never moves. Off in the gear menu (per device) if
+you hear the one yourself.
+
+The first thing you will notice with the ticks in place: **chords often
+change on the four**, not on the one. That is not a bug. Vocals and lead
+steer for the target chord a beat early, and JamPilot hears the whole mix.
+A chord sheet writes the change on the bar line; the band plays it where
+JamPilot shows it.
+
+### The same grid halves the timing error
+
+Every chord boundary now snaps to its nearest quarter note before it is
+committed. Measured hop by hop against drift-corrected Isophonics
+annotations, committed events only (median |Δt| / share within 93 ms):
+
+| Track | 1.3.1 | 1.4.0 |
+|---|---|---|
+| Let It Be | 127 ms / 35 % | **70 ms / 71 %** |
+| Eight Days a Week | 196 ms / 17 % | **61 ms / 59 %** |
+| Something | 121 ms / 41 % | **48 ms / 80 %** |
+
+Beat-F on the three tracks: 0.96 / 0.99 / 0.85. On the way there, two
+things the measurement turned up were fixed: the chord model places its
+boundaries systematically *before* the real change (a synthetic change at
+exactly 5.000 s came out at 4.737 s, in every key), so boundaries are
+shifted forward by one model frame before they enter the timeline, and
+boundary refinement now searches forward as well as backward — it used to
+pull a clean change on the one onto the previous beat's attack. Main
+changes landing on the bar line in Telegraph Road: 45 % → 69 %.
+
+The feasibility study that preceded all this is checked in
+(`docs/exploration/tempo-und-takt.md`): librosa's beat grid hit only
+23–54 % of the beats and was 100–200 ms off in phase, and estimating the
+phase from JamPilot's own chord onsets did not rescue it — the phase has to
+come from the audio. Hence the model.
+
+### Chord recognition: model v7_2b
+
+The weights are a distillation from a multi-view teacher (an iso-only
+model over five Demucs stem views plus Viterbi), then retrained on a CQT
+computed in one piece rather than 10-second chunks. That second step
+removed a drift the old weights had learnt as a lead: 108 frames were
+10.031 s, not 10 s, and the offline time axis drifted +31 ms per chunk.
+`jampilot analyze` is now time-true; the live path (one window, one chunk)
+was never affected.
+
+| | 1.3.1 | 1.4.0 |
+|---|---|---|
+| Verdict share vs. ChordNet, 6285-song library radar | 48.1 % | **52.1 %** |
+| Reference set, labels exactly right | 0.776 | 0.767 |
+| maj7 / m7 | — | **0.81 / 0.95** (better) |
+| Sixth chords | 0.47 | 0.16 (worse — teacher bias, the library has few standards) |
+
+The reference set is a hair worse, the library a clear step better; the
+trade was taken with eyes open. The retraining campaign, with the runs that
+lost, is documented in `docs/exploration/nachtraining-kampagnen-2026-08.md`.
+
+### Bass: it speaks again
+
+Since the bass source moved to the chord model's low band on 8 August, the
+measured bass had been empty for 60–90 % of live events — the bass view
+showed the chord name, the fretboard the root. The fold that turns the
+model's chroma into a bass note summed *both* bins per semitone, including
+the one at +50 cents that carries the neighbouring note's leak, and the
+majority threshold kept failing. The old CQT path had one bin per semitone
+and never had this problem.
+
+Only the on-note bins are folded now, and the root/slash ratio is 3.0
+instead of 2.0 — with more signal, 2.0 let the fifth through as a slash (32
+wrong on five tracks). Offline: empty segments 63 % → 33 %, false slashes
+0.3 %, inversions unchanged at 44 %. Live on five tracks: 143 → **287**
+correctly set basses, 12 → 17 wrong ones. Confirmed by ear in the rehearsal
+room.
+
+### Audio: no more stutter on the rehearsal-room PC
+
+The rehearsal-room machine (a Z820, 2×10 cores) stuttered. Measured on the
+machine itself, three causes, all fixed:
+
+- **OpenBLAS spawned 40 threads**, twelve of which kept spinning at 57 %
+  CPU after every matrix multiply: 609 % CPU for the process, load 11.6 —
+  and the hop got *slower* (refinement 143 ms instead of 110). One BLAS
+  thread is now set before NumPy is ever imported. After: 51 % CPU, load 2.
+- **The output buffer was one block.** `latency="high"` gave 43 ms under
+  PipeWire/ALSA, and a full garbage collection (36–74 ms) was longer than
+  that. The stream now opens with a 0.2 s output buffer; the display stays
+  exact because it computes from the DAC timestamp. Price: 0.2 s more total
+  delay.
+- **The first seconds dropped out twice, then never again.** The bundle
+  unpacks into a fresh directory on every start, so numba's cache is always
+  cold, and the refinement kernels compiled on the first chord change *with
+  the stream running*: 4.4 s, the callback 55 ms late. Everything heavy now
+  happens before the stream opens — refinement is warmed with a synthetic
+  tone, the model is loaded, and the heap is frozen (`gc.freeze()` over
+  181 000 objects: a full collection takes 0.1 ms afterwards instead of 59).
+
+And the next diagnosis needs no guessing: the stream records the first 16
+dropouts with stream second and PortAudio status, the start log names each
+one ("Audio dropout 1 at 3.8 s: output underflow"), and the control window
+shows a dropout counter in its info line — nothing at all if there were
+none. Outside the code, the second cause on that machine was that nothing
+in the audio path ran with realtime priority; the analysis document says
+how to check.
+
+### Record mode: choose the position
+
+Pause in record mode (`P`) and small arrows under the fretboard step
+through the alternatives for that spot: chord shapes on guitar (open,
+barre), inversions on keyboard, string positions on bass. The choice is an
+anchor on the event — the spot looks the same on every pass, and every
+chord from there on is planned from the anchor, so the chorus can sit low
+and the verse high. `↑`/`↓` do the same on the keyboard. Anchors go with
+the recording when you leave the mode. Client-side, per device.
+
+### Smaller things
+
+- **The page on the music stand survives a restart.** The display
+  reconnected by itself, but every control (record, mute, transport) still
+  carried the old session token and ran silently into a 403. The token now
+  lives in the config directory and is reused on every start; old URLs, QR
+  scans and home-screen entries stay valid.
+- **Clean exit.** `Ctrl+C` occasionally ended in a core dump because the
+  process died while the beat worker was still inside ONNX Runtime. The
+  worker is now joined on shutdown.
+- **Measurement rules in the live-path harness.** "No event" for 13 % of
+  annotated changes turned out to be almost entirely measurement error
+  (repeated labels, bass-only changes, events one beat off beyond a rigid
+  0.5 s window). The harness now counts a change as a chord change without
+  the bass, matches to half a beat, and lets the delay drain at the end of
+  the file. Real misses: 0–8 % per track.
+- New dependency: `onnxruntime` (locked at 1.30.0). The bundle grows by the
+  runtime and the 10 MB beat model.
+- 597 tests (1.3.1: 468).
+
 ## 1.3.1 — 2026-08-30
 
 The theme of this release: **trust.** A bugfix release for a rare but
