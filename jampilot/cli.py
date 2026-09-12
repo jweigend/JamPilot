@@ -621,18 +621,40 @@ def cmd_run(args):
         print("No display available - running headless (Ctrl+C quits).")
 
     def vorheizen():
-        """librosas CQT-Filter fuer die BTC-Merkmale bauen lassen, bevor der
-        erste Ton analysiert wird - der erste Hop soll nicht der langsamste
-        sein."""
-        from .btc import features_from_audio
+        """Alles Schwere VOR dem Stream: numba-Kerne uebersetzen, Modell laden,
+        Heap einfrieren. Was hier passiert, kann keinen Ton verschlucken, denn
+        der Stream laeuft noch nicht - und genau das war das Problem mit
+        allem, was frueher erst in der Anzeigeschleife passierte."""
+        import gc
+        from .btc import BTCModel, features_from_audio, refine_boundary
 
+        sr = args.samplerate
         # Die eine Etappe, die beim allerersten Start die Minute kostet: numbas
         # JIT uebersetzt librosas CQT und legt den Cache an (gemessen: 23 s
         # kalt, 2 s warm). Der Text sagt das, damit niemand in Sekunde 40 das
         # Fenster schliesst.
         with protokoll.etappe("Compiling the analysis (first start: up to a minute)"):
-            features_from_audio(np.zeros(2 * args.samplerate, dtype=np.float32),
-                                args.samplerate)
+            features_from_audio(np.zeros(2 * sr, dtype=np.float32), sr)
+            # Die Grenzverfeinerung hat EIGENE Kerne (HPSS, Chroma-CQT,
+            # Onset), die der Merkmalspfad nicht anfasst. Ohne diesen Aufruf
+            # wurden sie beim ersten Akkordwechsel uebersetzt, mit laufendem
+            # Stream: 4.4 s kalt (das Bundle entpackt sich je Start neu, numbas
+            # Cache ist dann leer), der Callback kam bis 55 ms zu spaet - und
+            # zusammen mit einer vollen GC-Sammlung (80 ms auf dem Z820) war das
+            # ein Aussetzer. Genau die zwei "am Anfang, bevor die Akkorde
+            # stabil liefen". Synthetisch reicht: uebersetzt wird nach Typen.
+            t = np.arange(4 * sr) / sr
+            ton = (0.2 * np.sin(2 * np.pi * 261.6 * t)).astype(np.float32)
+            refine_boundary(ton, sr, 2.0, "C", "G")
+        with protokoll.etappe("Loading the chord model"):
+            engine.modell = BTCModel()
+        # Heap einfrieren: Der geladene Prozess traegt ~170 000 Objekte
+        # (librosa, numba, scipy, Qt, Modell). Jede VOLLE Sammlung geht ueber
+        # alle - 36-74 ms auf dem Entwicklungsrechner, 77-84 ms auf dem Z820 -
+        # und haelt dabei jeden Thread an, auch den Audio-Callback. Nach freeze
+        # sieht sie nur noch, was seither entstand: wenige Millisekunden.
+        gc.collect()
+        gc.freeze()
 
     try:
         if mit_fenster:
@@ -702,8 +724,12 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     hop_frames = int(round(ANALYSIS_HOP * sr))
     # Ein stilles Protokoll, wenn keine Engine dahintersteht (analyze, Tests).
     protokoll = engine.protokoll if engine is not None else Startprotokoll()
-    with protokoll.etappe("Loading the chord model"):
-        model = BTCModel()
+    # Das Modell kommt aus dem Warmup (vorheizen: geladen, bevor der Stream
+    # lief). Ohne Engine - `analyze`, Tests, Messskripte - hier laden.
+    model = getattr(engine, "modell", None)
+    if model is None:
+        with protokoll.etappe("Loading the chord model"):
+            model = BTCModel()
     # Das Beat-Modell laedt in SEINEM Thread (~1 s), der Start wartet nicht
     # darauf; ohne onnxruntime laeuft alles wie zuvor, nur ohne Taktstriche
     # und ohne Viertel-Snap.
@@ -752,10 +778,22 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
 
     grid = None
     erste_analyse_gemeldet = False
+    gemeldete_xruns = 0
     stillstand_bei, stillstand_seit = -1, time.monotonic()
     try:
         while not (stop is not None and stop.is_set()):
             captured = loop.captured_frames
+            # Neue Aussetzer ins Protokoll, mit Stream-Sekunde und Grund. Im
+            # Terminal steht das dann sofort und nicht erst beim Beenden; im
+            # Fenster haengt es als Tooltip am Zaehler. Jenseits des Logs im
+            # Stream (XRUN_LOG_SIZE) wird nur noch gezaehlt.
+            if loop.xruns > gemeldete_xruns:
+                for sek, grund in getattr(loop, "xrun_log", [])[gemeldete_xruns:]:
+                    gemeldete_xruns += 1
+                    sys.stdout.write("\n")
+                    protokoll.melden(f"Audio dropout {gemeldete_xruns} at "
+                                     f"{sek:.1f} s: {grund}")
+                gemeldete_xruns = max(gemeldete_xruns, loop.xruns)
             if captured != stillstand_bei:
                 stillstand_bei, stillstand_seit = captured, time.monotonic()
             elif time.monotonic() - stillstand_seit > STREAM_STALL_TIMEOUT:

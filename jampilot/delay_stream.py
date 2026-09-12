@@ -23,6 +23,18 @@ from .control_guitar import PLAYBACK_GAIN
 # auch die Erkennung "kein Akkord" sagt - chords.SILENCE_RMS; hier als eigene
 # Konstante, damit der Audio-Callback keine Analyse-Module importiert).
 COUNTIN_SILENCE_RMS = 1e-4
+# Puffer der Soundkarte hinter dem Ringpuffer, in Sekunden - was PortAudio
+# daraus macht, steht danach in `output_latency`. Ein Zahlenwert, kein
+# "high": Unter Linux (PipeWire/ALSA `default`) ergibt "high" genau EINEN
+# Block, 43 ms bei 2048 Frames und 48 kHz - jede laengere Pause im Prozess
+# (eine volle Garbage-Collection, ein Scheduler-Hänger) ist dann ein Xrun.
+# 0.2 s gemessen: ~0.17-0.26 s echte Reserve. Preis: Die Gesamtverzoegerung
+# waechst um denselben Betrag; die Anzeige bleibt exakt, weil audible_position
+# ueber den DAC-Zeitstempel rechnet und output_latency aus dem Stream liest.
+OUTPUT_LATENCY_SECONDS = 0.2
+# So viele Aussetzer merkt sich der Stream MIT Position (s. xrun_log); alle
+# weiteren werden nur gezaehlt.
+XRUN_LOG_SIZE = 16
 
 
 class DelayedLoopback:
@@ -117,8 +129,8 @@ class DelayedLoopback:
         self._ramp = np.arange(blocksize, dtype=np.float32)
         self._scratch = np.empty(blocksize, dtype=np.float32)
 
-        # latency="high": die Akkordanalyse (~280ms CPU) haelt den GIL
-        # zeitweise - grosszuegige Puffer verhindern Audio-Dropouts.
+        # latency numerisch (OUTPUT_LATENCY_SECONDS): "high" klang nach
+        # grosszuegigen Puffern, war unter Linux aber ein einzelner Block.
         if capture is None:
             self._stream = sd.Stream(
                 device=(input_device, output_device),
@@ -126,7 +138,7 @@ class DelayedLoopback:
                 blocksize=blocksize,
                 channels=channels,
                 dtype="float32",
-                latency="high",
+                latency=OUTPUT_LATENCY_SECONDS,
                 callback=self._callback,
             )
         else:
@@ -139,7 +151,7 @@ class DelayedLoopback:
                 blocksize=blocksize,
                 channels=channels,
                 dtype="float32",
-                latency="high",
+                latency=OUTPUT_LATENCY_SECONDS,
                 callback=self._callback_ziehend,
             )
         # Zaehler statt Liste: eine wachsende Liste im Audio-Callback wuerde
@@ -148,6 +160,13 @@ class DelayedLoopback:
         # die Referenz zu halten kostet nichts, str() passiert beim Ausgeben.
         self.xruns = 0
         self.last_status = None
+        # Die ersten Aussetzer mit Stream-Position: Die naechste Diagnose soll
+        # wissen, WANN es passierte - in den ersten Sekunden (Uebersetzung,
+        # Modell, volle GC-Sammlung) oder mittendrin. Vorbelegt, denn im
+        # Callback wird nicht allokiert; die Statusreferenz zu halten kostet
+        # nichts, str() passiert erst in xrun_log.
+        self._xrun_frames = np.zeros(XRUN_LOG_SIZE, dtype=np.int64)
+        self._xrun_status: list = [None] * XRUN_LOG_SIZE
 
     def _render_beep(self, dauer: float, amp: float) -> np.ndarray:
         """Ein Ton des Einzaehlers (Mono). Sinus statt Sprache: braucht keine
@@ -175,6 +194,9 @@ class DelayedLoopback:
 
     def _callback(self, indata, outdata, frames, time_info, status):
         if status:
+            if self.xruns < XRUN_LOG_SIZE:
+                self._xrun_frames[self.xruns] = self._frames_seen
+                self._xrun_status[self.xruns] = status
             self.xruns += 1
             self.last_status = status
 
@@ -425,6 +447,16 @@ class DelayedLoopback:
             if sound is not None:
                 events.append((int(round(onset * self.samplerate)), sound))
         self._control_events = tuple(events)
+
+    @property
+    def xrun_log(self) -> list[tuple[float, str]]:
+        """(Sekunden seit Stream-Start, PortAudio-Status) der ersten Aussetzer.
+
+        Hoechstens XRUN_LOG_SIZE Eintraege; `xruns` zaehlt weiter.
+        """
+        n = min(self.xruns, XRUN_LOG_SIZE)
+        return [(float(self._xrun_frames[i]) / self.samplerate,
+                 str(self._xrun_status[i])) for i in range(n)]
 
     @property
     def capture_dropouts(self) -> tuple[int, int] | None:

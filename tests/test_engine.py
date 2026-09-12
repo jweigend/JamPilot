@@ -217,6 +217,35 @@ class TestStumm:
         assert not engine.muted
 
 
+class TestAussetzer:
+    """Der Stream zaehlt Xruns; die Engine reicht sie ans Fenster weiter."""
+
+    def test_ohne_betrieb_null(self, engine):
+        assert engine.dropouts == 0
+
+    def test_zaehlt_die_xruns_des_streams(self, engine):
+        engine.start()
+        loop = engine._Loop.return_value
+        loop.xruns, loop.capture_dropouts = 3, None
+        assert engine.dropouts == 3
+
+    def test_unter_windows_zaehlt_der_mitschnitt_mit(self, engine):
+        engine.start()
+        loop = engine._Loop.return_value
+        loop.xruns, loop.capture_dropouts = 3, (1, 2)
+        assert engine.dropouts == 6
+
+    def test_das_log_kommt_vom_stream(self, engine):
+        assert engine.dropout_log == []
+        engine.start()
+        engine._Loop.return_value.xrun_log = [(3.8, "output underflow")]
+        assert engine.dropout_log == [(3.8, "output underflow")]
+
+    def test_das_modell_kommt_aus_dem_warmup(self, engine):
+        # None heisst: die Anzeigeschleife laedt selbst (analyze, Tests).
+        assert engine.modell is None
+
+
 class TestStartprotokoll:
     """Die Etappen des Starts: lesbar, mit Dauer, aus jedem Thread.
 

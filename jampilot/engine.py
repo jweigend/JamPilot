@@ -182,6 +182,11 @@ class Engine:
 
         self._loop = None
         self._route = None
+        # Das Akkordmodell, geladen im Warmup (cli.vorheizen) - BEVOR der Stream
+        # laeuft. Frueher lud die Anzeigeschleife es selbst, nach dem
+        # Stream-Start, und die volle GC-Sammlung, die das Laden ausloest (60-80
+        # ms), traf den laufenden Callback. None: die Schleife laedt selbst.
+        self.modell = None
         # Der Mitschnitt (record_buffer). None, bis zum ersten R - der Speicher
         # (eine halbe Stunde Stereo sind 659 MiB) wird erst dann reserviert,
         # und zwar in einem Hintergrundthread, nicht im Audio-Callback.
@@ -214,6 +219,27 @@ class Engine:
     @property
     def delay_seconds(self) -> float:
         return self._loop.delay_seconds if self._loop else float(self.args.delay)
+
+    @property
+    def dropouts(self) -> int:
+        """Ton-Aussetzer seit dem Start, wie der Stream sie selbst zaehlt.
+
+        PortAudio-Xruns (der Callback kam zu spaet - unter Linux reicht dafuer
+        eine GC-Pause, s. docs/exploration/audio-aussetzer-analyse.md) plus,
+        unter Windows, die Unter- und Ueberlaeufe des Loopback-Mitschnitts.
+        Bisher standen diese Zahlen nur beim Beenden im Terminal; wer aus dem
+        Fenster startet, sah sie nie und musste raten, ob ein Ruckeln aus
+        JamPilot kam oder von davor (PipeWire, Treiber) bzw. dahinter.
+        """
+        if not self._loop:
+            return 0
+        fremd = self._loop.capture_dropouts
+        return int(self._loop.xruns) + (sum(fremd) if fremd else 0)
+
+    @property
+    def dropout_log(self) -> list[tuple[float, str]]:
+        """Die ersten Aussetzer mit Sekunde seit Stream-Start und Grund."""
+        return list(self._loop.xrun_log) if self._loop else []
 
     def toggle_mute(self) -> bool:
         if not self._loop:

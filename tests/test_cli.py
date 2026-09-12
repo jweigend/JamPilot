@@ -287,6 +287,50 @@ class TestWachhund:
         cli._display_loop(LaufenderStream(), args, stop=halt)   # darf nicht werfen
 
 
+class TestAussetzerImProtokoll:
+    """Aussetzer sofort ins Startprotokoll, mit Stream-Sekunde und Grund - und
+    das Modell aus dem Warmup, nicht erst nach dem Stream-Start."""
+
+    def test_neue_aussetzer_werden_gemeldet_und_das_modell_nicht_neu_geladen(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from jampilot.engine import Startprotokoll
+
+        halt = threading.Event()
+
+        class Stream:
+            delay_seconds = 4.0
+            xruns, last_status = 2, "output underflow"
+            xrun_log = [(3.8, "output underflow"), (8.0, "input overflow")]
+            capture_dropouts = None
+            recording, record_paused, record_epoch = False, False, 0
+            record_offset_seconds, record_capacity_seconds = 0.0, 0.0
+            _runden = 0
+
+            @property
+            def captured_frames(self):
+                # < 2 s: die Schleife wartet nur. Halt nach der zweiten Runde
+                # statt per Timer: vor der Schleife laedt u. a. der Beat-Tracker
+                # seinen Thread, ein fester Timer kam der ersten Runde zuvor.
+                Stream._runden += 1
+                if Stream._runden >= 2:
+                    halt.set()
+                return 0
+
+        threading.Timer(10.0, halt.set).start()          # Notbremse
+        engine = SimpleNamespace(protokoll=Startprotokoll(), modell=object())
+        with patch("jampilot.btc.BTCModel") as Modell:
+            cli._display_loop(Stream(), argparse.Namespace(samplerate=48000, delay=4.0),
+                              stop=halt, engine=engine)
+        Modell.assert_not_called()
+        zeilen = engine.protokoll.zeilen()
+        assert any("Audio dropout 1 at 3.8 s: output underflow" in z for z in zeilen)
+        assert any("Audio dropout 2 at 8.0 s: input overflow" in z for z in zeilen)
+        # Jeder Aussetzer genau einmal, auch wenn die Schleife weiterdreht.
+        assert sum("Audio dropout" in z for z in zeilen) == 2
+
+
 class TestOhneArgument:
     """Kein Befehl = `run`.
 
