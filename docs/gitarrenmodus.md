@@ -114,26 +114,34 @@ Griffbild benennt dagegen die tatsächlich sichere Spielvariante:
 Damit behauptet das Diagramm nicht, einen Ton zu enthalten, den es bewusst
 abdämpft.
 
-## Kontrollgitarre
+## Kontrollfläche (früher Kontrollgitarre)
 
-In den Einstellungen lässt sich eine Kontrollgitarre aktivieren. Sie ist kein
-Begleitautomat und besitzt keine Rhythmuserkennung. Bei jedem erkannten
-Akkordwechsel erklingt ein kurzer, trockener Anschlag auf exakt derselben
-Stream-Zeitachse wie das verzögerte Original.
+In den Einstellungen lässt sich eine Kontrollfläche aktivieren: ein leiser,
+sauberer Keyboard-Flächensound, der jeden erkannten Akkord bis zum nächsten
+Wechsel hält – auf exakt derselben Stream-Zeitachse wie das verzögerte
+Original. Sie ist kein Begleitautomat und besitzt keine Rhythmuserkennung.
 
-Die Kontrollgitarre:
+Bis 1.4.0 war das ein kurzer, trockener Gitarrenanschlag (Karplus-Strong,
+`control_guitar.py`, im Git-Verlauf). Der ließ sich harmonisch schlecht
+beurteilen: nach einer Sekunde war er weg, während das Original weiterlief.
+Eine gehaltene Fläche reibt hörbar, wenn Terz oder Septime falsch sind, und
+sitzt im Original, wenn sie stimmen.
 
-- spielt nur die freigegebenen sicheren Tonklassen,
-- unterscheidet damit hörbar zwischen vollständigem Akkord und X5-Rückfall,
-- senkt im Diagnosemodus das Original auf 58 Prozent ab,
-- spielt den Kontrollanschlag mit 34 Prozent Spitzenpegel,
+Die Kontrollfläche:
+
+- spielt den vollen erkannten Akkord (BTC-Vokabular) in enger Lage um C4,
+  Grundton eine Oktave darunter; ein Slash-Bass ändert die Fläche nicht,
+- senkt im Diagnosemodus das Original auf 62 Prozent ab,
+- steht mit 22 Prozent Spitzenpegel darunter (eine Fläche trägt bei gleichem
+  Spitzenpegel mehr Energie als ein Anschlag),
+- hält höchstens acht Sekunden je Segment, dann klingt sie aus,
 - ist vollständig abschaltbar,
 - kostet ausgeschaltet keine Synthesezeit,
 - übernimmt Rücknahmen noch nicht hörbarer Fehlsegmente.
 
-Der Klang wird lokal mit einem Saitenmodell erzeugt. Es werden keine externen
-oder lizenzpflichtigen Samples benötigt. Die Kontrollgitarre rekonstruiert nicht
-die exakten Saiten der Aufnahme; verbindlich ist die sichere Tonklassenmenge.
+Der Klang wird lokal per Wavetable-Synthese erzeugt (drei leicht verstimmte,
+weich gefilterte Sägezähne je Ton). Es werden keine externen oder
+lizenzpflichtigen Samples benötigt.
 
 ## Was der Modus bewusst nicht verspricht
 
@@ -156,7 +164,7 @@ Audio
   -> weiche harmonische Interpretation über die Tonart
   -> Schnittmenge sicherer Tonklassen
        -> Gitarren-Griffkandidaten und lagenbewusste Auswahl
-       -> Kontrollgitarren-Anschlag
+       -> Kontrollfläche
   -> gemeinsame Timeline mit präzisem Onset
 ```
 
@@ -165,7 +173,7 @@ Relevante Implementierungsstellen:
 - `jampilot/chords.py`: Templates und Kandidatenscores
 - `jampilot/harmony.py`: Tonartprior und sichere Tonklassenmenge
 - `jampilot/web.py`: Griffkandidaten, Saitenfilter und Lagenplanung
-- `jampilot/control_guitar.py`: diagnostischer Gitarrenanschlag
+- `jampilot/control_pad.py`: diagnostische Keyboard-Fläche
 - `jampilot/delay_stream.py`: samplegenaue Mischung in das Playback
 - `jampilot/cli.py`: Timeline und Übertragung der sicheren Tonklassen
 

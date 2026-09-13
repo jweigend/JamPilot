@@ -58,7 +58,7 @@ ONSET_HYSTERESIS = 0.35
 # einmal als Event committet und danach nie mehr angefasst. Dieselbe Grenze
 # schuetzt auch die interne Zeitleiste vor dem Merge und der Nachverfeinerung:
 # Unterhalb hoert niemand mehr zu (die Anzeige liest nur Events, die
-# Kontrollgitarre soll dasselbe spielen wie die Anzeige zeigt) - eine
+# Kontrollflaeche soll dasselbe spielen wie die Anzeige zeigt) - eine
 # Revision dort waere reine Buchhaltung. Sie hat die fruehere Einfrierzone
 # (BTC_FREEZE_AHEAD, 1.5 s) ersetzt, deren Zweck - den lesenden Musiker vor
 # Korrekturen schuetzen - der Commit-Kanal strukturell erfuellt.
@@ -714,7 +714,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     Committetes und Gehoertes bleiben unantastbar, der juengste Fensterrand
     (BTC_EDGE_GUARD, dort fehlt der bidirektionalen Attention der
     Zukunftskontext) wartet bis zum naechsten Hop. Slash-Bass kommt aus dem
-    Tiefband der BTC-CQT (bass.py), die Kontrollgitarre spielt das volle
+    Tiefband der BTC-CQT (bass.py), die Kontrollflaeche spielt das volle
     BTC-Vokabular. Der fruehere Template-Matching-Pfad wurde nach dem
     1.1.0-Release entfernt - er liegt vollstaendig im Git-Verlauf (v0.1.0).
 
@@ -965,9 +965,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             ledger.prune(heard_pos, rueckhalt=rueckhalt)
             if raster is not None:
                 raster.prune(heard_pos, rueckhalt=rueckhalt)
-            # Kontrollgitarre ohne Safe-Voicing-Filter (drittes Feld None):
-            # sie schlaegt den VOLLEN Akkord an, auch dim7/sus/6 - die
-            # Tonstrukturen kommen aus btc.BTC_CHORD_TONES. Sie spielt auf
+            # Kontrollflaeche (control_pad.py) ohne Safe-Voicing-Filter
+            # (drittes Feld None): sie haelt den VOLLEN Akkord, auch
+            # dim7/sus/6 - die Tonstrukturen kommen aus btc.BTC_CHORD_TONES.
+            # Sie spielt auf
             # dem Onset des EVENTS (geschnappt/nachgerueckt), nicht auf der
             # rohen Zeitleistengrenze: dasselbe, was die Anzeige zeigt.
             loop.set_control_timeline([
@@ -1392,7 +1393,7 @@ class EventLedger:
         self.events: list[dict] = []
         # Nachgerueckte und geschnappte Events: Event-Onset -> Zeitleisten-
         # Onset, damit die Bass-Persistenz weiter unter dem gemessenen Onset
-        # gefunden wird - und die Umkehrung fuer die Kontrollgitarre.
+        # gefunden wird - und die Umkehrung fuer die Kontrollflaeche.
         self._origin: dict[float, float] = {}
         self._at_of: dict[float, float] = {}
         # Bass-Persistenz je Segment-Onset: (zuletzt gemessene Note, Hops in

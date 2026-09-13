@@ -17,7 +17,7 @@ import threading
 import numpy as np
 import sounddevice as sd
 
-from .control_guitar import PLAYBACK_GAIN
+from .control_pad import PLAYBACK_GAIN, release_envelope
 
 # Unter dieser Block-RMS gilt der Eingang als still (dieselbe Schwelle, ab der
 # auch die Erkennung "kein Akkord" sagt - chords.SILENCE_RMS; hier als eigene
@@ -119,7 +119,10 @@ class DelayedLoopback:
         self._control_timeline = ()
         # Immutable Snapshot: Der Analyse-Thread ersetzt das Tupel atomar, der
         # Audio-Callback liest es ohne Lock. Ein Event ist (Onset-Frame, Stereo).
-        self._control_events: tuple[tuple[int, np.ndarray], ...] = ()
+        # (Onset in Frames, gecachte Flaeche, Laenge in Frames): Die Flaeche
+        # ist laenger als das Segment, gespielt wird `Laenge`, der Ausklang
+        # kommt beim Mischen darueber (control_pad.release_envelope).
+        self._control_events: tuple[tuple[int, np.ndarray, int], ...] = ()
 
         # Hart auf Null zu schalten ist ein Sprung im Signal, und den hoert man
         # als Knacken. Also in ~15 ms aus- und wieder einblenden. Die Rampe wird
@@ -236,7 +239,7 @@ class DelayedLoopback:
             self._silent_frames = 0
 
         # Faellige Toene mischen - dieselbe Ueberlappungslogik wie bei den
-        # Kontrollanschlaegen unten. Zu frueh geplante Toene (Delay kuerzer
+        # Kontrollflaechen unten. Zu frueh geplante Toene (Delay kuerzer
         # als der Abstand) liegen vor der Ausgabeposition und entfallen von
         # selbst. Nach dem letzten Ton kostet der Zweig nur den Leertest.
         if self._count_events:
@@ -254,30 +257,34 @@ class DelayedLoopback:
             if played_start >= letzter_onset + len(letzter_klang):
                 self._count_events = ()
 
-        # Kontrollanschlaege liegen auf derselben Stream-Zeitachse wie das
+        # Kontrollflaechen liegen auf derselben Stream-Zeitachse wie das
         # Original. `frames_seen - delay_frames` ist genau der erste Frame, der
         # in diesem Callback hoerbar wird. Nur wenige Timeline-Events werden
         # geschnitten; Synthese/Allokation passiert vorher im Analyse-Thread.
         if self._control_guitar:
-            # Platz fuer die Kontrollgitarre schaffen: Nur in diesem bewusst
+            # Platz fuer die Kontrollflaeche schaffen: Nur in diesem bewusst
             # aktivierten Diagnosemodus wird das Original abgesenkt. Ohne
-            # Kontrollgitarre bleibt die Wiedergabe bit-identisch wie vorher.
+            # Kontrollflaeche bleibt die Wiedergabe bit-identisch wie vorher.
             outdata *= PLAYBACK_GAIN
             output_start = self._frames_seen - n
             output_end = output_start + frames
-            for onset, sound in self._control_events:
+            for onset, sound, length in self._control_events:
                 overlap_start = max(output_start, onset)
-                overlap_end = min(output_end, onset + len(sound))
+                overlap_end = min(output_end, onset + length)
                 if overlap_start < overlap_end:
                     dst = overlap_start - output_start
                     src = overlap_start - onset
                     count = overlap_end - overlap_start
-                    outdata[dst:dst + count] += sound[src:src + count]
+                    env = release_envelope(length, self.samplerate, src, count)
+                    if env is None:
+                        outdata[dst:dst + count] += sound[src:src + count]
+                    else:
+                        outdata[dst:dst + count] += sound[src:src + count] * env[:, None]
             np.clip(outdata, -1.0, 1.0, out=outdata)
 
         # Der Mitschnitt (record_buffer) - die einzige Stelle, an der diese
         # Klasse ihn kennt. Er sitzt hier, weil hier der FERTIGE Mix steht:
-        # Musik, Einzaehler und Kontrollgitarre sind drin, die Stummschaltung
+        # Musik, Einzaehler und Kontrollflaeche sind drin, die Stummschaltung
         # noch nicht. Wer zurueckspult, hoert damit genau das wieder, was aus
         # dem Lautsprecher kam - und wer stumm geschaltet hat, findet beim
         # Zurueckspulen Musik statt Stille.
@@ -431,21 +438,33 @@ class DelayedLoopback:
         return self._control_guitar
 
     def set_control_timeline(self, timeline):
-        """Timeline-Snapshot in fertig gerenderte Kontrollanschlaege wandeln."""
+        """Timeline-Snapshot in fertig gerenderte Kontrollflaechen wandeln."""
         self._control_timeline = tuple(timeline)
         if self._control_guitar:
             self._render_control_timeline()
 
     def _render_control_timeline(self):
-        from .control_guitar import render
+        """Jedes Segment haelt seine Flaeche bis zum naechsten Onset (hoechstens
+        control_pad.PAD_SECONDS); das letzte Segment bis zum Cache-Ende - es
+        wird mit jedem Hop neu geschnitten, sobald ein Nachfolger auftaucht.
+        Stille und Unbekanntes beenden die vorige Flaeche wie ein Wechsel."""
+        from .control_pad import render
 
-        events = []
+        items = []
         for item in self._control_timeline:
             onset, chord = item[:2]
             safe = tuple(item[2]) if len(item) > 2 and item[2] is not None else None
+            items.append((int(round(onset * self.samplerate)), chord, safe))
+        events = []
+        for i, (onset, chord, safe) in enumerate(items):
             sound = render(chord, self.samplerate, safe)
-            if sound is not None:
-                events.append((int(round(onset * self.samplerate)), sound))
+            if sound is None:
+                continue
+            length = len(sound)
+            if i + 1 < len(items):
+                length = max(0, min(length, items[i + 1][0] - onset))
+            if length > 0:
+                events.append((onset, sound, length))
         self._control_events = tuple(events)
 
     @property

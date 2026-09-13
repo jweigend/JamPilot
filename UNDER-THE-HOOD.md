@@ -307,7 +307,7 @@ pausing *that* ring buffer would silently mean "increase the delay". The delay
 is the time base the analysis computes its commit boundary on: let it grow, and
 the chord timeline has to hold minutes of future — through a merge that is
 quadratic in its length. So `R` does not touch the delay stage. A second buffer
-sits behind it, records the **finished mix** (music, count-in, control guitar —
+sits behind it, records the **finished mix** (music, count-in, control pad —
 everything except the mute fade, so rewinding past a muted stretch gives you
 the music back), and has its own read pointer. `P` holds that pointer still
 while the write edge runs away; `←`/`→` move it to the previous or next chord
@@ -422,10 +422,13 @@ When the audio cannot reliably decide between nearby readings, the diagram is
 deliberately conservative: if A major and A minor are almost equally plausible,
 JamPilot shows a playable A5 shape (A and E) and mutes the uncertain third
 instead of asking the guitarist to guess. An uncertain seventh is omitted the
-same way. The optional **control guitar** in Settings plays exactly this safe
-set of pitch classes over the quieter delayed original, making a bad
-recommendation immediately audible without pretending to reconstruct the
-recorded fingering.
+same way. The optional **control pad** in Settings (`control_pad.py`) holds
+the detected chord as a quiet, clean keyboard pad under the slightly lowered
+original — sustained until the next change, so a wrong third or seventh rubs
+audibly against the song instead of vanishing after a pluck. It replaced the
+Karplus-Strong control guitar after 1.4.0: a dry one-second pluck was gone
+before the ear could judge it. Synthesised locally (wavetable, three detuned
+soft sawtooths per note), no sample files.
 
 ## Standalone binary
 

@@ -7,9 +7,9 @@ wieder aus und stellt alles zurueck.
 
 WO: Diese Stufe sitzt GANZ HINTEN, hinter der Verzoegerungsstufe und hinter
 allem, was ihr Callback dem Signal noch beimischt (Einzaehler,
-Kontrollgitarre) - und vor der Stummschaltung. Aufgezeichnet wird also genau
+Kontrollflaeche) - und vor der Stummschaltung. Aufgezeichnet wird also genau
 das Signal, das der Lautsprecher bekommen haette; beim Zurueckgehen hoert man
-es Ton fuer Ton wieder, Einzaehler und Kontrollgitarre inklusive. Stummes
+es Ton fuer Ton wieder, Einzaehler und Kontrollflaeche inklusive. Stummes
 bleibt draussen: Wer stumm schaltet und spaeter zurueckspult, will nicht
 Stille wiederfinden.
 
