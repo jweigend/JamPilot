@@ -43,7 +43,14 @@ a user sees is English.
    same CQT the model consumes (`bass.py`). Only that measurement makes
    inversions visible — `C/E` is not in any chord label, and deriving the bass
    from the chord instead of measuring it wrecked every inversion when it was
-   tried.
+   tried. The same signal also catches the **passing bass** a chord model can
+   never label: in Comfortably Numb the whole band holds an F# for half a
+   beat between G and Em, and the model — trained on annotations that write
+   `G/F#` as plain `G` — keeps saying G. When the low band shows a note
+   stepping *between* the current root and the next one, stable for at least
+   three frames and ending with the segment, the segment gets a second event
+   with that bass (`G/F#`), so the bass view shows the F# at the right moment
+   (`bass.passing_note`, `tests/realaudio/REPORT_comfortably_numb.md`).
 4. **Timing**: The model says *what* is sounding on a ~93 ms grid — and it
    tends to place a boundary *behind* the audible change. So every fresh
    boundary is refined once: within an asymmetric search window (far back,

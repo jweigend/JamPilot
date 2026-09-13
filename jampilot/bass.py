@@ -135,9 +135,88 @@ class BassTrack:
         index = np.arange(von, bis) % self.size
         return self._data[:, index].sum(axis=1)
 
+    @property
+    def frame_seconds(self) -> float:
+        return self._frame_seconds
+
     def note_between(self, start: float, end: float) -> int | None:
         """Die vorherrschende Bass-Tonklasse im Intervall - oder None."""
         return dominant(self.pooled_between(start, end))
+
+    def frames_between(self, start: float, end: float) -> tuple[np.ndarray, float] | None:
+        """Die einzelnen Tiefband-Frames (12 x F) im Intervall und die
+        Stream-Sekunde des ersten - oder None. Fuer passing_note, das den
+        VERLAUF innerhalb eines Segments braucht, nicht seine Summe."""
+        von = max(int(round(start / self._frame_seconds)), self.end - self.size)
+        bis = min(int(round(end / self._frame_seconds)), self.end)
+        if bis - von < 2:
+            return None
+        index = np.arange(von, bis) % self.size
+        return self._data[:, index], von * self._frame_seconds
+
+
+# Durchgangsbass am Segmentende (Comfortably Numb: G - F# - Em, das F# einen
+# halben Schlag lang von der ganzen Band). Das Akkordmodell kennt keine
+# Umkehrungen und labelt G ueber F# als G bzw. Gmaj7 - die Summe aller
+# F#-Labels bleibt dort unter 0,05, ein F#-Chip kann aus dem Modell nicht
+# kommen (tests/realaudio/REPORT_comfortably_numb.md). Was das Tiefband aber
+# klar zeigt, ist der BASS: Ein Segment bekommt deshalb am Ende ein zweites
+# Event mit gleichem Akkord und dem gemessenen Durchgangston (G/F#).
+#
+# Bewusst eng gefasst, sonst wird aus jedem laufenden Bass (Eight Days a
+# Week: D-B-D-A) alle zwei Sekunden ein Slash-Chip: Die Note muss chromatisch
+# ZWISCHEN dem laufenden und dem naechsten Grundton liegen (je hoechstens
+# ein Ganzton, gleiche Richtung), der Lauf muss das Segment beenden und
+# mindestens PASSING_MIN_FRAMES Frames stabil sein (Mehrheit PASSING_SHARE
+# und MIN_DOMINANCE je Frame, SLASH_ROOT_RATIO ueber den Lauf). Ohne
+# Akkordton-Gate - der Durchgangston ist per Definition keiner. Gemessen
+# (offline, 93-ms-Frames): 7/7 Solo-Stellen in Comfortably Numb, auf den
+# fuenf Referenztiteln 7 Unter-Events, davon 3 nicht annotiert (Let It Be
+# Am/G -> F, F/E -> Dm7: reale Walkdowns, die Isophonics nicht schreibt).
+# Die breite Variante (jeder stabile Fremdbass) lag bei 154 Unter-Events.
+PASSING_MIN_FRAMES = 3
+PASSING_SHARE = 0.25
+PASSING_END_SLACK = 2      # Frames, die der Lauf vor dem Segmentende enden darf
+
+
+def passing_note(frames: np.ndarray | None, root: int | None, next_root: int | None,
+                 min_frames: int = PASSING_MIN_FRAMES) -> tuple[int, int] | None:
+    """Durchgangsbass am Ende eines Segments: (Startframe, Tonklasse) - oder None.
+
+    `frames` ist das Tiefband-Chroma 12 x F des Segments vom Onset bis zum
+    naechsten Onset; `root`/`next_root` die Grundtoene beider Akkorde.
+    """
+    if frames is None or root is None or next_root is None or root == next_root:
+        return None
+    frames = np.asarray(frames, dtype=float)
+    if frames.ndim != 2 or frames.shape[1] < min_frames:
+        return None
+    total = frames.sum(axis=0)
+    dom = frames.argmax(axis=0)
+    share = frames.max(axis=0) / (total + 1e-9)
+    ordered = np.sort(frames, axis=0)
+    dominance = ordered[-1] / (ordered[-2] + 1e-9)
+    ok = (total > BASS_SILENCE) & (share >= PASSING_SHARE) & (dominance >= MIN_DOMINANCE)
+
+    ende = frames.shape[1]
+    while ende > 0 and not ok[ende - 1]:
+        ende -= 1
+    if ende == 0 or frames.shape[1] - ende > PASSING_END_SLACK:
+        return None                      # kein klarer Ton am Segmentende
+    note = int(dom[ende - 1])
+    start = ende
+    while start > 0 and ok[start - 1] and dom[start - 1] == note:
+        start -= 1
+    if ende - start < min_frames or note in (root, next_root):
+        return None
+    abwaerts = (root - note) % 12 <= 2 and (note - next_root) % 12 <= 2
+    aufwaerts = (note - root) % 12 <= 2 and (next_root - note) % 12 <= 2
+    if not (abwaerts or aufwaerts):
+        return None                      # kein Schritt zwischen den Grundtoenen
+    pooled = frames[:, start:ende].sum(axis=1)
+    if pooled[note] < SLASH_ROOT_RATIO * pooled[root]:
+        return None
+    return start, note
 
 
 def name(pitch_class: int | None) -> str | None:

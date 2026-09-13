@@ -923,3 +923,92 @@ class TestBeatsImAnzeigepfad:
                 events[e["at"]] = e["c"]
         assert events[6.13] == "G" and all(s["beats"] == [] for s in zustaende)
         assert len(verfeinert) == 2                    # Verfeinerung wie in 1.3.1
+
+
+class TestDurchgangsbass:
+    """Durchgangsbass (G - F# - Em): zweites Event mit gleichem Akkord und
+    gemessenem Basston hinter dem Segment, genau einmal, nie hinter dem
+    Nachfolger."""
+
+    def test_durchgang_wird_zwischen_die_segmente_gelegt(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "G"), (3.0, "Em")]
+        durch = [(2.5, "F#"), None]
+        led.advance(zeitleiste, ["G", "E"], None, frontier=1.5, passing=durch)
+        assert [(e["c"], e["b"]) for e in led.events] == [("G", None)]
+        # Der Laufstart passiert die Grenze, die Note ist erst einen Hop alt.
+        led.advance(zeitleiste, ["G", "E"], None, frontier=2.6, passing=durch)
+        assert [(e["at"], e["c"], e["b"]) for e in led.events] == [(1.0, "G", None), (2.5, "G", "F#")]
+        led.advance(zeitleiste, ["G", "E"], None, frontier=3.5, passing=durch)
+        assert [(e["at"], e["c"], e["b"]) for e in led.events] == [
+            (1.0, "G", None), (2.5, "G", "F#"), (3.0, "Em", None)]
+
+    def test_einmalige_note_reicht_nicht(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "G"), (3.0, "Em")]
+        led.advance(zeitleiste, ["G", "E"], None, frontier=1.5, passing=[None, None])
+        led.advance(zeitleiste, ["G", "E"], None, frontier=2.6, passing=[(2.5, "F#"), None])
+        assert [e["c"] for e in led.events] == ["G"]
+
+    def test_wechselnde_note_setzt_zurueck(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "G"), (3.0, "Em")]
+        led.advance(zeitleiste, ["G", "E"], None, frontier=1.5, passing=[(2.5, "F"), None])
+        led.advance(zeitleiste, ["G", "E"], None, frontier=2.6, passing=[(2.5, "F#"), None])
+        assert [e["c"] for e in led.events] == ["G"]
+
+    def test_genau_einmal_je_segment(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "G"), (3.0, "Em")]
+        durch = [(2.5, "F#"), None]
+        for f in (1.5, 2.6, 2.75, 2.9):
+            led.advance(zeitleiste, [None, None], None, frontier=f, passing=durch)
+        assert [(e["c"], e["b"]) for e in led.events] == [("G", None), ("G", "F#")]
+
+    def test_zu_spaet_wenn_der_nachfolger_schon_draussen_ist(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "G"), (3.0, "Em")]
+        led.advance(zeitleiste, ["G", "E"], None, frontier=3.5, passing=[None, None])
+        led.advance(zeitleiste, ["G", "E"], None, frontier=3.5, passing=[(2.5, "F#"), None])
+        led.advance(zeitleiste, ["G", "E"], None, frontier=3.5, passing=[(2.5, "F#"), None])
+        assert [(e["c"], e["b"]) for e in led.events] == [("G", None), ("Em", None)]
+
+    def test_haelt_den_mindestabstand_zum_eigenen_segment(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "G"), (1.6, "Em")]
+        durch = [(1.1, "F#"), None]
+        for f in (0.5, 0.5, 1.2):
+            led.advance(zeitleiste, ["G", "E"], None, frontier=f, passing=durch)
+        assert [(e["c"], e["b"]) for e in led.events] == [("G", None)]
+
+    def test_der_nachfolger_rueckt_hinter_den_durchgang(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "G"), (2.6, "Em")]
+        durch = [(2.5, "F#"), None]
+        for f in (1.5, 2.55, 2.7):
+            led.advance(zeitleiste, ["G", "E"], None, frontier=f, passing=durch)
+        assert [(e["at"], e["c"], e["b"]) for e in led.events] == [
+            (1.0, "G", None), (2.5, "G", "F#"), (2.75, "Em", None)]
+
+    def test_wird_nicht_geschnappt(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "G"), (3.0, "Em")]
+        durch = [(2.5, "F#"), None]
+        for f in (1.5, 2.6):
+            led.advance(zeitleiste, ["G", "E"], None, frontier=f, snap=lambda p: 2.0,
+                        passing=durch)
+        assert [(e["at"], e["c"]) for e in led.events] == [(2.0, "G"), (2.5, "G")]
+
+    def test_passing_per_segment_liest_den_lauf_aus_dem_track(self):
+        from jampilot.bass import BassTrack, chord_root
+        track = BassTrack(20.0, frame_seconds=0.1, edge=0)
+        frames = np.full((12, 40), 0.02, dtype=np.float32)
+        frames[chord_root("G"), :15] = 1.0        # 0.0-1.5 s G
+        frames[chord_root("F#"), 15:20] = 1.0     # 1.5-2.0 s F#
+        frames[chord_root("E"), 20:] = 1.0        # ab 2.0 s E
+        track.add(frames, 0.0)
+        zeitleiste = [(0.0, "G"), (2.0, "Em"), (4.0, "Bm")]
+        durch = cli._passing_per_segment(zeitleiste, track)
+        assert durch[0] == (pytest.approx(1.5), "F#")
+        assert durch[1] is None                    # E -> B: kein Durchgang
+        assert durch[2] is None                    # ohne Nachfolger nichts
