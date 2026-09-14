@@ -150,6 +150,24 @@ innerhalb eines Akkords sind nicht vorgesehen. Proberaum-Test offen.
 Messskripte: Session-Scratchpad `verify_reference.py` (Versions-Check),
 Timing- und Bass-Auswertung; alle nutzen nur `jampilot.btc` + librosa.
 
+### Nachtrag 2026-09-13: Durchgangsbass am Segmentende
+
+Comfortably Numb (tests/realaudio/REPORT_comfortably_numb.md): Vor jedem Em
+haelt die Band einen halben Schlag F# im Bass, das Modell labelt G ueber F#
+als G/Gmaj7 (Trainingskonvention, Summe der F#-Labels < 0,05). Seit dem
+Branch feature/durchgangsbass bekommt ein Segment ein zweites Event mit
+gleichem Akkord und gemessenem Bass (G/F#), wenn das Tiefband am Segmentende
+>= 3 Frames stabil eine Note zeigt, die chromatisch ZWISCHEN laufendem und
+naechstem Grundton liegt (`bass.passing_note`, `cli.PASSING_COMMIT_HOPS`).
+Live-Pfad mit Beat-Tracker, ohne -> mit: Timing und Eventzahl sonst
+identisch; Let It Be 152 -> 154 Events (C/B bei 38,5 s = annotiert `C/7`,
+146,5 s nicht annotiert), Something 136 -> 138 (F/E ueber `C/3`, C/B =
+`C/7`; Nur-Bass-Treffer 25 -> 33 %), Crazy Little Thing 133 -> 134 (A#/A
+ueber `Bb:maj`), Eight Days und It's Too Late unveraendert. Comfortably Numb
+Solo: 6 von 7 Stellen mit G/F#. Die breite Variante (jeder stabile Fremdbass
+im Segment, ohne Akkordton-Gate) wurde verworfen: 154 Unter-Events offline,
+Eight Days a Week alle 2 s ein Slash-Chip.
+
 ## Publish-once-Messungen (2026-08-27, eingecheckt)
 
 Fuer das Zeitleisten-Redesign (docs/exploration/zeitleiste-redesign.md)

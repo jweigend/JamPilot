@@ -229,3 +229,82 @@ class TestSlashNote:
         from jampilot.bass import slash_note
         pooled = self._pooled(**{"11": 5.0, "7": 4.5})
         assert slash_note(pooled, "G") is None
+
+
+class TestDurchgangsbass:
+    """bass.passing_note: Durchgangston am Segmentende (G - F# - Em)."""
+
+    @staticmethod
+    def _frames(noten, staerke=1.0):
+        """12 x F: je Frame eine klare Tonklasse (Rest leises Rauschen)."""
+        from jampilot.bass import chord_root
+        out = np.full((12, len(noten)), 0.02, dtype=float)
+        for i, n in enumerate(noten):
+            if n is not None:
+                out[chord_root(n), i] = staerke
+        return out
+
+    def test_g_fis_vor_em_wird_gefunden(self):
+        from jampilot.bass import passing_note
+        frames = self._frames(["G"] * 15 + ["F#"] * 5)
+        assert passing_note(frames, chord_root("G"), chord_root("Em")) == (15, chord_root("F#"))
+
+    def test_aufwaerts_geht_auch(self):
+        from jampilot.bass import passing_note
+        frames = self._frames(["C"] * 10 + ["D"] * 4)
+        assert passing_note(frames, chord_root("C"), chord_root("E")) == (10, chord_root("D"))
+
+    def test_zu_kurzer_lauf(self):
+        from jampilot.bass import passing_note
+        frames = self._frames(["G"] * 15 + ["F#"] * 2)
+        assert passing_note(frames, chord_root("G"), chord_root("Em")) is None
+
+    def test_lauf_muss_das_segment_beenden(self):
+        from jampilot.bass import passing_note
+        frames = self._frames(["G"] * 5 + ["F#"] * 5 + ["G"] * 8)
+        assert passing_note(frames, chord_root("G"), chord_root("Em")) is None
+
+    def test_kein_schritt_zwischen_den_grundtoenen(self):
+        from jampilot.bass import passing_note
+        # D - B - G: die Terz unter D ist kein Durchgang (Eight Days a Week)
+        frames = self._frames(["D"] * 10 + ["B"] * 5)
+        assert passing_note(frames, chord_root("D"), chord_root("G")) is None
+        # Quinte als Lauf: A zwischen D und D ist kein Wechsel
+        assert passing_note(self._frames(["D"] * 10 + ["A"] * 5), chord_root("D"), chord_root("D")) is None
+
+    def test_grundtoene_selbst_sind_kein_durchgang(self):
+        from jampilot.bass import passing_note
+        frames = self._frames(["G"] * 10 + ["E"] * 5)   # der Bass geht frueh auf E
+        assert passing_note(frames, chord_root("G"), chord_root("Em")) is None
+
+    def test_grundton_ratio_gilt_ueber_den_lauf(self):
+        from jampilot.bass import passing_note
+        frames = self._frames(["G"] * 10 + ["F#"] * 5)
+        frames[chord_root("G"), 10:] = 0.5              # G klingt unter dem F# weiter
+        assert passing_note(frames, chord_root("G"), chord_root("Em")) is None
+
+    def test_unklare_frames_brechen_den_lauf(self):
+        from jampilot.bass import passing_note
+        frames = self._frames(["G"] * 10 + ["F#"] * 5)
+        frames[chord_root("F"), 12] = 1.0               # ein Frame ohne Mehrheit
+        assert passing_note(frames, chord_root("G"), chord_root("Em")) is None
+
+    def test_ohne_grundton_nichts(self):
+        from jampilot.bass import passing_note
+        frames = self._frames(["G"] * 10 + ["F#"] * 5)
+        assert passing_note(frames, None, chord_root("Em")) is None
+        assert passing_note(None, chord_root("G"), chord_root("Em")) is None
+
+    def test_frames_between_liefert_verlauf_und_startzeit(self):
+        track = BassTrack(10.0, frame_seconds=0.1, edge=0)
+        frames = np.zeros((12, 20), dtype=np.float32)
+        frames[chord_root("G"), :10] = 1.0
+        frames[chord_root("F#"), 10:] = 1.0
+        track.add(frames, 3.0)
+        got = track.frames_between(3.0, 5.0)
+        assert got is not None
+        verlauf, erster = got
+        assert erster == pytest.approx(3.0)
+        assert verlauf.shape == (12, 20)
+        assert verlauf.argmax(axis=0).tolist() == [chord_root("G")] * 10 + [chord_root("F#")] * 10
+        assert track.frame_seconds == pytest.approx(0.1)

@@ -58,7 +58,7 @@ ONSET_HYSTERESIS = 0.35
 # einmal als Event committet und danach nie mehr angefasst. Dieselbe Grenze
 # schuetzt auch die interne Zeitleiste vor dem Merge und der Nachverfeinerung:
 # Unterhalb hoert niemand mehr zu (die Anzeige liest nur Events, die
-# Kontrollgitarre soll dasselbe spielen wie die Anzeige zeigt) - eine
+# Kontrollflaeche soll dasselbe spielen wie die Anzeige zeigt) - eine
 # Revision dort waere reine Buchhaltung. Sie hat die fruehere Einfrierzone
 # (BTC_FREEZE_AHEAD, 1.5 s) ersetzt, deren Zweck - den lesenden Musiker vor
 # Korrekturen schuetzen - der Commit-Kanal strukturell erfuellt.
@@ -87,6 +87,17 @@ def _commit_ahead(delay: float) -> float:
 # von slash_note. Danach gilt die monotone Regel: leer darf genau einmal auf
 # gesetzt nachruecken ("b_up"), nie zurueck.
 BASS_COMMIT_HOPS = 4
+
+# Durchgangsbass (bass.passing_note): Ein Segment bekommt am Ende ein zweites
+# Event mit gleichem Akkord und dem gemessenen Durchgangston (G/F# vor Em).
+# Der Lauf muss so viele Hops in Folge mit derselben Note gemessen sein. Die
+# Messung ist erst moeglich, wenn der NAECHSTE Onset in der Zeitleiste steht
+# (Horizont liegt 2 s hinter der Commit-Grenze), und das Event verfaellt,
+# sobald der Nachfolger committet ist - es bleiben etwa fuenf Hops. Zwei
+# Hops sind derselbe Massstab wie der Debounce der Akkordgrenzen; die vier
+# Hops des Basses gelten dem Schwellen-Flattern einer gepoolten Mehrheit,
+# hier ist die Note frameweise verlangt (bass.PASSING_MIN_FRAMES).
+PASSING_COMMIT_HOPS = 2
 
 # Bass ueber ein FESTES Fenster ab dem Onset poolen statt bis zum naechsten
 # Onset/zur Analysefront: Gegen die Isophonics-Bass-Annotationen ist das
@@ -703,7 +714,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     Committetes und Gehoertes bleiben unantastbar, der juengste Fensterrand
     (BTC_EDGE_GUARD, dort fehlt der bidirektionalen Attention der
     Zukunftskontext) wartet bis zum naechsten Hop. Slash-Bass kommt aus dem
-    Tiefband der BTC-CQT (bass.py), die Kontrollgitarre spielt das volle
+    Tiefband der BTC-CQT (bass.py), die Kontrollflaeche spielt das volle
     BTC-Vokabular. Der fruehere Template-Matching-Pfad wurde nach dem
     1.1.0-Release entfernt - er liegt vollstaendig im Git-Verlauf (v0.1.0).
 
@@ -919,6 +930,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # Bassnote je Segment aus dem Tiefband - der Vorlauf gilt fuer den
             # Bass genauso wie fuer den Akkord (wie im Template-Pfad).
             basslinie = _bass_per_segment(timeline, bass_track, window_end / sr)
+            # Durchgangsbass am Segmentende (G - F# - Em): braucht den
+            # naechsten Onset, also nur fuer Eintraege mit Nachfolger.
+            durchgang = _passing_per_segment(timeline, bass_track)
 
             if debug:
                 debug.write(f"{time.time():.3f}\t{window_end / sr:.3f}\t"
@@ -940,7 +954,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # einen in Reichweite hat - die Zeitleiste behaelt die rohe
             # Modellgrenze, nur das Event liegt auf dem Schlag.
             ledger.advance(timeline, basslinie, key_dict, frontier,
-                           snap=raster.snap if raster is not None else None)
+                           snap=raster.snap if raster is not None else None,
+                           passing=durchgang)
             # Rueckhalt: Im Record-Modus muessen die Events so weit
             # zurueckreichen wie der Mitschnitt, sonst springt man in Audio
             # zurueck, zu dem es keine Akkorde mehr gibt. Ohne Record-Modus
@@ -950,9 +965,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             ledger.prune(heard_pos, rueckhalt=rueckhalt)
             if raster is not None:
                 raster.prune(heard_pos, rueckhalt=rueckhalt)
-            # Kontrollgitarre ohne Safe-Voicing-Filter (drittes Feld None):
-            # sie schlaegt den VOLLEN Akkord an, auch dim7/sus/6 - die
-            # Tonstrukturen kommen aus btc.BTC_CHORD_TONES. Sie spielt auf
+            # Kontrollflaeche (control_pad.py) ohne Safe-Voicing-Filter
+            # (drittes Feld None): sie haelt den VOLLEN Akkord, auch
+            # dim7/sus/6 - die Tonstrukturen kommen aus btc.BTC_CHORD_TONES.
+            # Sie spielt auf
             # dem Onset des EVENTS (geschnappt/nachgerueckt), nicht auf der
             # rohen Zeitleistengrenze: dasselbe, was die Anzeige zeigt.
             loop.set_control_timeline([
@@ -1377,13 +1393,19 @@ class EventLedger:
         self.events: list[dict] = []
         # Nachgerueckte und geschnappte Events: Event-Onset -> Zeitleisten-
         # Onset, damit die Bass-Persistenz weiter unter dem gemessenen Onset
-        # gefunden wird - und die Umkehrung fuer die Kontrollgitarre.
+        # gefunden wird - und die Umkehrung fuer die Kontrollflaeche.
         self._origin: dict[float, float] = {}
         self._at_of: dict[float, float] = {}
         # Bass-Persistenz je Segment-Onset: (zuletzt gemessene Note, Hops in
         # Folge mit genau dieser Note). Schwellen-Flattern von slash_note
         # erreicht so nie ein Event.
         self._streaks: dict[float, tuple[str | None, int]] = {}
+        # Durchgangsbass je Segment-Onset: (Note, Hops in Folge) und die
+        # Onsets, deren Durchgangs-Event schon draussen ist. Geschluesselt am
+        # SEGMENT-Onset, nicht am Laufstart - der wandert mit dem 93-ms-Raster
+        # je Hop um einen Frame, die Note nicht.
+        self._passing: dict[float, tuple[str | None, int]] = {}
+        self._passing_done: set[float] = set()
 
     def _stable_bass(self, pos_key: float) -> str | None:
         note, hops = self._streaks.get(pos_key, (None, 0))
@@ -1395,7 +1417,7 @@ class EventLedger:
         return self._at_of.get(round(pos, 3), pos)
 
     def advance(self, timeline, basslinie, key_dict, frontier: float,
-                snap=None):
+                snap=None, passing=None):
         """Ein Hop: was die Commit-Grenze passiert hat, wird Event.
 
         `snap(pos)` liefert den Beat, auf den der Onset gelegt wird (Viertel-
@@ -1404,50 +1426,41 @@ class EventLedger:
         des vorigen Hops legen: Der Ledger merkt sich, WAS er committet hat,
         am Zeitleisten-Onset, nicht am Event-Onset - anders als die
         Verfeinerung (1.3.1) kann der Snap deshalb kein Event verschlucken.
+
+        `passing` (je Zeitleisteneintrag `(Laufstart, Note)` oder None) ist
+        der Durchgangsbass am Segmentende (_passing_per_segment): nach
+        PASSING_COMMIT_HOPS Hops mit derselben Note wird er - genau einmal
+        je Segment - als Event mit gleichem Akkord und dieser Bassnote
+        hinter seinem Segment eingereiht, sofern der Nachfolger noch nicht
+        committet ist. Er wird nicht geschnappt: Ein halber Schlag laege
+        auf einem Viertelraster daneben.
         """
         # Bass-Streaks fortschreiben (ein Aufruf = ein Hop); verschwundene
         # Onsets vergessen.
+        if passing is None:
+            passing = [None] * len(timeline)
         live = set()
-        for (pos, _), bassnote in zip(timeline, basslinie):
+        for (pos, _), bassnote, cand in zip(timeline, basslinie, passing):
             k = round(pos, 3)
             live.add(k)
             note, hops = self._streaks.get(k, (None, 0))
             self._streaks[k] = (bassnote, hops + 1 if bassnote == note else 1)
+            pnote = cand[1] if cand is not None else None
+            note, hops = self._passing.get(k, (None, 0))
+            self._passing[k] = (pnote, hops + 1 if pnote == note else 1)
         for k in [k for k in self._streaks if k not in live]:
             del self._streaks[k]
+        for k in [k for k in self._passing if k not in live]:
+            del self._passing[k]
+            self._passing_done.discard(k)
 
         fresh: list[dict] = []          # in DIESEM Hop committet
-        for (pos, name), _ in zip(timeline, basslinie):
-            if not (self._until < pos <= frontier):
-                continue
-            k = round(pos, 3)
-            at, bass = k, self._stable_bass(k)
-            beat = snap(pos) if snap is not None else None
-            if beat is not None:
-                at = round(beat, 3)
-            while self.events:
-                last = self.events[-1]
-                if last["c"] == name and last["b"] == bass:
-                    break                       # dieselbe Aussage: kein Event
-                if at - last["at"] >= MIN_EVENT_GAP:
-                    break
-                if fresh and last is fresh[-1]:
-                    self.events.pop()           # gleicher Hop: der spaetere gewinnt
-                    fresh.pop()
-                    self._at_of.pop(self._origin.pop(last["at"], None), None)
-                    continue
-                at = round(last["at"] + MIN_EVENT_GAP, 3)   # nachruecken
-                break
-            else:
-                last = None
-            if last is not None and last["c"] == name and last["b"] == bass:
-                continue
-            event = {"at": at, "c": name, "b": bass, "key": key_dict}
-            if at != k:
-                self._origin[at] = k
-                self._at_of[k] = at
-            self.events.append(event)
-            fresh.append(event)
+        for (pos, name), _, cand in zip(timeline, basslinie, passing):
+            if self._until < pos <= frontier:
+                self._commit(pos, name, key_dict, snap, fresh)
+            # Der Durchgangsbass gehoert HINTER sein Segment und VOR den
+            # Nachfolger - deshalb hier, bevor die Schleife weitergeht.
+            self._commit_passing(pos, name, cand, frontier, key_dict)
         self._until = max(self._until, frontier)
 
         # Monotone Bass-Regel, zweite Haelfte: Ein leer committeter Bass darf
@@ -1459,6 +1472,63 @@ class EventLedger:
                 if stable is not None:
                     e["b"] = stable
                     e["b_up"] = True
+
+    def _commit(self, pos, name, key_dict, snap, fresh):
+        """Ein Zeitleisteneintrag passiert die Commit-Grenze."""
+        k = round(pos, 3)
+        at, bass = k, self._stable_bass(k)
+        beat = snap(pos) if snap is not None else None
+        if beat is not None:
+            at = round(beat, 3)
+        while self.events:
+            last = self.events[-1]
+            if last["c"] == name and last["b"] == bass:
+                break                       # dieselbe Aussage: kein Event
+            if at - last["at"] >= MIN_EVENT_GAP:
+                break
+            if fresh and last is fresh[-1]:
+                self.events.pop()           # gleicher Hop: der spaetere gewinnt
+                fresh.pop()
+                self._at_of.pop(self._origin.pop(last["at"], None), None)
+                continue
+            at = round(last["at"] + MIN_EVENT_GAP, 3)   # nachruecken
+            break
+        else:
+            last = None
+        if last is not None and last["c"] == name and last["b"] == bass:
+            return
+        event = {"at": at, "c": name, "b": bass, "key": key_dict}
+        if at != k:
+            self._origin[at] = k
+            self._at_of[k] = at
+        self.events.append(event)
+        fresh.append(event)
+
+    def _commit_passing(self, pos, name, cand, frontier, key_dict):
+        """Durchgangsbass eines Segments als Event - genau einmal, und nur,
+        solange sein Segment das letzte Event stellt."""
+        k = round(pos, 3)
+        if cand is None or k in self._passing_done:
+            return
+        start, note = cand
+        if start > frontier:
+            return
+        pnote, hops = self._passing.get(k, (None, 0))
+        if pnote != note or hops < PASSING_COMMIT_HOPS:
+            return
+        if not self.events:
+            return
+        last = self.events[-1]
+        # Das letzte Event muss das eigene Segment sein (oder derselbe Akkord
+        # davor, falls das Segment als "dieselbe Aussage" kein Event bekam).
+        # Ist der Nachfolger schon draussen, kommt der Durchgang zu spaet.
+        if last["c"] != name or last["b"] == note:
+            return
+        at = round(start, 3)
+        if at - last["at"] < MIN_EVENT_GAP:
+            return
+        self.events.append({"at": at, "c": name, "b": note, "key": key_dict})
+        self._passing_done.add(k)
 
     def prune(self, heard_pos: float, rueckhalt: float = 2.0):
         """Vergangenes vergessen - aber nicht weiter zurueck als `rueckhalt`.
@@ -1472,6 +1542,31 @@ class EventLedger:
         grenze = heard_pos - max(rueckhalt, 2.0)
         while len(self.events) > 1 and self.events[1]["at"] <= grenze:
             self._at_of.pop(self._origin.pop(self.events.pop(0)["at"], None), None)
+
+
+def _passing_per_segment(timeline, track) -> list[tuple[float, str] | None]:
+    """Zu jedem Zeitleisten-Segment der Durchgangsbass an seinem Ende:
+    (Laufstart, Notenname) - oder None. Nur Segmente mit Nachfolger koennen
+    einen haben (bass.passing_note braucht beide Grundtoene); das Tiefband
+    reicht bis fast an den Fensterrand, der Nachfolger liegt am Horizont
+    davor."""
+    from . import bass as bassmodul
+
+    out: list[tuple[float, str] | None] = []
+    for i, (onset, chord) in enumerate(timeline):
+        cand = None
+        if i + 1 < len(timeline):
+            root = bassmodul.chord_root(chord)
+            next_root = bassmodul.chord_root(timeline[i + 1][1])
+            got = track.frames_between(onset, timeline[i + 1][0])
+            if got is not None and root is not None and next_root is not None:
+                frames, erster = got
+                hit = bassmodul.passing_note(frames, root, next_root)
+                if hit is not None:
+                    cand = (erster + hit[0] * track.frame_seconds,
+                            bassmodul.name(hit[1]))
+        out.append(cand)
+    return out
 
 
 def _bass_per_segment(timeline, track, front: float) -> list[str | None]:

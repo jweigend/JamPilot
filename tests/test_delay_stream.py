@@ -179,7 +179,7 @@ class TestKontrollgitarre:
         assert not np.any(self._stille(loop))
 
     def test_senkt_original_nur_im_kontrollmodus_ab(self, loop):
-        from jampilot.control_guitar import PLAYBACK_GAIN
+        from jampilot.control_pad import PLAYBACK_GAIN
 
         # Ring direkt mit einem konstanten Originalsignal fuellen, ohne einen
         # Gitarrenanschlag in die Timeline zu legen.

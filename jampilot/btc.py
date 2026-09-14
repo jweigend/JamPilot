@@ -47,7 +47,7 @@ _QUALITY_SUFFIX = {
 _QUALITY_ORDER = ["min", "maj", "dim", "aug", "min6", "maj6", "min7",
                   "minmaj7", "maj7", "7", "dim7", "hdim7", "sus2", "sus4"]
 
-# Intervallstrukturen der BTC-Qualitaeten - fuer Griffbrett/Kontrollgitarre,
+# Intervallstrukturen der BTC-Qualitaeten - fuer Griffbrett/Kontrollflaeche,
 # analog zu chords.CHORD_TYPES.
 BTC_CHORD_TONES = {
     "": (0, 4, 7), "m": (0, 3, 7), "dim": (0, 3, 6), "aug": (0, 4, 8),
