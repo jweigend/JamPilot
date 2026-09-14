@@ -1012,3 +1012,56 @@ class TestDurchgangsbass:
         assert durch[0] == (pytest.approx(1.5), "F#")
         assert durch[1] is None                    # E -> B: kein Durchgang
         assert durch[2] is None                    # ohne Nachfolger nichts
+
+
+class TestBlipSperre:
+    """Blip-Sperre im Ledger (BLIP_BEATS): A - D - A - D wird zu A - D. Das
+    zurueckkehrende A ist der alte Akkord, den die Spaetgrenzen-Ausnahme im
+    Merge an der Commit-Grenze wieder eingesetzt hat; das zweite D ist
+    dieselbe Aussage wie das erste."""
+
+    def _hop(self, led, zeitleiste, frontier, **kw):
+        led.advance(zeitleiste, [None] * len(zeitleiste), None, frontier=frontier, **kw)
+
+    def test_blip_und_wiederholung_bleiben_draussen(self):
+        led = cli.EventLedger()
+        zeitleiste = [(0.0, "A"), (11.67, "D")]
+        self._hop(led, zeitleiste, 11.75)
+        zeitleiste += [(11.94, "A"), (11.99, "D")]
+        self._hop(led, zeitleiste, 12.0)
+        assert [(e["at"], e["c"]) for e in led.events] == [(0.0, "A"), (11.67, "D")]
+
+    def test_die_wiederholung_bleibt_auch_mit_anderem_bass_draussen(self):
+        led = cli.EventLedger()
+        zeitleiste = [(0.0, "A"), (11.67, "D")]
+        for _ in range(cli.BASS_COMMIT_HOPS):
+            led.advance(zeitleiste, [None, "A"], None, frontier=11.75)
+        zeitleiste += [(11.94, "A"), (11.99, "D")]
+        for _ in range(cli.BASS_COMMIT_HOPS):
+            led.advance(zeitleiste, [None, "A", None, "D"], None, frontier=12.0)
+        assert [(e["at"], e["c"], e["b"]) for e in led.events] == [(0.0, "A", None), (11.67, "D", "A")]
+
+    def test_echter_wechsel_zurueck_nach_einem_schlag_bleibt(self):
+        # Erst jenseits der Schwelle ist die Rueckkehr ein eigener Wechsel.
+        led = cli.EventLedger()
+        zeitleiste = [(0.0, "A"), (10.0, "D"), (10.7, "A")]
+        self._hop(led, zeitleiste, 11.0)
+        assert [e["c"] for e in led.events] == ["A", "D", "A"]
+
+    def test_schwelle_kommt_aus_dem_beat_raster(self):
+        assert cli._blip_threshold(None) == cli.BLIP_FALLBACK_SECONDS
+        assert cli._blip_threshold(0.4) == pytest.approx(0.4 * cli.BLIP_BEATS)
+        assert cli._blip_threshold(2.0) == cli.BLIP_MAX_SECONDS
+        led = cli.EventLedger()
+        zeitleiste = [(0.0, "A"), (10.0, "D"), (10.7, "A")]
+        self._hop(led, zeitleiste, 11.0, beat_interval=0.4)     # Schwelle 0,5 s
+        assert [e["c"] for e in led.events] == ["A", "D", "A"]
+        led = cli.EventLedger()
+        self._hop(led, zeitleiste, 11.0, beat_interval=0.7)     # Schwelle 0,875 s
+        assert [e["c"] for e in led.events] == ["A", "D"]
+
+    def test_kurze_folge_ohne_rueckkehr_ist_kein_blip(self):
+        led = cli.EventLedger()
+        zeitleiste = [(0.0, "A"), (10.0, "D"), (10.3, "G"), (10.6, "C")]
+        self._hop(led, zeitleiste, 11.0)
+        assert [e["c"] for e in led.events] == ["A", "D", "G", "C"]

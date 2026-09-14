@@ -399,3 +399,61 @@ Umkehrungen mit fremdem Basston - und ein neuer Befund: **das Bass-Feld
 der Events trifft den annotierten Slash-Bass fast nie** (0 von 9, 2 von 12).
 Ob das an der Bassmessung oder an der Nachrueck-Regel ("nie zurueck")
 liegt, ist offen.
+
+## Blip-Sperre im Ledger (2026-09-14)
+
+Ausloeser: Proberaum-Eindruck "wieder Flattern, unsinnig kurze Akkorde
+zwischengehaengt" (Muster D - A - D bei laufendem D -> A). Meilenstein-
+Vergleich (`messung_meilensteine.py`, seit heute mit Kopie der Zustaende -
+alte Checkouts geben die Ledger-Liste als Referenz heraus) ueber neun
+Konfigurationen, Events < 0,6 s je Minute, Summe ueber die fuenf Titel und
+Telegraph Road:
+
+| Konfiguration | kurz < 0,6 s | davon X-Y-X |
+|---|---|---|
+| v1.1.1 (fb508ac, iso-only) | 11,8 | 7,8 |
+| v1.4.0 (67b7a68, v7_2b) | 9,6 | 5,7 |
+| main 1051eac (v7_2b, ein Frame) | 9,9 | 5,7 |
+| main mit iso-only (e7ad6f1) | 6,3 | 2,8 |
+| main mit v7 alt (b9cf896) | 6,9 | 3,6 |
+| main mit `iso_only_2` | 8,3 | 4,5 |
+| main, Korrektur 0 / 2 Frames | 10,0 / 11,5 | 5,9 / 6,3 |
+
+Gegen v1.1.1 ist main also nicht schlechter; gegen den Takt-Stand vom
+11.09. (~7) kam die Haelfte dazu, mit den Gewichten v7_2b (mehr Grenzen:
+Crazy Little Thing 133 statt 111 Events), nicht mit Korrektur, Mindestabstand
+oder Durchgangsbass (+0,4 Nur-Bass-Events je Minute).
+
+Mechanismus der X-Y-X-Blips (Hop-Spur It's Too Late, 11,6 s): Die
+verfeinerte D-Grenze (11,67 s) wird committet, die rohe Modellgrenze liegt
+bei 11,99 s; an der Commit-Grenze laeuft fuer das Modell noch Am7, die
+Spaetgrenzen-Ausnahme im Merge setzt Am7 an die Grenze (Event 11,89 s),
+D kommt ein zweites Mal und wird auf den Folgeschlag geschnappt (12,26 s).
+Der Spieler sieht Am7 fuer einen Schlag und D einen Schlag zu spaet. In
+allen Versionen vorhanden; die Sperre im Merge (11.09. verworfen) haette
+den ersten D-Onset verschoben.
+
+Regel im Ledger (`cli.EventLedger._is_blip`, `BLIP_BEATS`): Ein Event, das
+den Akkord von VOR dem letzten Event zurueckbringt und kuerzer als
+1,25 Schlaege (Beat-Raster; ohne Raster 0,6 s, Kappung 1,0 s) nach dem
+letzten liegt, faellt weg; die folgende Wiederholung des letzten Akkords
+ist dieselbe Aussage. Das erste D bleibt, kein Onset bewegt sich. Offline
+(`messung_blip_regel.py`, feste Schwelle) und live (`messung_meilensteine.py`
+auf dem Branch), v7_2b, Root-Accuracy des angezeigten Akkords je Hop /
+median |dt| / Kurz-Events je Minute:
+
+| Titel | main ohne Sperre | offline T=0,6 s | live mit Sperre | `iso_only_2` ohne Sperre |
+|---|---|---|---|---|
+| Crazy Little Thing | 85 % / 36 ms / 16,5 | 80 % / 38 / 7,1 | 81 % / 37 / 8,2 | 86 % / 41 / 9,0 |
+| Eight Days a Week | 96 % / 39 ms / 2,7 | 97 % / 41 / 0,8 | 97 % / 41 / 0,8 | 97 % / 32 / 1,6 |
+| It's Too Late | 86 % / 197 ms / 14,0 | 85 % / 211 / 3,0 | 85 % / 208 / 3,8 | 87 % / 183 / 8,9 |
+| Let It Be | 86 % / 73 ms / 4,6 | 87 % / 73 / 1,3 | 86 % / 73 / 1,8 | 86 % / 70 / 6,2 |
+| Something | 80 % / 41 ms / 12,2 | 80 % / 43 / 3,8 | 78 % / 47 / 3,8 | 77 % / 41 / 11,5 |
+| Telegraph Road (Taktlinie) | 72 % / 10,1 | - | 75 % / 5,0 | 66 % / 12,8 |
+
+Live bleibt kein X-Y-X-Blip uebrig. Der Preis: Crazy Little Thing verliert
+vier Punkte Root (G - C - G auf drei Schlaegen ist echte Musik, ein
+Ein-Schlag-Akkord und ein Ein-Schlag-Blip sind an der Dauer nicht zu
+unterscheiden), Something zwei; bei T = 1,0 s waechst der Verlust deutlich
+(Crazy 75 %). Der Gewichtswechsel auf `iso_only_2` nimmt nur ein Drittel
+der Blips und kostet bei Something drei Punkte. Proberaum-Test offen.
