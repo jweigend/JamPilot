@@ -1,5 +1,77 @@
 # Changelog
 
+## 1.4.1 — 2026-09-15
+
+The theme of this release: **calm.** A bugfix release for the flicker that
+survived 1.4.0: the old chord popping back for exactly one beat right after
+the new one was shown (`D – A – D – A`). Around it, two things the
+rehearsal room asked for: the passing bass a chord model can never label,
+and a control sound you can actually judge a chord by. Judged in the
+rehearsal room before it was tagged; every number below is measured, the
+tables live in `tests/reference/README.md`.
+
+### The one-beat blip is gone
+
+Since 1.4.0 chord boundaries snap to the beat, and that turned a small
+artefact into a visible one: the refined boundary of the new chord is
+published while the model's own boundary still lies a few frames later. At
+the commit line the model still hears the old chord, the late-boundary rule
+from 1.1.0 dutifully re-inserts it, and the new chord arrives a second time
+— one beat later. What you saw: `A` for one beat between two `D`s, and the
+`D` you needed landing a beat late.
+
+Comparing 1.1.1, 1.4.0 and today's code on the reference set showed the
+count of such short events had not risen since 1.1.1 — the retrained chord
+model just draws more boundaries, and on the beat grid every blip is
+exactly one beat long, which makes it look like a chord. So the publish
+channel now knows the blip's signature: a chord that returns to the one
+before the last event within about a beat, *while the timeline behind it
+already shows the new chord again*, is dropped, and so is the repeat. The
+first event stays where it was; nothing moves. Without that second look
+the rule would also eat the return after a genuine short misfire
+(`A – D – A – G`) — it did, in the first cut, in Comfortably Numb.
+
+Live simulation, root accuracy of the displayed chord / events shorter
+than 0.6 s per minute, 1.4.0 → 1.4.1:
+
+| Track | Root | short events / min |
+|---|---|---|
+| Crazy Little Thing | 85 % → 86 % | 16.5 → 9.8 |
+| Eight Days a Week | 96 % → 97 % | 2.7 → 1.2 |
+| It's Too Late | 86 % → 88 % | 14.0 → 4.6 |
+| Let It Be | 86 % → 87 % | 4.6 → 2.3 |
+| Something | 80 % → 81 % | 12.2 → 4.2 |
+
+Timing is unchanged. The remaining short events (about one per minute)
+are real changes or single misfires that should stay.
+
+### The passing bass: `G/F#` before `Em`
+
+In the closing solo of Comfortably Numb the whole band holds an F# for half
+a beat between `G` and `Em`. The chord model — trained on annotations that
+write `G/F#` as plain `G` — keeps saying `G`, and no weights will change
+that. The measured bass can: when the low band shows a note stepping
+chromatically *between* the current root and the next one, stable for at
+least three frames and ending with the segment, the segment gets a second
+event with the same chord and that bass. The bass view shows a big
+**F# over G** at the right moment; the chip reads `G/F#`. Six of the seven
+solo passages get it (the seventh is torn into splinters by the model
+itself). On the five reference tracks this adds five events in fourteen
+minutes, three of them annotated, and changes nothing else
+(`tests/realaudio/REPORT_comfortably_numb.md`).
+
+### A pad instead of a pluck
+
+The control sound in the gear menu is no longer a dry one-second guitar
+pluck but a quiet keyboard pad that holds every recognised chord until the
+next change, on exactly the stream clock of the delayed original. A pluck
+is gone before the ear has judged it; a sustained third or seventh rubs
+audibly against the original when it is wrong and sits inside it when it is
+right. Full chord vocabulary, close voicing around C4 with the root an
+octave below, synthesised locally (no sample files, JamPilot stays
+offline), off by default and free when off. Details in
+`docs/gitarrenmodus.md`.
+
 ## 1.4.0 — 2026-09-12
 
 The theme of this release: **time.** JamPilot has always told you *what*
