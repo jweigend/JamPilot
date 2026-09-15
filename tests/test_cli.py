@@ -1017,8 +1017,10 @@ class TestDurchgangsbass:
 class TestBlipSperre:
     """Blip-Sperre im Ledger (BLIP_BEATS): A - D - A - D wird zu A - D. Das
     zurueckkehrende A ist der alte Akkord, den die Spaetgrenzen-Ausnahme im
-    Merge an der Commit-Grenze wieder eingesetzt hat; das zweite D ist
-    dieselbe Aussage wie das erste."""
+    Merge an der Commit-Grenze wieder eingesetzt hat; das zweite D steht
+    dann schon in der Zeitleiste und ist dieselbe Aussage wie das erste.
+    Ohne das zweite D ist das A kein Blip: A - D - A - G ist die Rueckkehr
+    nach einem kurzen Fremdchip, und das A muss kommen."""
 
     def _hop(self, led, zeitleiste, frontier, **kw):
         led.advance(zeitleiste, [None] * len(zeitleiste), None, frontier=frontier, **kw)
@@ -1044,7 +1046,15 @@ class TestBlipSperre:
     def test_echter_wechsel_zurueck_nach_einem_schlag_bleibt(self):
         # Erst jenseits der Schwelle ist die Rueckkehr ein eigener Wechsel.
         led = cli.EventLedger()
-        zeitleiste = [(0.0, "A"), (10.0, "D"), (10.7, "A")]
+        zeitleiste = [(0.0, "A"), (10.0, "D"), (10.7, "A"), (11.5, "D")]
+        self._hop(led, zeitleiste, 11.0)
+        assert [e["c"] for e in led.events] == ["A", "D", "A"]
+
+    def test_rueckkehr_nach_kurzem_fremdchip_bleibt(self):
+        # Comfortably Numb 309 s: A - D(0,25 s) - A - G. Das D ist der
+        # Fehler; ohne zweites D dahinter ist das A kein Blip.
+        led = cli.EventLedger()
+        zeitleiste = [(0.0, "A"), (10.0, "D"), (10.25, "A"), (11.4, "G")]
         self._hop(led, zeitleiste, 11.0)
         assert [e["c"] for e in led.events] == ["A", "D", "A"]
 
@@ -1053,7 +1063,7 @@ class TestBlipSperre:
         assert cli._blip_threshold(0.4) == pytest.approx(0.4 * cli.BLIP_BEATS)
         assert cli._blip_threshold(2.0) == cli.BLIP_MAX_SECONDS
         led = cli.EventLedger()
-        zeitleiste = [(0.0, "A"), (10.0, "D"), (10.7, "A")]
+        zeitleiste = [(0.0, "A"), (10.0, "D"), (10.7, "A"), (11.5, "D")]
         self._hop(led, zeitleiste, 11.0, beat_interval=0.4)     # Schwelle 0,5 s
         assert [e["c"] for e in led.events] == ["A", "D", "A"]
         led = cli.EventLedger()

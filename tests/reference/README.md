@@ -434,26 +434,36 @@ allen Versionen vorhanden; die Sperre im Merge (11.09. verworfen) haette
 den ersten D-Onset verschoben.
 
 Regel im Ledger (`cli.EventLedger._is_blip`, `BLIP_BEATS`): Ein Event, das
-den Akkord von VOR dem letzten Event zurueckbringt und kuerzer als
+den Akkord von VOR dem letzten Event zurueckbringt, kuerzer als
 1,25 Schlaege (Beat-Raster; ohne Raster 0,6 s, Kappung 1,0 s) nach dem
-letzten liegt, faellt weg; die folgende Wiederholung des letzten Akkords
-ist dieselbe Aussage. Das erste D bleibt, kein Onset bewegt sich. Offline
-(`messung_blip_regel.py`, feste Schwelle) und live (`messung_meilensteine.py`
-auf dem Branch), v7_2b, Root-Accuracy des angezeigten Akkords je Hop /
-median |dt| / Kurz-Events je Minute:
+letzten liegt UND hinter dem die Zeitleiste sofort wieder den letzten
+Akkord fuehrt (A - D - A - D; der zweite D-Eintrag entsteht im selben
+Merge-Lauf wie das A an der Commit-Grenze), faellt weg; die Wiederholung
+des D ist dieselbe Aussage. Das erste D bleibt, kein Onset bewegt sich.
+Ohne die Nachfolger-Bedingung (erste Fassung) traf die Sperre auch die
+Rueckkehr nach einem kurzen Fremdchip - Comfortably Numb 309 s, A - D
+(0,25 s) - A - G: das falsche D stand dann 1,4 s statt 0,25 s, und die
+echten Ein-Schlag-Wechsel G - C - G bei Crazy Little Thing fielen mit
+(Root 85 -> 81 %). Live-Simulation (`messung_meilensteine.py` auf dem
+Branch), v7_2b, Root-Accuracy des angezeigten Akkords je Hop / median
+|dt| / Kurz-Events < 0,6 s je Minute / davon X-Y-X:
 
-| Titel | main ohne Sperre | offline T=0,6 s | live mit Sperre | `iso_only_2` ohne Sperre |
+| Titel | main ohne Sperre | erste Fassung | **mit Nachfolger-Bedingung** | `iso_only_2` ohne Sperre |
 |---|---|---|---|---|
-| Crazy Little Thing | 85 % / 36 ms / 16,5 | 80 % / 38 / 7,1 | 81 % / 37 / 8,2 | 86 % / 41 / 9,0 |
-| Eight Days a Week | 96 % / 39 ms / 2,7 | 97 % / 41 / 0,8 | 97 % / 41 / 0,8 | 97 % / 32 / 1,6 |
-| It's Too Late | 86 % / 197 ms / 14,0 | 85 % / 211 / 3,0 | 85 % / 208 / 3,8 | 87 % / 183 / 8,9 |
-| Let It Be | 86 % / 73 ms / 4,6 | 87 % / 73 / 1,3 | 86 % / 73 / 1,8 | 86 % / 70 / 6,2 |
-| Something | 80 % / 41 ms / 12,2 | 80 % / 43 / 3,8 | 78 % / 47 / 3,8 | 77 % / 41 / 11,5 |
-| Telegraph Road (Taktlinie) | 72 % / 10,1 | - | 75 % / 5,0 | 66 % / 12,8 |
+| Crazy Little Thing | 85 % / 36 ms / 16,5 / 7,8 | 81 % / 37 / 8,2 / 0 | **86 % / 38 / 9,8 / 1,6** | 86 % / 41 / 9,0 / 2,7 |
+| Eight Days a Week | 96 % / 39 ms / 2,7 / 1,9 | 97 % / 41 / 0,8 / 0 | **97 % / 41 / 1,2 / 0,4** | 97 % / 32 / 1,6 / 1,6 |
+| It's Too Late | 86 % / 197 ms / 14,0 / 9,7 | 85 % / 208 / 3,8 / 0 | **88 % / 211 / 4,6 / 1,1** | 87 % / 183 / 8,9 / 6,2 |
+| Let It Be | 86 % / 73 ms / 4,6 / 2,3 | 86 % / 73 / 1,8 / 0 | **87 % / 73 / 2,3 / 0,5** | 86 % / 70 / 6,2 / 3,4 |
+| Something | 80 % / 41 ms / 12,2 / 7,3 | 78 % / 47 / 3,8 / 0 | **81 % / 46 / 4,2 / 0,7** | 77 % / 41 / 11,5 / 4,9 |
+| Telegraph Road (Taktlinie) | 72 % / 10,1 / 5,0 | 75 % / 5,0 / 0 | **75 % / 6,2 / 1,2** | 66 % / 12,8 / 8,1 |
 
-Live bleibt kein X-Y-X-Blip uebrig. Der Preis: Crazy Little Thing verliert
-vier Punkte Root (G - C - G auf drei Schlaegen ist echte Musik, ein
-Ein-Schlag-Akkord und ein Ein-Schlag-Blip sind an der Dauer nicht zu
-unterscheiden), Something zwei; bei T = 1,0 s waechst der Verlust deutlich
-(Crazy 75 %). Der Gewichtswechsel auf `iso_only_2` nimmt nur ein Drittel
-der Blips und kostet bei Something drei Punkte. Proberaum-Test offen.
+Mit Nachfolger-Bedingung ist die Root-Accuracy auf jedem Titel gleich oder
+besser als ohne Sperre, die Kurz-Events sinken um 55-70 %, die uebrigen
+X-Y-X (rund einer je Minute) sind Rueckkehrer ohne zweites D - echte
+Wechsel oder Fremdchips, die stehen bleiben sollen. Comfortably Numb
+(Solo 262-382 s, `messung_live_pfad.lauf`): alle sechs G/F#-Events und
+das A bei 309 s unveraendert, zwei Blips weniger (272,5 s D - Bm).
+Timing unveraendert bis auf It's Too Late (+14 ms, Klavier-Nachlauf).
+Der Gewichtswechsel auf `iso_only_2` nimmt nur ein Drittel der Blips und
+kostet bei Something drei Punkte. Erste Fassung im Proberaum bestanden
+(14.09.), die Nachfolger-Bedingung dort noch nicht gespielt.

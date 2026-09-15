@@ -3,8 +3,9 @@
 Spielt die Regel aus cli.EventLedger._is_blip (BLIP_BEATS) nachtraeglich
 auf die committeten Events eines Laufs von messung_meilensteine.py
 (r_<pipe>_<w>_<track>.pkl): Ein Event, das den Akkord von VOR dem letzten
-Event zurueckbringt (A - D - A) und kuerzer als T nach dem letzten liegt,
-faellt weg; die folgende Wiederholung (D) ist dieselbe Aussage. Je Titel
+Event zurueckbringt, kuerzer als T nach dem letzten liegt UND auf das
+wieder der letzte Akkord folgt (A - D - A - D), faellt weg; die
+Wiederholung (D) ist dieselbe Aussage. A - D - A - G bleibt. Je Titel
 und Schwelle: Root-Accuracy des angezeigten Akkords je Hop, Timing
 (median |dt| der Events zu den .lab-Wechseln, Anteil getroffener Wechsel)
 und Kurz-Events < 0,6 s je Minute. Feste Schwelle statt Beat-Raster - die
@@ -29,9 +30,11 @@ def events(states):
 
 def regel(ev, T):
     out = []
-    for at, c in ev:
-        if len(out) >= 2 and c == out[-2][1] and c != out[-1][1] and at - out[-1][0] < T:
-            continue                       # Y unterdrueckt
+    for i, (at, c) in enumerate(ev):
+        naechster = ev[i + 1][1] if i + 1 < len(ev) else None
+        if (len(out) >= 2 and c == out[-2][1] and c != out[-1][1]
+                and at - out[-1][0] < T and naechster == out[-1][1]):
+            continue                       # A - D - A - D: das A ist der Blip
         if out and c == out[-1][1]:
             continue                       # dieselbe Aussage
         out.append((at, c))
