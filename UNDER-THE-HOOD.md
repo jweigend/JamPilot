@@ -77,7 +77,18 @@ a user sees is English.
    (`pip install "onnxruntime-gpu[cuda,cudnn]"` into the venv, NVIDIA only)
    the same window takes 10 ms; the code picks the provider by itself.
    A segment shorter than **250 ms** is not a chord, it is flicker of the
-   recogniser, and it is merged away. Because the lead shows every chord
+   recogniser, and it is merged away. A second kind of flicker survives that
+   filter: the old chord coming back for exactly one beat right after the new
+   one was published (D – A – D – A). It is an artefact of the pipeline — the
+   refined boundary is published while the model's own boundary still lies a
+   few frames later — so the publish channel drops a chord that returns to
+   the one before the last event within about a beat *when the timeline
+   behind it already shows the new chord again*, and the repeat that follows
+   it. The first event stays where it was; nothing moves. Without that
+   second look the rule also ate the return after a genuine short misfire
+   (A – D – A – G) and real one-beat changes (Crazy Little Thing's
+   G – C – G). Measured on the reference set the rule cuts sub-0.6 s events
+   by 55–70 % with root accuracy equal or better on every title. Because the lead shows every chord
    seconds before it becomes audible, a corrected reading is *withdrawn* rather
    than flashed on screen — what has already been heard stays untouched.
    How far the output lags is taken from PortAudio's **DAC timestamps**, not

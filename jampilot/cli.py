@@ -159,6 +159,40 @@ BTC_ONSET_SHIFT = 1 * 2048 / 22050          # ein BTC-Frame, ~93 ms
 # strukturell; Merge und Verfeinerung halten ihn zusaetzlich an der Quelle.
 MIN_EVENT_GAP = 0.25
 
+# Blip-Sperre im Publish-once-Kanal: A - D - A - D. Die verfeinerte Grenze
+# des neuen Akkords (D) wird committet, waehrend die rohe Modellgrenze bis
+# 0,4 s spaeter liegt; an der Commit-Grenze laeuft fuer das Modell noch A,
+# die Spaetgrenzen-Ausnahme im Merge setzt A wieder ein, D kommt ein zweites
+# Mal und wird auf den Folgeschlag geschnappt. Der Spieler sieht A fuer einen
+# Schlag und D dann einen Schlag zu spaet. Der Ledger kennt seine letzten
+# zwei Events und sperrt deshalb ein Event, das den Akkord von VOR dem
+# letzten Event zurueckbringt, wenn es kuerzer als etwa einen Schlag nach
+# dem letzten liegt UND die Zeitleiste dahinter sofort wieder den letzten
+# Akkord fuehrt (A - D - A - D: der zweite D-Eintrag entsteht im selben
+# Merge-Lauf wie das A an der Commit-Grenze); die Wiederholung ist dann
+# dieselbe Aussage. Ohne das zweite D ist das A kein Blip, sondern die
+# Rueckkehr nach einem kurzen Fremdchip (A - D - A - G bei Comfortably
+# Numb, 309 s: das D ist der Fehler, und es soll nicht 1,4 s statt 0,25 s
+# stehen). Das erste D bleibt stehen - anders als eine Sperre im
+# Merge (11.09. verworfen) verschiebt das keinen Onset. Offline auf den
+# Meilenstein-Laeufen (tests/reference/messung_blip_regel.py, Schwelle
+# 0,6 s): Kurz-Events < 0,6 s je Minute 16,5 -> 7,1 (Crazy Little Thing),
+# 14,0 -> 3,0 (It's Too Late), 12,2 -> 3,8 (Something); Root-Accuracy
+# -0,1 … -2,7 Punkte (Crazy: G - C - G auf drei Schlaegen ist echte
+# Musik und wird geschluckt), Timing unveraendert. Die Schwelle kommt aus
+# dem Beat-Raster (ein Schlag plus Toleranz - die Blips sind geschnappt,
+# also genau einen Schlag lang), ohne Raster gilt der feste Wert; nach
+# oben gekappt, weil bei 1,0 s der Root-Verlust deutlich waechst.
+BLIP_BEATS = 1.25
+BLIP_FALLBACK_SECONDS = 0.6
+BLIP_MAX_SECONDS = 1.0
+
+
+def _blip_threshold(beat_interval: float | None) -> float:
+    if not beat_interval:
+        return BLIP_FALLBACK_SECONDS
+    return min(BLIP_BEATS * beat_interval, BLIP_MAX_SECONDS)
+
 # Wieviel Vergangenheit und Zukunft die Anzeige je Takt mitgeschickt bekommt.
 # Gemessen um die HOERBARE Position, nicht um die der Analyse: Im Record-Modus
 # koennen zwischen beiden Minuten liegen, und den ganzen Mitschnitt viermal pro
@@ -955,7 +989,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # Modellgrenze, nur das Event liegt auf dem Schlag.
             ledger.advance(timeline, basslinie, key_dict, frontier,
                            snap=raster.snap if raster is not None else None,
-                           passing=durchgang)
+                           passing=durchgang,
+                           beat_interval=raster.interval() if raster is not None else None)
             # Rueckhalt: Im Record-Modus muessen die Events so weit
             # zurueckreichen wie der Mitschnitt, sonst springt man in Audio
             # zurueck, zu dem es keine Akkorde mehr gibt. Ohne Record-Modus
@@ -1406,6 +1441,10 @@ class EventLedger:
         # je Hop um einen Frame, die Note nicht.
         self._passing: dict[float, tuple[str | None, int]] = {}
         self._passing_done: set[float] = set()
+        # Blip-Sperre: Onset des zuletzt gesperrten Events - die folgende
+        # Wiederholung des letzten Akkords ist dann dieselbe Aussage, auch
+        # wenn ihr Bass anders gemessen wurde.
+        self._blip_at: float | None = None
 
     def _stable_bass(self, pos_key: float) -> str | None:
         note, hops = self._streaks.get(pos_key, (None, 0))
@@ -1417,7 +1456,7 @@ class EventLedger:
         return self._at_of.get(round(pos, 3), pos)
 
     def advance(self, timeline, basslinie, key_dict, frontier: float,
-                snap=None, passing=None):
+                snap=None, passing=None, beat_interval: float | None = None):
         """Ein Hop: was die Commit-Grenze passiert hat, wird Event.
 
         `snap(pos)` liefert den Beat, auf den der Onset gelegt wird (Viertel-
@@ -1434,6 +1473,9 @@ class EventLedger:
         hinter seinem Segment eingereiht, sofern der Nachfolger noch nicht
         committet ist. Er wird nicht geschnappt: Ein halber Schlag laege
         auf einem Viertelraster daneben.
+
+        `beat_interval` (Sekunden je Schlag aus dem Raster oder None) setzt
+        die Schwelle der Blip-Sperre (BLIP_BEATS, s. dort).
         """
         # Bass-Streaks fortschreiben (ein Aufruf = ein Hop); verschwundene
         # Onsets vergessen.
@@ -1455,9 +1497,11 @@ class EventLedger:
             self._passing_done.discard(k)
 
         fresh: list[dict] = []          # in DIESEM Hop committet
-        for (pos, name), _, cand in zip(timeline, basslinie, passing):
+        for i, ((pos, name), _, cand) in enumerate(zip(timeline, basslinie, passing)):
+            next_name = timeline[i + 1][1] if i + 1 < len(timeline) else None
             if self._until < pos <= frontier:
-                self._commit(pos, name, key_dict, snap, fresh)
+                self._commit(pos, name, key_dict, snap, fresh,
+                             _blip_threshold(beat_interval), next_name)
             # Der Durchgangsbass gehoert HINTER sein Segment und VOR den
             # Nachfolger - deshalb hier, bevor die Schleife weitergeht.
             self._commit_passing(pos, name, cand, frontier, key_dict)
@@ -1473,13 +1517,16 @@ class EventLedger:
                     e["b"] = stable
                     e["b_up"] = True
 
-    def _commit(self, pos, name, key_dict, snap, fresh):
+    def _commit(self, pos, name, key_dict, snap, fresh,
+                blip_threshold: float = BLIP_FALLBACK_SECONDS, next_name=None):
         """Ein Zeitleisteneintrag passiert die Commit-Grenze."""
         k = round(pos, 3)
         at, bass = k, self._stable_bass(k)
         beat = snap(pos) if snap is not None else None
         if beat is not None:
             at = round(beat, 3)
+        if self._is_blip(name, at, blip_threshold, next_name):
+            return
         while self.events:
             last = self.events[-1]
             if last["c"] == name and last["b"] == bass:
@@ -1503,6 +1550,25 @@ class EventLedger:
             self._at_of[k] = at
         self.events.append(event)
         fresh.append(event)
+
+    def _is_blip(self, name: str, at: float, threshold: float,
+                 next_name: str | None) -> bool:
+        """Blip-Sperre (BLIP_BEATS): A - D - A - D. Sperrt das zurueckkehrende
+        A, wenn die Zeitleiste dahinter (`next_name`) schon wieder D fuehrt,
+        und danach die Wiederholung des D - beide sind dieselbe Aussage wie
+        die schon veroeffentlichten Events."""
+        if len(self.events) < 2:
+            return False
+        last, before = self.events[-1], self.events[-2]
+        if (name == before["c"] and name != last["c"]
+                and at - last["at"] < threshold and next_name == last["c"]):
+            self._blip_at = at
+            return True
+        if (self._blip_at is not None and name == last["c"]
+                and at - self._blip_at < threshold):
+            return True                 # die Wiederholung nach dem Blip
+        self._blip_at = None
+        return False
 
     def _commit_passing(self, pos, name, cand, frontier, key_dict):
         """Durchgangsbass eines Segments als Event - genau einmal, und nur,
