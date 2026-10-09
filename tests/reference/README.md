@@ -168,6 +168,37 @@ Solo: 6 von 7 Stellen mit G/F#. Die breite Variante (jeder stabile Fremdbass
 im Segment, ohne Akkordton-Gate) wurde verworfen: 154 Unter-Events offline,
 Eight Days a Week alle 2 s ein Slash-Chip.
 
+### Nachtrag 2026-10-09: die Quinte braucht eine Bassstimme
+
+If This Is Goodbye (tests/realaudio/REPORT_if_this_is_goodbye.md): In der
+ersten Strophe spielt kein Bass, der tiefste Ton unter dem D-Griff ist die
+A-Saite (110 Hz), das D der Gitarre liegt erst bei D4 ueber der
+Tiefband-Grenze. `slash_note` sagte A (A/D im Tiefband 12-38x), live stand
+jedes D der Strophe als D/A - dieselbe Klasse wie D/A ueber jedem D in Eight
+Days (Ratio 2,0) und D6/A in It's Too Late. Die Ratio-Huerde kann hier nicht
+greifen, der Grundton fehlt unten ganz.
+
+Seit Branch feature/quinte-bassregister braucht die QUINTE im Bass einen
+Nachweis, den eine Gitarre nicht liefern kann: mindestens 5 % ihrer
+Tiefband-Energie im Bassregister C1..D#2 (32,7-77,8 Hz, unter E2;
+`btc.fold_bass_register`, `bass.FIFTH_REGISTER_SHARE`). Terz, Septime und
+Fremdtoene bleiben wie bisher. Ohne Nachweis gilt Grundton-Lage.
+
+Offline (Metrik oben, 2-s-Pooling): falsche Slashes 1/385 und 11/27
+Umkehrungen unveraendert; Goodbye Strophe 1 acht von acht D/A weg, das echte
+A-Pedal des Basses bei 240 s (A1, 55 Hz, Register-Anteil 57 %) bleibt. Ein
+allgemeines Register-Gate fuer alle Slash-Toene wurde verworfen: Es kostet
+bei 25 % Anteil 10 der 11 Umkehrungen (Let It Be alle sieben Em/G), weil die
+Bass-Fundamentale der 60er-Aufnahmen kaum unter E2 liegen.
+
+Live-Pfad (`messung_live_pfad.lauf`, mit Tracker), Quinten-Slash-Events ohne
+-> mit Regel: Goodbye 11 -> 2 (bleiben: 207 s, 240 s), Let It Be 7 -> 5 (das
+Modell labelt dort C statt Em/G, der Bass G war richtig: 40,5 s und 182,0 s
+verlieren ihn), Something 8 -> 7 (127,7 s C/G), It's Too Late 10 -> 10 (D/A, D6/A, Fmaj7/C:
+dort spielt ein Bass, die Quinte klingt im Register - ob Pedal oder
+Oberwelle, entscheidet weiter das Ohr). Eventzahl, Timing und
+Nur-Bass-Treffer unveraendert.
+
 ## Publish-once-Messungen (2026-08-27, eingecheckt)
 
 Fuer das Zeitleisten-Redesign (docs/exploration/zeitleiste-redesign.md)

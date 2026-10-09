@@ -69,6 +69,27 @@ BASS_SILENCE = 1e-6
 # 17 falsche bei doppelt so vielen gesetzten Baessen (README, Bass-Abschnitt).
 SLASH_ROOT_RATIO = 3.0
 
+# Die QUINTE unter dem Grundton ist der einzige Akkordton, den ein Griff von
+# selbst unter den Grundton legt: Der offene D-Griff klingt mit der A-Saite
+# als tiefstem Ton, der Grundton D erst eine Oktave darueber. Spielt kein
+# Bass, misst das Tiefband dann A - und der Bassist liest "D/A", wo jeder
+# Chart D schreibt und jeder Mensch D hoert (If This Is Goodbye, Strophe 1:
+# acht von acht D-Takten; dieselbe Klasse wie D/A ueber jedem D in Eight Days
+# bei Ratio 2,0 und D6/A in It's Too Late). Die Ratio-Huerde greift dort
+# nicht, weil der Grundton im Tiefband ganz fehlt. Terz und Septime im Bass
+# sind dagegen immer Absicht.
+#
+# Deshalb braucht die Quinte einen Nachweis, den die Gitarre nicht liefern
+# kann: Sie muss im BASSREGISTER klingen (btc.fold_bass_register, C1..D#2,
+# unter der tiefsten Gitarrensaite) - mindestens dieser Anteil ihrer
+# Tiefband-Energie. Gemessen (tests/realaudio/REPORT_if_this_is_goodbye.md,
+# 2-s-Pooling): Goodbye Strophe 1 liegt bei 1-2 % (Gitarre), das echte
+# A-Pedal des Basses bei 240 s bei 57 %; die Isophonics-Quinten-Umkehrungen
+# (C/G, G/D in Something) bei 7-69 %. Mit 5 % bleiben alle 11 gefundenen
+# Umkehrungen des Referenzsets, mit 10 % fallen zwei C/G. Ohne Register
+# (None) gilt die Quinte als Grundton-Lage.
+FIFTH_REGISTER_SHARE = 0.05
+
 
 def dominant(bass_frames: np.ndarray | None) -> int | None:
     """Die vorherrschende Tonklasse im Tiefband - oder None.
@@ -115,25 +136,45 @@ class BassTrack:
         self._frame_seconds = frame_seconds
         self.size = max(int(seconds / frame_seconds), 1)
         self._data = np.zeros((12, self.size), dtype=np.float32)
+        # Das Bassregister (C1..D#2) laeuft parallel mit, gleiches Raster -
+        # fuer den Quinten-Nachweis in slash_note. Wer es nicht liefert
+        # (Chroma-Pfad, Tests), bekommt None zurueck.
+        self._register = np.zeros((12, self.size), dtype=np.float32)
+        self._has_register = False
         self.end = 0
 
-    def add(self, bass_frames: np.ndarray | None, window_start: float):
+    def add(self, bass_frames: np.ndarray | None, window_start: float,
+            register: np.ndarray | None = None):
         if bass_frames is None or bass_frames.shape[1] <= 2 * self.EDGE:
             return
         innen = bass_frames[:, self.EDGE : bass_frames.shape[1] - self.EDGE]
         erster = int(round(window_start / self._frame_seconds)) + self.EDGE
         ziel = np.arange(erster, erster + innen.shape[1]) % self.size
         self._data[:, ziel] = innen
+        if register is not None:
+            self._register[:, ziel] = register[:, self.EDGE : self.EDGE + innen.shape[1]]
+            self._has_register = True
         self.end = max(self.end, erster + innen.shape[1])
 
-    def pooled_between(self, start: float, end: float) -> np.ndarray | None:
-        """Aufsummiertes Tiefband-Chroma (12,) im Intervall - oder None."""
+    def _index(self, start: float, end: float) -> np.ndarray | None:
         von = max(int(round(start / self._frame_seconds)), self.end - self.size)
         bis = min(int(round(end / self._frame_seconds)), self.end)
         if bis - von < 2:
             return None
-        index = np.arange(von, bis) % self.size
-        return self._data[:, index].sum(axis=1)
+        return np.arange(von, bis) % self.size
+
+    def pooled_between(self, start: float, end: float) -> np.ndarray | None:
+        """Aufsummiertes Tiefband-Chroma (12,) im Intervall - oder None."""
+        index = self._index(start, end)
+        return None if index is None else self._data[:, index].sum(axis=1)
+
+    def register_between(self, start: float, end: float) -> np.ndarray | None:
+        """Aufsummiertes Bassregister-Chroma (12,) im Intervall - oder None,
+        wenn keines mitgefuehrt wird oder das Intervall leer ist."""
+        if not self._has_register:
+            return None
+        index = self._index(start, end)
+        return None if index is None else self._register[:, index].sum(axis=1)
 
     @property
     def frame_seconds(self) -> float:
@@ -247,7 +288,8 @@ def chord_tone_classes(chord: str) -> set[int] | None:
     return {(root + iv) % 12 for iv in BTC_CHORD_TONES[quality]}
 
 
-def slash_note(pooled: np.ndarray | None, chord: str) -> int | None:
+def slash_note(pooled: np.ndarray | None, chord: str,
+               register: np.ndarray | None = None) -> int | None:
     """Bass-Tonklasse fuer die Anzeige zu `chord` - bewusst konservativ.
 
     Drei Huerden, bevor etwas anderes als der Grundton behauptet wird:
@@ -256,6 +298,11 @@ def slash_note(pooled: np.ndarray | None, chord: str) -> int | None:
     als der Grundton selbst (SLASH_ROOT_RATIO - sonst erfindet die laute
     Quinte Umkehrungen). Der Grundton selbst darf ohne die letzten beiden
     Huerden zurueckkommen; slash() macht daraus dann keinen Slash.
+
+    Eine vierte Huerde nur fuer die QUINTE: Sie muss im Bassregister
+    (`register`, 12 Tonklassen aus C1..D#2) klingen, sonst ist sie die tiefe
+    Saite des Griffs und der Akkord steht in Grundton-Lage - zurueck kommt
+    dann der Grundton (FIFTH_REGISTER_SHARE).
     """
     if pooled is None:
         return None
@@ -276,6 +323,9 @@ def slash_note(pooled: np.ndarray | None, chord: str) -> int | None:
         return None
     if pooled[best] < SLASH_ROOT_RATIO * pooled[root]:
         return None
+    if (best - root) % 12 == 7:
+        if register is None or register[best] < FIFTH_REGISTER_SHARE * pooled[best]:
+            return root                  # Quinte ohne Bassstimme: Grundton-Lage
     return best
 
 

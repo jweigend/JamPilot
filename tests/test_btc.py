@@ -160,6 +160,19 @@ class TestBassFaltung:
         out = btc.fold_bass_chroma(feats)
         assert np.argmax(out[:, 0]) == 2   # D
 
+    def test_register_endet_unter_e2(self):
+        """fold_bass_register nimmt nur C1..D#2 - die A-Saite der Gitarre
+        (A2, 110 Hz) faellt heraus, das A des Basses (A1, 55 Hz) nicht."""
+        sr = btc.BTC_SR
+        t = np.arange(int(3.0 * sr)) / sr
+        for hz, erwartet in ((55.0, True), (110.0, False)):
+            y = (0.5 * np.sin(2 * np.pi * hz * t)).astype(np.float32)
+            feats = btc.features_from_audio(y, sr)
+            tief = btc.fold_bass_chroma(feats)[:, 5:-5].sum(axis=1)
+            reg = btc.fold_bass_register(feats)[:, 5:-5].sum(axis=1)
+            assert np.argmax(tief) == 9                                  # A
+            assert bool(reg[9] >= 0.5 * tief[9]) == erwartet, hz
+
     def test_sinus_d2_gibt_d(self):
         sr = btc.BTC_SR
         t = np.arange(int(3.0 * sr)) / sr

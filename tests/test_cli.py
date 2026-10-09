@@ -579,6 +579,8 @@ class TestBassFenster:
             def pooled_between(self, a, b):
                 self.intervalle.append((a, b))
                 return None
+            def register_between(self, a, b):
+                return None
         track = Aufzeichnung()
         cli._bass_per_segment([(1.0, "C"), (8.0, "G")], track, front=20.0)
         assert track.intervalle == [(1.0, 1.0 + cli.BASS_POOL_SECONDS),
@@ -590,6 +592,8 @@ class TestBassFenster:
                 self.intervalle = []
             def pooled_between(self, a, b):
                 self.intervalle.append((a, b))
+                return None
+            def register_between(self, a, b):
                 return None
         track = Aufzeichnung()
         cli._bass_per_segment([(1.0, "C"), (2.2, "G")], track, front=2.8)

@@ -338,6 +338,12 @@ def features_from_audio(samples: np.ndarray, samplerate: int) -> np.ndarray:
 # Band, das chroma.analyze_window fuer bass.py zog (2 Bins je Halbton).
 BTC_BASS_BINS = 72
 
+# Bassregister: C1..D#2 (32.7..77.8 Hz), unterhalb der tiefsten Gitarrensaite
+# E2 (82 Hz). Was hier klingt, ist eine eigene Bassstimme (Bass, Klavier,
+# Synth) - eine Gitarre kommt in Normalstimmung nicht hinunter. bass.slash_note
+# verlangt fuer die QUINTE im Bass diesen Nachweis (FIFTH_REGISTER_SHARE).
+BTC_REGISTER_BINS = 32
+
 # Grenz-Verfeinerung: Die Modellgrenze liegt auf dem 93-ms-Raster; im Fenster
 # darum sucht ein Akkordton-Schnitt im HPSS-Chroma (23-ms-Raster) den echten
 # Umschlagpunkt, Onset-Staerke gewichtet mit - Wechsel fallen auf Anschlaege.
@@ -436,7 +442,23 @@ def fold_bass_chroma(features: np.ndarray) -> np.ndarray:
     Halbton lag bei 16-32 %). Mit den Notenbins: 33 % leer, dieselben 44 %
     gefundene Umkehrungen (tests/reference/README.md, Bass-Abschnitt).
     """
-    idx = np.arange(BTC_BASS_BINS)
+    return _fold_note_bins(features, BTC_BASS_BINS)
+
+
+def fold_bass_register(features: np.ndarray) -> np.ndarray:
+    """Log-CQT-Frames (T, 144) -> Chroma (12, T) des Bassregisters C1..D#2.
+
+    Dieselbe Faltung wie fold_bass_chroma, nur ueber die untersten 16
+    Halbtoene (BTC_REGISTER_BINS). Fuer bass.slash_note: Die Quinte unter dem
+    Grundton zaehlt nur als Umkehrung, wenn sie hier unten klingt - also eine
+    eigene Bassstimme ist und nicht die A-Saite des D-Griffs
+    (tests/realaudio/REPORT_if_this_is_goodbye.md).
+    """
+    return _fold_note_bins(features, BTC_REGISTER_BINS)
+
+
+def _fold_note_bins(features: np.ndarray, n_bins: int) -> np.ndarray:
+    idx = np.arange(n_bins)
     noten = idx[idx % 2 == 0]
     mag = np.exp(features[:, noten])
     pcs = (noten // 2) % 12

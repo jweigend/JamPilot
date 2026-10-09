@@ -527,8 +527,8 @@ def cmd_analyze(args):
     # BTC-Transformer fuehrend; Slash-Bass aus dem Tiefband der BTC-CQT.
     from . import bass as bassmodul
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_bass_chroma, fold_chroma, label_mode_votes,
-                      refine_boundary, segments_from_labels)
+                      fold_bass_chroma, fold_bass_register, fold_chroma,
+                      label_mode_votes, refine_boundary, segments_from_labels)
     from .tonality import SHARP, KeyEstimator, spell
 
     samples, samplerate = _load_wav_mono(args.file)
@@ -556,6 +556,7 @@ def cmd_analyze(args):
     # Bassnote je Segment aus dem Tiefband der ohnehin berechneten CQT -
     # dieselbe Zwei-Signale-Idee wie im Template-Pfad (bass.py).
     bass_chroma = fold_bass_chroma(features)
+    bass_register = fold_bass_register(features)
     segmente = segments_from_labels(labels)
     # Grenzen aufs Audio-Ereignis verfeinern (93-ms-Raster -> 23-ms-Suche).
     fein = segmente[:1]
@@ -569,7 +570,8 @@ def cmd_analyze(args):
                 else len(labels) * BTC_FRAME_SECONDS)
         von, bis = int(zeit / BTC_FRAME_SECONDS), int(ende / BTC_FRAME_SECONDS)
         pooled = bass_chroma[:, von:bis].sum(axis=1) if bis > von else None
-        note = bassmodul.name(bassmodul.slash_note(pooled, name))
+        register = bass_register[:, von:bis].sum(axis=1) if bis > von else None
+        note = bassmodul.name(bassmodul.slash_note(pooled, name, register))
         # N = nichts erklingt -> "-" wie bisher; "?" (X) geht durch.
         shown = bassmodul.slash("-" if name == "N" else name, note)
         print(f"  {zeit:6.1f}s  {spell(shown, accidental)}")
@@ -759,8 +761,9 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     from .beats import BeatTracker
     from .engine import Startprotokoll
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_bass_chroma, fold_chroma, label_mode_votes,
-                      live_segments_from_labels, refine_boundary)
+                      fold_bass_chroma, fold_bass_register, fold_chroma,
+                      label_mode_votes, live_segments_from_labels,
+                      refine_boundary)
     from .chords import SILENCE_RMS
     from .tonality import TwoScaleKeyEstimator, spell
 
@@ -873,7 +876,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 # die naechsten Akkorde erscheinen im Takt der Hops.
                 protokoll.melden("First window analysed - chords are live")
                 erste_analyse_gemeldet = True
-            bass_track.add(fold_bass_chroma(features), window_start)
+            bass_track.add(fold_bass_chroma(features), window_start,
+                           register=fold_bass_register(features))
             segments = live_segments_from_labels(labels, audio, sr,
                                                  offset=window_start,
                                                  silence_rms=SILENCE_RMS)
@@ -1655,7 +1659,8 @@ def _bass_per_segment(timeline, track, front: float) -> list[str | None]:
             noten.append(None)
             continue
         pooled = track.pooled_between(onset, ende)
-        noten.append(bassmodul.name(bassmodul.slash_note(pooled, chord)))
+        register = track.register_between(onset, ende)
+        noten.append(bassmodul.name(bassmodul.slash_note(pooled, chord, register)))
     return noten
 
 
