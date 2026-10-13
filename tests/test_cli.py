@@ -1079,3 +1079,56 @@ class TestBlipSperre:
         zeitleiste = [(0.0, "A"), (10.0, "D"), (10.3, "G"), (10.6, "C")]
         self._hop(led, zeitleiste, 11.0)
         assert [e["c"] for e in led.events] == ["A", "D", "G", "C"]
+
+
+class TestOnsetKorrekturImMerge:
+    """Die Spaetgrenzen-Ausnahme traegt KEINEN Blip ein, wenn das Modell nur
+    den committeten Wechsel spaeter setzt als die Verfeinerung (Sailing to
+    Philadelphia: F#m7 verfeinert auf den Bass-Vorhalt, Modell sagt an der
+    Commit-Grenze weiter A und F#m7 erst am Downbeat). Ein echtes D - A - D
+    mit laengerem A wird weiter nachgetragen."""
+
+    def _merge(self, zeitleiste, modell, base):
+        # commit_ahead 2.0 -> base = audible + 2; Horizont weit genug.
+        cli._merge_model_segments(zeitleiste, modell, base - 2.0, base + 2.0,
+                                  previous=modell)
+        return zeitleiste
+
+    def test_onset_korrektur_bleibt_draussen(self):
+        zeitleiste = [(112.18, "A"), (116.44, "F#m7")]
+        modell = [(112.19, "A"), (116.74, "F#m7")]
+        assert self._merge(zeitleiste, modell, 116.5) == [(112.18, "A"), (116.44, "F#m7")]
+
+    def test_echte_spaete_grenze_wird_weiter_nachgetragen(self):
+        # Das A dauert laenger als die Verfeinerung je ziehen koennte.
+        zeitleiste = [(0.0, "A"), (10.0, "D")]
+        modell = [(0.0, "A"), (9.0, "D"), (10.2, "A"), (11.5, "D")]
+        assert self._merge(zeitleiste, modell, 10.5) == [(0.0, "A"), (10.0, "D"), (10.5, "A"), (11.5, "D")]
+
+    def test_fremder_akkord_an_der_grenze_wird_weiter_nachgetragen(self):
+        # Nicht der Akkord von vor dem letzten: keine Onset-Korrektur.
+        zeitleiste = [(0.0, "A"), (10.0, "D")]
+        modell = [(0.0, "A"), (9.0, "D"), (10.3, "G"), (10.6, "D")]
+        assert self._merge(zeitleiste, modell, 10.5) == [(0.0, "A"), (10.0, "D"), (10.5, "G"), (10.6, "D")]
+
+    def test_ohne_rueckkehr_zum_committeten_wird_nachgetragen(self):
+        zeitleiste = [(0.0, "A"), (10.0, "D")]
+        modell = [(0.0, "A"), (9.0, "D"), (10.3, "A"), (10.6, "G")]
+        assert self._merge(zeitleiste, modell, 10.5) == [(0.0, "A"), (10.0, "D"), (10.5, "A"), (10.6, "G")]
+
+    def test_bassfenster_bleibt_ohne_blip_voll(self):
+        # Die Folge, um die es geht: ohne Blip misst der Bass des committeten
+        # F#m7 weiter ueber BASS_POOL_SECONDS statt ueber den Vorhalt.
+        class Aufzeichnung:
+            def __init__(self):
+                self.intervalle = []
+            def pooled_between(self, a, b):
+                self.intervalle.append((a, b))
+                return None
+            def register_between(self, a, b):
+                return None
+        zeitleiste = self._merge([(112.18, "A"), (116.44, "F#m7")],
+                                 [(112.19, "A"), (116.74, "F#m7")], 116.5)
+        track = Aufzeichnung()
+        cli._bass_per_segment(zeitleiste, track, front=119.5)
+        assert track.intervalle[-1] == (116.44, pytest.approx(116.44 + cli.BASS_POOL_SECONDS))

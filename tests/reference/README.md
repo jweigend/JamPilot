@@ -498,3 +498,42 @@ Timing unveraendert bis auf It's Too Late (+14 ms, Klavier-Nachlauf).
 Der Gewichtswechsel auf `iso_only_2` nimmt nur ein Drittel der Blips und
 kostet bei Something drei Punkte. Erste Fassung im Proberaum bestanden
 (14.09.), die Nachfolger-Bedingung dort noch nicht gespielt.
+
+## Onset-Korrektur statt Blip im Merge (2026-10-13)
+
+Ausloeser: Sailing to Philadelphia im Bass-Modus, "E over F#m7" am
+Formanfang (tests/realaudio/REPORT_sailing_to_philadelphia.md). Der
+X-Y-X-Blip von oben hat eine zweite Wirkung, die die Blip-Sperre im Ledger
+nicht erreicht: Der eingetragene Blip kappt das Bassfenster des committeten
+Segments am Blip-Onset - aus 2 s werden 0,25 s, genau der Bass-Vorhalt vor
+dem Downbeat. Dort ist der Vorhaltton (oder der Bass des vorigen Akkords)
+die klare Mehrheit, ist er Akkordton, sagt `slash_note` ihn, und ueber
+"b_up" landet er am Event - unwiderruflich.
+
+`cli._is_onset_correction`: Die Spaetgrenzen-Ausnahme traegt nichts ein,
+wenn der nachgemeldete Akkord der von vor dem letzten committeten ist, das
+Modell dahinter sofort wieder den committeten fuehrt und dessen Onset
+hoechstens `ONSET_HYSTERESIS + _REFINED_LOOKBACK` (0,75 s) hinter dem
+committeten liegt - das ist derselbe Wechsel, vom Modell spaeter gesetzt
+als von der Verfeinerung. Kein Onset bewegt sich (der Einwand gegen die
+Merge-Sperre vom 11.09.).
+
+Live-Pfad (`messung_live_pfad.py`, Baseline 0cb2825): Eventzahl, Timing,
+Beats, Nur-Bass-Treffer auf allen drei Titeln unveraendert. Slash-Events
+(mit Tracker), vorher -> nachher:
+
+| Titel | Bass gesetzt | Slashes | Aenderung |
+|---|---|---|---|
+| Let It Be | 116 -> 124 | 7 -> 6 | C/G 236,6 s weg (nicht annotiert) |
+| Eight Days a Week | 24 -> 25 | 0 -> 0 | - |
+| Something | 72 -> 77 | 13 -> 14 | G/D 3,5 s neu (annotiert G/5) |
+| Crazy Little Thing | 45 -> 39 | 10 -> 3 | C/E x2, G/B x5 weg (keine Slashes annotiert) |
+| It's Too Late | 82 -> 95 | 15 -> 1 | D/A x6, D6/A x2, Fmaj7/E x4, Fmaj7/C x2 weg (nicht annotiert) |
+
+Das "D/A ueber jedem D6" in It's Too Late (oben als Live-Fehlgriff gefuehrt,
+von der Quinten-Regel zu Recht nicht gefiltert, weil dort ein Bass spielt)
+war dieser Mechanismus: der Am7-Bass im 0,25-s-Stummel vor dem D6-Downbeat.
+Eine Mindestlaenge des Bassfensters (0,3 / 0,5 s) als zweite Huerde wurde
+gemessen und verworfen: nach der Merge-Korrektur ohne Nutzen, kostet
+Grundtoene von Ein-Schlag-Akkorden. Proberaum-Test bestanden (13.10.,
+Sailing to Philadelphia, Telegraph Road).

@@ -1314,6 +1314,8 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
                 timeline.append((pos, name))
                 last = name
             elif name != last and _confirmed_late_boundary(pos, name):
+                if _is_onset_correction(timeline, segments, i, last):
+                    continue            # dieselbe Grenze, vom Modell nur spaeter gesetzt
                 # Zu spaet erkannte Grenze (siehe Docstring): Committetes
                 # bleibt stehen, aber ab der Commit-Grenze gilt das neue
                 # Etikett - sonst kaeme es nie mehr in ein Event. Liegt das
@@ -1369,6 +1371,42 @@ def _merge_model_segments(timeline, segments, audible_pos, horizon, previous=Non
                 timeline.pop(i)
             else:
                 i += 1
+
+
+def _is_onset_correction(timeline, segments, i, last) -> bool:
+    """Ist die "zu spaet erkannte Grenze" `segments[i]` nur der committete
+    Wechsel, den das Modell SPAETER setzt als die Verfeinerung?
+
+    Muster (Sailing to Philadelphia, tests/realaudio/REPORT_sailing_to_
+    philadelphia.md): Zeitleiste ... A, F#m7 (committet, verfeinert auf den
+    Anschlag eines Bass-Vorhalts, 0,3 s vor dem Downbeat). Das Modell sagt
+    an der Commit-Grenze weiter A und setzt F#m7 erst auf den Downbeat. Die
+    Ausnahme traege dann A als 50-ms-Blip ein und F#m7 ein zweites Mal. Die
+    Blip-Sperre im Ledger haelt beide aus den Events - aber der Blip kappt
+    das Bassfenster des committeten F#m7 auf den Vorhalt (0,25 s), dort ist
+    E der Bass, und ueber "b_up" landete E am Event (3 von 30 F#m-Events).
+
+    Erkannt wird das Muster an drei Dingen: Der nachgemeldete Akkord ist
+    der von VOR dem letzten committeten; dahinter fuehrt das Modell sofort
+    wieder den committeten Akkord; und dessen Modell-Onset liegt hoechstens
+    so weit hinter dem committeten Onset, wie eine verfeinerte Grenze vor
+    der rohen liegen darf (dieselbe Toleranz wie die Onset-Hysterese). Dann
+    fehlt keine Grenze, die Zeitleiste bleibt, wie sie ist. Ein echtes
+    D - A - D mit einem A von mehr als dieser Spanne ist davon nicht
+    betroffen und wird weiter an der Commit-Grenze nachgetragen.
+
+    Gemessen (Referenzset, Live-Pfad): Eventzahl, Timing und Nur-Bass-
+    Treffer unveraendert; nicht annotierte Slashes entfallen - It's Too Late
+    15 -> 1 (D/A, D6/A, Fmaj7/E, Fmaj7/C: der Am7-Bass im Stummel vor dem
+    D6-Downbeat, seit Monaten als Live-Fehlgriff bekannt), Crazy Little
+    Thing 10 -> 3, Let It Be 7 -> 6; Something gewinnt das annotierte G/D
+    bei 3,5 s. Sailing: 3 F#m7/E -> F#, 6 weitere falsche Slashes weg.
+    """
+    if len(timeline) < 2 or segments[i][1] != timeline[-2][1]:
+        return False
+    if i + 1 >= len(segments) or segments[i + 1][1] != last:
+        return False
+    return segments[i + 1][0] - timeline[-1][0] <= ONSET_HYSTERESIS + _REFINED_LOOKBACK
 
 
 def _refine_fresh_bounds(timeline, refined_bounds, frontier, refine):
