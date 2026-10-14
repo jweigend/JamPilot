@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="980" viewBox="0 0 1500 980" role="img" aria-labelledby="title desc">
+  <title id="title">JamPilot Live Pipeline – was bei X pro Frame passiert</title>
+  <desc id="desc">Skizze des Live-Pfads von Audio über BTC-Frames, Filter, Merge und EventLedger bis zur Anzeige. Enthält Beispiele für stabiles C, unbekanntes X und Stille.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f8fb; }
+      .card { fill: #ffffff; stroke: #c8d0da; stroke-width: 2; rx: 18; ry: 18; }
+      .soft { fill: #fdfdfd; stroke: #d9dfe7; stroke-width: 1.5; rx: 12; ry: 12; }
+      .h1 { font: 700 28px system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #1f2937; }
+      .h2 { font: 700 20px system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #1f2937; }
+      .body { font: 15px system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #334155; }
+      .small { font: 13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #475569; }
+      .tiny { font: 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif; fill: #64748b; }
+      .mono { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #0f172a; }
+      .accent { fill: #e8f1ff; stroke: #6aa4ff; stroke-width: 2; }
+      .warn { fill: #fff4e5; stroke: #f59e0b; stroke-width: 2; }
+      .danger { fill: #ffeaea; stroke: #ef4444; stroke-width: 2; }
+      .good { fill: #eaf8ef; stroke: #22c55e; stroke-width: 2; }
+      .muted { fill: #eef2f7; stroke: #94a3b8; stroke-width: 2; }
+      .arrow { stroke: #64748b; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .lane { fill: #fbfcfe; stroke: #e2e8f0; stroke-width: 1; rx: 10; ry: 10; }
+      .chip { fill: #ddeafe; stroke: #4f8df7; stroke-width: 1.5; rx: 9; ry: 9; }
+      .chip2 { fill: #ede9fe; stroke: #8b5cf6; stroke-width: 1.5; rx: 9; ry: 9; }
+      .chip3 { fill: #fee2e2; stroke: #ef4444; stroke-width: 1.5; rx: 9; ry: 9; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1500" height="980"/>
+  <text class="h1" x="50" y="56">JamPilot Live Pipeline – wenn das Modell pro Frame „X“ zurückliefert</text>
+  <text class="body" x="50" y="86">Leserichtung: links → rechts. Oben der eigentliche Datenfluss, unten drei typische Mini-Beispiele.</text>
+
+  <rect class="card" x="40" y="120" width="220" height="215"/>
+  <text class="h2" x="60" y="154">1. Audio rein</text>
+  <text class="body" x="60" y="184">Systemaudio läuft in</text>
+  <text class="body" x="60" y="206">den Delay-/Loopback-Pfad.</text>
+  <text class="small" x="60" y="242">Analyse-Hops:</text>
+  <text class="mono" x="60" y="264">alle 0.25 s</text>
+  <text class="small" x="60" y="290">Fenster für BTC:</text>
+  <text class="mono" x="60" y="312">letzte 10.0 s</text>
+
+  <rect class="card accent" x="320" y="120" width="250" height="215"/>
+  <text class="h2" x="340" y="154">2. Features + BTC</text>
+  <text class="body" x="340" y="184">Audio → CQT-Features →</text>
+  <text class="body" x="340" y="206">BTC-Transformer → argmax</text>
+  <text class="small" x="340" y="242">Ergebnis:</text>
+  <text class="mono" x="340" y="264">1 Label pro ~93 ms Frame</text>
+  <text class="tiny" x="340" y="296">Beispiel:</text>
+  <text class="mono" x="340" y="318">C  C  X  X  C  C</text>
+
+  <rect class="card warn" x="630" y="120" width="290" height="215"/>
+  <text class="h2" x="650" y="154">3. Live-Semantik</text>
+  <text class="body" x="650" y="184">JamPilot unterscheidet:</text>
+  <text class="mono" x="650" y="212">Stille  → &quot;-&quot;</text>
+  <text class="mono" x="650" y="238">hörbar + BTC &quot;N&quot; → &quot;?&quot;</text>
+  <text class="mono" x="650" y="264">BTC &quot;X&quot; → &quot;?&quot;</text>
+  <text class="small" x="650" y="292">Wichtig:</text>
+  <text class="body" x="650" y="316">„?“ erzeugt kein neues Segment.</text>
+
+  <rect class="card danger" x="980" y="120" width="240" height="215"/>
+  <text class="h2" x="1000" y="154">4. Segmentfilter</text>
+  <text class="body" x="1000" y="184">Kurzsegmente &lt; 0.25 s</text>
+  <text class="body" x="1000" y="206">werden geschluckt.</text>
+  <text class="body" x="1000" y="240">„?“-Segmente werden</text>
+  <text class="body" x="1000" y="262">komplett verworfen.</text>
+  <text class="mono" x="1000" y="294">C | ? | C  ⇒  C</text>
+
+  <rect class="card good" x="1280" y="120" width="180" height="215"/>
+  <text class="h2" x="1300" y="154">5. Merge</text>
+  <text class="body" x="1300" y="184">Bestätigte Grenzen</text>
+  <text class="body" x="1300" y="206">bleiben stabil.</text>
+  <text class="body" x="1300" y="240">Neue / entfernte</text>
+  <text class="body" x="1300" y="262">Grenzen brauchen</text>
+  <text class="body" x="1300" y="284">2 Läufe.</text>
+
+  <path class="arrow" d="M260 210 H320"/>
+  <path class="arrow" d="M570 210 H630"/>
+  <path class="arrow" d="M920 210 H980"/>
+  <path class="arrow" d="M1220 210 H1280"/>
+
+  <rect class="card" x="40" y="360" width="620" height="285"/>
+  <text class="h2" x="60" y="394">6. Interne timeline vs. sichtbare Events</text>
+  <text class="body" x="60" y="424">Die rohe <tspan class="mono">timeline</tspan> darf sich hopweise noch ändern. Der Browser liest nur den</text>
+  <text class="body" x="60" y="446">append-only EventLedger; die rohe Zeitleiste sieht nur /timeline-poc (Debug).</text>
+
+  <rect class="lane" x="60" y="484" width="560" height="56"/>
+  <text class="small" x="76" y="518">interne timeline</text>
+  <rect class="chip" x="230" y="496" width="60" height="30"/><text class="mono" x="251" y="516">C</text>
+  <rect class="chip3" x="326" y="496" width="44" height="30"/><text class="mono" x="341" y="516">?</text>
+  <rect class="chip" x="404" y="496" width="60" height="30"/><text class="mono" x="425" y="516">C</text>
+  <text class="tiny" x="478" y="516">? wird später verworfen</text>
+
+  <rect class="lane" x="60" y="560" width="560" height="56"/>
+  <text class="small" x="76" y="594">sichtbare committed events</text>
+  <rect class="chip2" x="318" y="572" width="60" height="30"/><text class="mono" x="339" y="592">C</text>
+  <text class="tiny" x="398" y="592">nur bestätigte Aussage</text>
+
+  <text class="body" x="60" y="632">Folge: Die Debug-Sicht kann intern flackern, der Nutzer sieht das meist nicht mehr.</text>
+
+  <rect class="card" x="710" y="360" width="750" height="285"/>
+  <text class="h2" x="730" y="394">7. Was der Nutzer am Ende sieht</text>
+  <rect class="soft" x="730" y="426" width="215" height="150"/>
+  <text class="h2" x="750" y="456">Browser / Handy</text>
+  <text class="body" x="750" y="486">Großer Akkord kommt aus</text>
+  <text class="body" x="750" y="508">den committed events.</text>
+  <text class="body" x="750" y="540">Kein Event oder „-“-Event:</text>
+  <text class="body" x="750" y="562">„No music“.</text>
+
+  <rect class="soft" x="976" y="426" width="215" height="150"/>
+  <text class="h2" x="996" y="456">Kontrollfenster</text>
+  <text class="body" x="996" y="486">Liest denselben Kanal.</text>
+  <text class="body" x="996" y="508">Bei X bleibt es beim</text>
+  <text class="body" x="996" y="530">letzten Event, etwa</text>
+  <text class="mono" x="996" y="558">Now playing C</text>
+
+  <rect class="soft" x="1222" y="426" width="215" height="150"/>
+  <text class="h2" x="1242" y="456">Wichtig</text>
+  <text class="body" x="1242" y="486">„X/?“ heißt nicht:</text>
+  <text class="body" x="1242" y="508">Browser zeigt ein „?“.</text>
+  <text class="body" x="1242" y="540">Sondern meist:</text>
+  <text class="mono" x="1242" y="566">nichts Neues anzeigen</text>
+
+  <rect class="card" x="40" y="680" width="1420" height="250"/>
+  <text class="h2" x="60" y="714">Drei Mini-Beispiele</text>
+
+  <rect class="soft" x="60" y="744" width="420" height="150"/>
+  <text class="h2" x="80" y="774">A. Nur X bei hörbarem Signal</text>
+  <text class="mono" x="80" y="806">Frames:   X   X   X   X   X</text>
+  <text class="mono" x="80" y="832">Mapping:  ?   ?   ?   ?   ?</text>
+  <text class="mono" x="80" y="858">Output:   (kein Segment)</text>
+  <text class="body" x="80" y="884">Der letzte Akkord bleibt stehen, bis ein neuer kommt.</text>
+
+  <rect class="soft" x="540" y="744" width="420" height="150"/>
+  <text class="h2" x="560" y="774">B. C – X – C</text>
+  <text class="mono" x="560" y="806">Frames:   C   C   X   X   C   C</text>
+  <text class="mono" x="560" y="832">Mapping:  C   C   ?   ?   C   C</text>
+  <text class="mono" x="560" y="858">Output:   C  (kein Flackern)</text>
+  <text class="body" x="560" y="884">Das unsichere Loch wird geschluckt.</text>
+
+  <rect class="soft" x="1020" y="744" width="420" height="150"/>
+  <text class="h2" x="1040" y="774">C. Stille, aber Modell halluziniert C</text>
+  <text class="mono" x="1040" y="806">Audio-RMS: 0   0   0   |  hörbar</text>
+  <text class="mono" x="1040" y="832">BTC:       C   C   C   |  C</text>
+  <text class="mono" x="1040" y="858">Live:      -   -   -   |  C</text>
+  <text class="body" x="1040" y="884">Stille überschreibt die Halluzination.</text>
+</svg>
