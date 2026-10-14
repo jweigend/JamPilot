@@ -353,3 +353,80 @@ class TestDurchgangsbass:
         assert verlauf.shape == (12, 20)
         assert verlauf.argmax(axis=0).tolist() == [chord_root("G")] * 10 + [chord_root("F#")] * 10
         assert track.frame_seconds == pytest.approx(0.1)
+
+
+class TestOktave:
+    """Die LAGE aus den drei Oktavbins einer Tonklasse (bass.octave):
+    tiefste Oktave mit mindestens OCTAVE_SHARE des staerksten Bins."""
+
+    @staticmethod
+    def _bins(**oktaven):
+        from jampilot.bass import OCTAVES
+        out = np.zeros(12 * OCTAVES)
+        for k, v in oktaven.items():            # "e1" -> Zeile 4, "e2" -> 16
+            pc, o = NOTE_NAMES.index(k[:-1].upper()), int(k[-1])
+            out[(o - 1) * 12 + pc] = v
+        return out
+
+    def test_grundton_unten_ist_oktave_eins(self):
+        from jampilot.bass import octave
+        assert octave(self._bins(e1=1.0, e2=0.6, e3=0.2), 4) == 1
+
+    def test_schwacher_grundton_zaehlt_trotzdem(self):
+        # Der Grundton eines E-Basses ist im Mix oft schwaecher als sein
+        # erster Oberton - "staerkster Bin" waere eine Oktave zu hoch.
+        from jampilot.bass import octave
+        assert octave(self._bins(e1=0.4, e2=1.0, e3=0.3), 4) == 1
+
+    def test_leck_unter_der_schwelle_zaehlt_nicht(self):
+        from jampilot.bass import OCTAVE_SHARE, octave, pitch
+        bins = self._bins(e1=0.5 * OCTAVE_SHARE, e2=1.0, e3=0.5)
+        assert octave(bins, 4) == 2
+        assert pitch(bins, 4) == 40                      # E2
+
+    def test_hohe_lage(self):
+        from jampilot.bass import octave
+        assert octave(self._bins(e1=0.01, e2=0.05, e3=1.0), 4) == 3
+
+    def test_frames_werden_gepoolt(self):
+        from jampilot.bass import octave
+        frames = np.stack([self._bins(e1=1.0), self._bins(e2=1.0)], axis=1)   # (36, 2)
+        assert octave(frames, 4) == 1
+
+    def test_ohne_ton_oder_tonklasse_keine_lage(self):
+        from jampilot.bass import octave, pitch
+        assert octave(None, 4) is None
+        assert octave(self._bins(), 4) is None
+        assert octave(self._bins(e2=1.0), None) is None
+        assert pitch(None, 4) is None
+
+    def test_bass_track_fuehrt_die_notenbins_mit(self):
+        track = BassTrack(10.0, frame_seconds=0.1, edge=0)
+        frames = np.zeros((12, 20), dtype=np.float32); frames[4] = 1.0
+        pitches = np.zeros((36, 20), dtype=np.float32); pitches[16, :10] = 1.0   # E2
+        track.add(frames, 0.0, pitches=pitches)
+        assert track.pitches_between(0.0, 1.0)[16] == pytest.approx(10.0)
+        assert track.pitches_between(1.0, 2.0)[16] == pytest.approx(0.0)
+
+    def test_ohne_notenbins_kommt_none(self):
+        track = BassTrack(10.0, frame_seconds=0.1, edge=0)
+        track.add(np.ones((12, 20), dtype=np.float32), 0.0)
+        assert track.pitches_between(0.0, 2.0) is None
+
+
+class TestOktaveAmSignal:
+    """E1, E2, E3 mit Akkord darueber und Schlagzeug - durch die BTC-CQT."""
+
+    @pytest.mark.parametrize("halbton", [0, 3, 7])          # bis B3, hoeher reicht der Hals nicht
+    @pytest.mark.parametrize("oktave", [1, 2, 3])
+    def test_lage_wird_erkannt(self, halbton, oktave):
+        from jampilot.bass import octave
+        from jampilot.btc import bass_pitches, features_from_audio
+        from jampilot.selftest import _chord, _drums
+
+        bass = E1 + 12 * (oktave - 1) + halbton
+        audio = _chord([bass, bass + 12, bass + 16, bass + 19], 2.0)
+        audio = audio + 0.8 * _drums(2.0, np.random.default_rng(5))[: len(audio)]
+        audio = (audio / np.abs(audio).max()).astype(np.float32)
+        pitches = bass_pitches(features_from_audio(audio, SAMPLERATE))[:, 4:-4]
+        assert octave(pitches, bass % 12) == (bass - 24) // 12 + 1

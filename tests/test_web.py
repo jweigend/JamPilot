@@ -629,3 +629,35 @@ class TestTaktstriche:
         broadcaster.publish({"t": 1.0, "frontier": 3.0, "committed": [],
                              "beats": [{"at": 2.0, "n": 1}, {"at": 2.5, "n": 2}]})
         assert _leeren(q)[0]["beats"] == [{"at": 2.0, "n": 1}, {"at": 2.5, "n": 2}]
+
+
+class TestBassPlanerMitLage:
+    """Mit gemessener Tonhoehe ({pc, p}) bleiben nur die Griffe, die genau
+    diesen Ton geben - der Handweg entscheidet nur noch zwischen ihnen."""
+
+    _plan = staticmethod(TestBassPlaner._plan)
+
+    def test_e1_liegt_auf_der_leeren_e_saite(self):
+        # Ohne Lage waere E von der A-Saite/5. Bund aus der Quergriff
+        # (D-Saite, 2. Bund) - mit E1 gibt es nur die leere E-Saite.
+        pfad = self._plan([{"pc": 4, "p": 28}], {"s": 1, "f": 5})
+        assert pfad[0] == {"s": 0, "f": 0}
+
+    def test_e2_waehlt_zwischen_a7_und_d2_nach_handweg(self):
+        pfad = self._plan([{"pc": 4, "p": 40}], {"s": 1, "f": 7})
+        assert pfad[0] == {"s": 1, "f": 7}
+        pfad = self._plan([{"pc": 4, "p": 40}], {"s": 2, "f": 3})
+        assert pfad[0] == {"s": 2, "f": 2}
+
+    def test_e3_liegt_hoch_auf_der_g_saite(self):
+        pfad = self._plan([{"pc": 4, "p": 52}], None)
+        assert pfad[0] == {"s": 3, "f": 9}
+
+    def test_lage_ausserhalb_des_fensters_laesst_alle_griffe_zu(self):
+        # G3 (55) liegt erst im 12. Bund - dann gilt wieder der Handweg.
+        pfad = self._plan([{"pc": 7, "p": 55}], {"s": 1, "f": 5})
+        assert pfad[0] == {"s": 2, "f": 5}
+
+    def test_ohne_lage_wie_bisher(self):
+        pfad = self._plan([{"pc": 2, "p": None}, {"pc": 7, "p": None}], {"s": 1, "f": 5})
+        assert pfad[1] == {"s": 2, "f": 5}

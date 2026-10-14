@@ -455,7 +455,8 @@ class TestEventLedger:
         led.advance([(1.0, "C")], ["E"], {"tonic": "C"}, frontier=2.0)
         # Zeitleiste, Bass und Tonart aendern sich danach - das Event nicht.
         led.advance([(1.0, "Cmaj7")], ["G"], {"tonic": "G"}, frontier=2.5)
-        assert led.events == [{"at": 1.0, "c": "C", "b": "E", "key": {"tonic": "C"}}]
+        assert led.events == [{"at": 1.0, "c": "C", "b": "E", "p": None,
+                               "key": {"tonic": "C"}}]
 
     def test_prune_behaelt_das_letzte_event_vor_jetzt(self):
         led = cli.EventLedger()
@@ -581,6 +582,8 @@ class TestBassFenster:
                 return None
             def register_between(self, a, b):
                 return None
+            def pitches_between(self, a, b):
+                return None
         track = Aufzeichnung()
         cli._bass_per_segment([(1.0, "C"), (8.0, "G")], track, front=20.0)
         assert track.intervalle == [(1.0, 1.0 + cli.BASS_POOL_SECONDS),
@@ -594,6 +597,8 @@ class TestBassFenster:
                 self.intervalle.append((a, b))
                 return None
             def register_between(self, a, b):
+                return None
+            def pitches_between(self, a, b):
                 return None
         track = Aufzeichnung()
         cli._bass_per_segment([(1.0, "C"), (2.2, "G")], track, front=2.8)
@@ -1013,7 +1018,7 @@ class TestDurchgangsbass:
         track.add(frames, 0.0)
         zeitleiste = [(0.0, "G"), (2.0, "Em"), (4.0, "Bm")]
         durch = cli._passing_per_segment(zeitleiste, track)
-        assert durch[0] == (pytest.approx(1.5), "F#")
+        assert durch[0] == (pytest.approx(1.5), "F#", None)   # ohne Notenbins keine Lage
         assert durch[1] is None                    # E -> B: kein Durchgang
         assert durch[2] is None                    # ohne Nachfolger nichts
 
@@ -1127,8 +1132,81 @@ class TestOnsetKorrekturImMerge:
                 return None
             def register_between(self, a, b):
                 return None
+            def pitches_between(self, a, b):
+                return None
         zeitleiste = self._merge([(112.18, "A"), (116.44, "F#m7")],
                                  [(112.19, "A"), (116.74, "F#m7")], 116.5)
         track = Aufzeichnung()
         cli._bass_per_segment(zeitleiste, track, front=119.5)
         assert track.intervalle[-1] == (116.44, pytest.approx(116.44 + cli.BASS_POOL_SECONDS))
+
+
+class TestLageImLedger:
+    """Die Lage (`p`, MIDI) wandert mit der Bassnote durch Streak und Event
+    (docs/exploration/lagenkorrekte-bassanzeige.md)."""
+
+    @staticmethod
+    def _stabil(led, zeitleiste, baesse, lagen, frontier):
+        for _ in range(cli.BASS_COMMIT_HOPS):
+            led.advance(zeitleiste, baesse, None, frontier=frontier, pitches=lagen)
+
+    def test_lage_wird_mit_der_note_committet(self):
+        led = cli.EventLedger()
+        self._stabil(led, [(1.0, "C")], ["E"], [40], frontier=0.5)
+        led.advance([(1.0, "C")], ["E"], None, frontier=2.0, pitches=[40])
+        assert [(e["b"], e["p"]) for e in led.events] == [("E", 40)]
+
+    def test_ohne_lagen_bleibt_p_none(self):
+        led = cli.EventLedger()
+        self._stabil(led, [(1.0, "C")], ["E"], None, frontier=0.5)
+        led.advance([(1.0, "C")], ["E"], None, frontier=2.0)
+        assert [(e["b"], e["p"]) for e in led.events] == [("E", None)]
+
+    def test_flackernde_lage_ist_kein_stabiler_bass(self):
+        # Note stabil, Oktave springt je Hop: Das Paar ist nicht stabil, das
+        # Event kommt ohne Bass - und darf spaeter einmal nachruecken.
+        led = cli.EventLedger()
+        for hop in range(cli.BASS_COMMIT_HOPS):
+            led.advance([(1.0, "C")], ["E"], None, frontier=0.5, pitches=[40 if hop % 2 else 28])
+        led.advance([(1.0, "C")], ["E"], None, frontier=2.0, pitches=[40])
+        assert led.events[0]["b"] is None and led.events[0]["p"] is None
+        self._stabil(led, [(1.0, "C")], ["E"], [40], frontier=2.0)
+        assert led.events[0]["b"] == "E" and led.events[0]["p"] == 40
+        assert led.events[0]["b_up"] is True
+
+    def test_gleiche_note_andere_lage_ist_ein_eigenes_event(self):
+        # Strophe hoch, Refrain tief: derselbe Akkord mit demselben Basston
+        # eine Oktave tiefer ist eine neue Aussage, kein Duplikat.
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C"), (5.0, "C")]
+        self._stabil(led, zeitleiste, ["C", "C"], [48, 36], frontier=0.5)
+        led.advance(zeitleiste, ["C", "C"], None, frontier=6.0, pitches=[48, 36])
+        assert [(e["at"], e["c"], e["p"]) for e in led.events] == [(1.0, "C", 48), (5.0, "C", 36)]
+
+    def test_gleiche_note_gleiche_lage_bleibt_ein_event(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "C"), (5.0, "C")]
+        self._stabil(led, zeitleiste, ["C", "C"], [36, 36], frontier=0.5)
+        led.advance(zeitleiste, ["C", "C"], None, frontier=6.0, pitches=[36, 36])
+        assert [(e["at"], e["p"]) for e in led.events] == [(1.0, 36)]
+
+    def test_durchgangsbass_traegt_seine_lage(self):
+        led = cli.EventLedger()
+        zeitleiste = [(1.0, "G"), (3.0, "Em")]
+        durch = [(2.5, "F#", 30), None]
+        for f in (1.5, 2.6, 2.6, 2.6):
+            led.advance(zeitleiste, ["G", "E"], None, frontier=f, passing=durch,
+                        pitches=[31, 40])
+        # Das G bekommt seinen Bass samt Lage nachgerueckt, der Durchgang die seine.
+        assert [(e["c"], e["b"], e["p"]) for e in led.events] == [("G", "G", 31), ("G", "F#", 30)]
+
+    def test_bass_per_segment_liefert_note_und_lage(self):
+        from jampilot.bass import BassTrack
+        track = BassTrack(10.0, frame_seconds=0.1, edge=0)
+        frames = np.zeros((12, 40), dtype=np.float32); frames[4] = 1.0       # E
+        pitches = np.zeros((36, 40), dtype=np.float32)
+        pitches[16, :20] = 1.0                                               # E2 bis 2 s
+        pitches[4, 20:] = 1.0                                                # dann E1
+        track.add(frames, 0.0, pitches=pitches)
+        noten, lagen = cli._bass_per_segment([(0.0, "C"), (2.0, "C")], track, front=4.0)
+        assert noten == ["E", "E"] and lagen == [40, 28]

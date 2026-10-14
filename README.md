@@ -209,7 +209,12 @@ stays in place — the `♭2` of G minor, with `Gm7`, the `1`, next in the lane.
 *Bass mode: the **measured** bass note is what counts. Here it is `C`, the root
 of `Cm`, so the name stays plain — were it `E♭`, you would read `Cm/E♭`. The
 four-string neck top-left shows where you are and where the next note sits
-(`C → A♭`): when `A♭` reaches the NOW line, your finger is already there.*
+(`C → A♭`): when `A♭` reaches the NOW line, your finger is already there.
+The neck also shows the **register** the bassist is actually in: `E1` on the
+open E string, `E2` on the A or D string, `E3` up on the G string — read
+from the same low-band analysis, not guessed from the shortest hand move
+(measured against isolated bass tracks in
+[docs/exploration/lagenkorrekte-bassanzeige.md](docs/exploration/lagenkorrekte-bassanzeige.md)).*
 
 In **Guitar** mode the display adds the one thing a chord name leaves out:
 *where* to put your hand. And because the same harmony lives in several

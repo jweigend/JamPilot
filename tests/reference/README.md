@@ -199,6 +199,37 @@ dort spielt ein Bass, die Quinte klingt im Register - ob Pedal oder
 Oberwelle, entscheidet weiter das Ohr). Eventzahl, Timing und
 Nur-Bass-Treffer unveraendert.
 
+### Nachtrag 2026-10-14: die Lage (Oktave) wird gemessen
+
+Isophonics annotiert den Bass ohne Oktave; Referenz sind deshalb zwei
+isolierte Bassspuren (Stem-Trennungen, pYIN je Frame): Echoes (23:36,
+Mix = Summe der Stems) und Sailing to Philadelphia (Bass-Stem unter
+tests/realaudio, gitignored). `messung_bass_oktave.py` richtet den Stem per
+Kreuzkorrelation am Mix aus und misst auf dem MIX.
+
+Regel (`bass.octave`, `btc.bass_pitches`): von den drei Oktavbins einer
+Tonklasse (C1..B3, ungefaltete Notenbins der BTC-CQT) die TIEFSTE, deren
+Bin >= 30 % des staerksten hat (`OCTAVE_SHARE`). Nicht der staerkste Bin:
+Der Grundton ist im Mix oft schwaecher als der erste Oberton - "Grundton
+mindestens so stark wie die Oktave darueber" verliert die Haelfte der
+Oktave-1-Noten, selbst auf der isolierten Spur.
+
+Segmentweise durch die ganze Kette (BTC-Segmente, 2-s-Pooling,
+`slash_note`): Echoes 220/238 richtig (92 %), Sailing 99/101 (98 %). Der
+reine Handweg-Planer der Anzeige lag auf denselben Events bei 73 % bzw.
+72 % (Rest fast immer eine Oktave zu tief). Fehlerklassen: anderes
+Instrument eine Oktave unter dem Bass (Echoes-Schlussteil, G#1 unter G#2)
+und kurze Noten (0,3-0,5 s) im C2/C3-Bereich. Einzelheiten, Varianten
+(0,2 / 0,5, harmonische Summe) und der Entwurf:
+docs/exploration/lagenkorrekte-bassanzeige.md.
+
+Eingebaut: Das Event traegt `p` (MIDI, E1 = 28) neben `b`; Note und Lage
+muessen zusammen BASS_COMMIT_HOPS stabil sein, gleicher Akkord mit
+gleicher Note in anderer Lage ist ein eigenes Event. Das Griffbrett
+filtert die Saitenlagen auf die gemessene Tonhoehe, der Handweg
+entscheidet nur noch dazwischen (E2: A 7 oder D 2); der Anker im
+Record-Modus bietet weiter alle vier.
+
 ## Publish-once-Messungen (2026-08-27, eingecheckt)
 
 Fuer das Zeitleisten-Redesign (docs/exploration/zeitleiste-redesign.md)
