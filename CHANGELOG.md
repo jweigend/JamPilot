@@ -1,5 +1,80 @@
 # Changelog
 
+## 1.4.2 — 2026-10-14
+
+The theme of this release: **the root.** Two fixes for the same symptom
+seen from two sides: a slash chord on the chip and a big "A over D" in the
+bass view where the band plays plain D. One comes from a guitar voicing,
+the other from the bass player's own pickup note — and neither should
+reach the screen. Every number below is measured, the tables live in
+`tests/reference/README.md` and `tests/realaudio/`.
+
+### The fifth in the bass needs a bass player
+
+In the first verse of *If This Is Goodbye* (Knopfler/Harris) nobody plays
+bass. The lowest string under the D shape is the open A (110 Hz); the
+guitar's D sits an octave above the low band. The low band therefore reads
+A, and every D of the verse came up as `D/A` — eight bars out of eight, in
+bass mode as a big **A over D**. The ratio hurdle from 1.4.0 cannot help
+here: there is no root below to compare against. Same class as `D/A` over
+every D in *Eight Days a Week* and `D6/A` in *It's Too Late*.
+
+The fifth is the only chord tone a guitar shape puts under the root by
+itself; a third or a seventh in the bass is always deliberate. So only the
+fifth now needs proof a guitar cannot give: at least 5 % of its low-band
+energy in the **bass register** C1–D♯2 (32–78 Hz, below the low E string).
+Without that proof the chord stays in root position. The real A pedal the
+bass holds under D later in the same song (A1, 55 Hz) passes.
+
+Offline on the reference set nothing moves (1 false slash in 385 chords,
+11 of 27 inversions, unchanged). Live, fifth slashes before → after:
+*If This Is Goodbye* 11 → 2, *Let It Be* 7 → 5, *Something* 8 → 7,
+*It's Too Late* 10 → 10 (a bass plays there, the fifth does sound in the
+register). A general register gate for every slash tone was measured and
+rejected: it takes ten of the eleven inversions, because the bass
+fundamentals of sixties recordings rarely reach below E2
+(`tests/realaudio/REPORT_if_this_is_goodbye.md`).
+
+### The pickup note no longer sticks to the chord
+
+*Sailing to Philadelphia* in bass mode showed **E over F#m7** at the start
+of every form, although the bass plays a clear F# from the downbeat on.
+The chain: the bass plays an E pickup before the downbeat. The boundary
+refinement pulls the F#m7 onset 0.3 s early onto that pickup (E is a chord
+tone). The model sets F#m7 only on the downbeat and still says A at the
+commit line, so the late-boundary rule from 1.1.0 enters A as a 50 ms blip
+and F#m7 a second time. The blip rule from 1.4.1 keeps both out of the
+events — but the blip has already cut the committed chord's bass window
+from two seconds to a quarter second: exactly the pickup. There E is the
+majority, E is a chord tone, and it lands on the event for good.
+
+The late-boundary rule now recognises this as the same chord change, set
+later by the model than by the refinement, and enters nothing: when the
+re-reported chord is the one before the last committed event, the model
+immediately leads the committed chord again, and its onset lies at most
+0.75 s behind. No onset moves; a genuine `D – A – D` with a longer A is
+still added as before.
+
+Measured on the live path: *Sailing* loses all three `F#m7/E` and six
+other wrong slashes (`A/C#`, `D/F#`, `E/B`) and gains nine bass roots. On
+the reference set event count, timing, beats and bass-only hits are
+unchanged, and the unannotated slashes go away: *It's Too Late* 15 → 1
+(the `D/A` over every D6 known since August was the Am7 bass in the stub
+before the downbeat), *Crazy Little Thing* 10 → 3, *Let It Be* 7 → 6;
+*Something* gains the annotated `G/D` at 3.5 s. A minimum bass-window
+length as a second hurdle was measured and rejected: no gain, costs the
+roots of one-beat chords (`tests/realaudio/REPORT_sailing_to_philadelphia.md`).
+The pickup fix was judged in the rehearsal room (Sailing to Philadelphia,
+Telegraph Road); the fifth rule is measured on recordings so far.
+
+### Smaller things
+
+- Comfortably Numb (PULSE live version): the passing bass from 1.4.1 hits
+  4 of 13 solo transitions; the rest are a too-short F# run or an `F#m`
+  label from the model. Left as it is — Moises shows plain G → Em there
+  too (`tests/realaudio/REPORT_comfortably_numb.md`).
+- 648 tests (1.4.1: 633).
+
 ## 1.4.1 — 2026-09-15
 
 The theme of this release: **calm.** A bugfix release for the flicker that
