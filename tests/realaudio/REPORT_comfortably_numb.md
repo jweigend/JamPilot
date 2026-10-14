@@ -186,3 +186,35 @@ von Eight Days a Week bleibt unangetastet.
 Messskripte dieser Analyse liegen nicht im Repo (Session-Scratch); die
 Kernstücke sind `btc.fold_bass_chroma` + `segments_from_labels` über die ganze
 Datei und `tests/reference/messung_live_pfad.lauf` über 262–382 s.
+
+## 6. Nachtrag 2026-10-13: PULSE-Liveversion, Stand b7f9e57
+
+**Datei:** `tests/realaudio/comfortably_numb.mp3` ist jetzt die PULSE-Version
+(Restored & Re-Edited, 9:35), nicht mehr die Studioversion von oben.
+**Beobachtung (Proberaum):** Das F# im Solo fehlt meist – Verdacht auf die
+Merge-Korrektur vom selben Tag (REPORT_sailing_to_philadelphia.md).
+
+**Nicht die Ursache.** Live-Pfad (`messung_live_pfad.lauf`, ganzes Stück)
+mit 0cb2825 und b7f9e57: identische Event-Folge (176 Events), dieselben vier
+G/F#-Durchgangsevents (294,1 / 324,9 / 477,2 / 507,3 s); der neue Stand setzt
+zusätzlich bei 16 Events einen Grundton-Bass, wo vorher keiner stand.
+
+**Auf dieser Aufnahme trifft der Durchgangsbass 4 von 13 Solo-Übergängen.**
+Hürden von `bass.passing_note` je Stelle:
+
+| Grund | Stellen |
+|---|---|
+| F#-Lauf nur 1–2 stabile Frames (Mehrheit < 0,25 oder Dominanz < 1,25) oder Ratio F#/G < 3 | 307,9 · 354,2 · 384,6 · 460,5 · 520,9 s (520,9: 5 Frames, Ratio 2,4) |
+| Modell labelt den Folgeakkord Bm oder F#m statt Em – F# liegt nicht zwischen den Grundtönen | 399,6 · 414,9 · 430,2 · 445,4 · 468,0 s (430,2: Lauf 4 Frames, Ratio 3,6 – wäre sauber) |
+| Verfeinerung zieht den Em-Onset auf den F#-Anschlag vor (340,70 → 340,48 s), der Lauf gehört dann nicht mehr zum G-Segment; offline sagt die Regel dort F# | 338,7 s |
+
+Der Live-Bass streift das F# kürzer als im Studio, und das Modell hört den
+Em-Takt öfter als Bm. Vergleich mit Moises (Offline-Analyse des ganzen
+Audios): zeigt dort ebenfalls nur G → Em, kein F#.
+
+**Entscheidung:** so lassen. Mögliche Stellschrauben mit bekanntem Preis:
+Mindestlauf 2 Frames (September-Messung: 12 statt 7 Unter-Events auf dem
+Referenzset, 8 gegen die Annotation), Ratio unter 3, oder in der
+Verfeinerung einen Zwischenton-Lauf nicht als Anschlag des neuen Akkords
+werten (träfe auch die Sailing-Kette an der Wurzel; eigene Messung gegen die
+Isophonics-Grenzen nötig).

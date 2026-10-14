@@ -124,6 +124,21 @@ class TestDominant:
 
 
 class TestBassTrack:
+    def test_register_laeuft_parallel_mit(self):
+        track = BassTrack(10.0, frame_seconds=0.1, edge=0)
+        frames = np.zeros((12, 20), dtype=np.float32); frames[9] = 1.0    # A im Tiefband
+        register = np.zeros((12, 20), dtype=np.float32); register[9, :10] = 0.5
+        track.add(frames, 0.0, register=register)
+        assert track.pooled_between(0.0, 2.0)[9] == pytest.approx(20.0)
+        assert track.register_between(0.0, 1.0)[9] == pytest.approx(5.0)
+        assert track.register_between(1.0, 2.0)[9] == pytest.approx(0.0)
+
+    def test_ohne_register_kommt_none(self):
+        track = BassTrack(10.0, frame_seconds=0.1, edge=0)
+        track.add(np.ones((12, 20), dtype=np.float32), 0.0)
+        assert track.pooled_between(0.0, 2.0) is not None
+        assert track.register_between(0.0, 2.0) is None
+
     @staticmethod
     def _fuellen(track, pitch_class, start, sekunden):
         anzahl = int(sekunden / FRAME_SECONDS)
@@ -229,6 +244,36 @@ class TestSlashNote:
         from jampilot.bass import slash_note
         pooled = self._pooled(**{"11": 5.0, "7": 4.5})
         assert slash_note(pooled, "G") is None
+
+    # Die vierte Huerde: die Quinte braucht eine Bassstimme im Register.
+    # If This Is Goodbye, Strophe 1: offener D-Griff ohne Bass, die A-Saite ist
+    # der tiefste Ton, D fehlt im Tiefband ganz - kein D/A, sondern D.
+
+    def test_quinte_ohne_register_ist_grundton_lage(self):
+        from jampilot.bass import slash_note
+        pooled = self._pooled(**{"9": 90.0, "2": 4.0})      # D-Griff: A2 laut, D fehlt
+        assert slash_note(pooled, "D") == 2                 # Grundton, kein Slash
+        assert slash_note(pooled, "D", register=None) == 2
+
+    def test_quinte_nur_in_der_gitarre_bleibt_grundton(self):
+        from jampilot.bass import slash_note
+        pooled = self._pooled(**{"9": 90.0, "2": 4.0})
+        register = self._pooled(**{"9": 1.5, "2": 2.0})     # unter E2 nichts (1-2 %)
+        assert slash_note(pooled, "D", register) == 2
+
+    def test_quinte_mit_bassstimme_ist_umkehrung(self):
+        from jampilot.bass import slash_note
+        # Goodbye 240 s: der Bass haelt A1 (55 Hz) unter D -> D/A ist echt.
+        pooled = self._pooled(**{"9": 516.0, "2": 73.0})
+        register = self._pooled(**{"9": 351.0, "2": 33.0})  # 68 % im Register
+        assert slash_note(pooled, "D", register) == 9
+
+    def test_terz_braucht_kein_register(self):
+        from jampilot.bass import slash_note
+        # Let It Be Em/G: Terz im Bass, Register leer - bleibt Umkehrung.
+        pooled = self._pooled(**{"7": 10.0, "4": 2.0})
+        assert slash_note(pooled, "Em", register=self._pooled()) == 7
+        assert slash_note(pooled, "Em") == 7
 
 
 class TestDurchgangsbass:

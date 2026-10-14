@@ -413,6 +413,21 @@ low-band CQT chroma gets 60/60 on the same material and costs nothing, because
 a constant-Q transform uses long windows at low frequencies by construction.
 See `bass.py`.
 
+*One rule a human applies without thinking:* the **fifth** below the root is
+the only chord tone a guitar voicing puts under the root by itself — the open
+D shape sounds with the A string lowest, the D an octave above. With no bass
+player in the mix, the low band then reads A, and the bass view would tell you
+`D/A` where every chart says D and every ear hears D (*If This Is Goodbye*,
+first verse: eight bars out of eight). A third or a seventh in the bass is
+always deliberate; the fifth needs proof of a separate bass voice. The proof is
+the **bass register**: the same CQT folded over C1–D♯2 only (32–78 Hz), below
+the lowest guitar string. A fifth that does not sound down there is the
+chord's own voicing, and the display stays on the root; the real A pedal the
+bass holds under D later in the same song (A1, 55 Hz) passes. Measured on the
+reference set, the rule costs no inversion offline and loses three fifth
+slashes live out of fifteen (`tests/reference/README.md`,
+`tests/realaudio/REPORT_if_this_is_goodbye.md`).
+
 ## Guitar and keyboard voicings
 
 In guitar mode the voicing is not picked in isolation but with the lead: a
