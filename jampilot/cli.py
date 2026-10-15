@@ -526,9 +526,10 @@ def _load_wav_mono(path: str) -> tuple[np.ndarray, int]:
 def cmd_analyze(args):
     # BTC-Transformer fuehrend; Slash-Bass aus dem Tiefband der BTC-CQT.
     from . import bass as bassmodul
-    from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_bass_chroma, fold_bass_register, fold_chroma,
-                      label_mode_votes, refine_boundary, segments_from_labels)
+    from .btc import (BTC_FRAME_SECONDS, BTCModel, bass_pitches,
+                      features_from_audio, fold_bass_chroma,
+                      fold_bass_register, fold_chroma, label_mode_votes,
+                      refine_boundary, segments_from_labels)
     from .tonality import SHARP, KeyEstimator, spell
 
     samples, samplerate = _load_wav_mono(args.file)
@@ -557,6 +558,7 @@ def cmd_analyze(args):
     # dieselbe Zwei-Signale-Idee wie im Template-Pfad (bass.py).
     bass_chroma = fold_bass_chroma(features)
     bass_register = fold_bass_register(features)
+    bass_lagen = bass_pitches(features)
     segmente = segments_from_labels(labels)
     # Grenzen aufs Audio-Ereignis verfeinern (93-ms-Raster -> 23-ms-Suche).
     fein = segmente[:1]
@@ -571,10 +573,16 @@ def cmd_analyze(args):
         von, bis = int(zeit / BTC_FRAME_SECONDS), int(ende / BTC_FRAME_SECONDS)
         pooled = bass_chroma[:, von:bis].sum(axis=1) if bis > von else None
         register = bass_register[:, von:bis].sum(axis=1) if bis > von else None
-        note = bassmodul.name(bassmodul.slash_note(pooled, name, register))
+        pc = bassmodul.slash_note(pooled, name, register)
+        note = bassmodul.name(pc)
         # N = nichts erklingt -> "-" wie bisher; "?" (X) geht durch.
         shown = bassmodul.slash("-" if name == "N" else name, note)
-        print(f"  {zeit:6.1f}s  {spell(shown, accidental)}")
+        # Die Lage des gemessenen Basses dahinter (E2 = A-Saite 7. Bund), wo
+        # eine Note gemessen wurde - auch beim Grundton, den der Slash-Name
+        # nicht zeigt.
+        lage = bassmodul.octave(bass_lagen[:, von:bis] if bis > von else None, pc)
+        bass = f"   bass {spell(note, accidental)}{lage}" if lage is not None else ""
+        print(f"  {zeit:6.1f}s  {spell(shown, accidental)}{bass}")
 
 
 def cmd_run(args):
@@ -760,10 +768,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     from . import bass as bassmodul
     from .beats import BeatTracker
     from .engine import Startprotokoll
-    from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
-                      fold_bass_chroma, fold_bass_register, fold_chroma,
-                      label_mode_votes, live_segments_from_labels,
-                      refine_boundary)
+    from .btc import (BTC_FRAME_SECONDS, BTCModel, bass_pitches,
+                      features_from_audio, fold_bass_chroma,
+                      fold_bass_register, fold_chroma, label_mode_votes,
+                      live_segments_from_labels, refine_boundary)
     from .chords import SILENCE_RMS
     from .tonality import TwoScaleKeyEstimator, spell
 
@@ -877,7 +885,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 protokoll.melden("First window analysed - chords are live")
                 erste_analyse_gemeldet = True
             bass_track.add(fold_bass_chroma(features), window_start,
-                           register=fold_bass_register(features))
+                           register=fold_bass_register(features),
+                           pitches=bass_pitches(features))
             segments = live_segments_from_labels(labels, audio, sr,
                                                  offset=window_start,
                                                  silence_rms=SILENCE_RMS)
@@ -967,7 +976,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
 
             # Bassnote je Segment aus dem Tiefband - der Vorlauf gilt fuer den
             # Bass genauso wie fuer den Akkord (wie im Template-Pfad).
-            basslinie = _bass_per_segment(timeline, bass_track, window_end / sr)
+            basslinie, tonhoehen = _bass_per_segment(timeline, bass_track,
+                                                     window_end / sr)
             # Durchgangsbass am Segmentende (G - F# - Em): braucht den
             # naechsten Onset, also nur fuer Eintraege mit Nachfolger.
             durchgang = _passing_per_segment(timeline, bass_track)
@@ -994,7 +1004,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             ledger.advance(timeline, basslinie, key_dict, frontier,
                            snap=raster.snap if raster is not None else None,
                            passing=durchgang,
-                           beat_interval=raster.interval() if raster is not None else None)
+                           beat_interval=raster.interval() if raster is not None else None,
+                           pitches=tonhoehen)
             # Rueckhalt: Im Record-Modus muessen die Events so weit
             # zurueckreichen wie der Mitschnitt, sonst springt man in Audio
             # zurueck, zu dem es keine Akkorde mehr gibt. Ohne Record-Modus
@@ -1051,8 +1062,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                     "beats": (raster.window(heard_pos - PUBLISH_BACK_SECONDS,
                                             sicht_frontier + PUBLISH_AHEAD_MARGIN)
                               if raster is not None else []),
-                    "chords": [{"c": name, "at": round(pos, 3), "b": bassnote}
-                               for (pos, name), bassnote in zip(timeline, basslinie)
+                    "chords": [{"c": name, "at": round(pos, 3), "b": bassnote,
+                                "p": tonhoehe}
+                               for (pos, name), bassnote, tonhoehe
+                               in zip(timeline, basslinie, tonhoehen)
                                if heard_pos - PUBLISH_BACK_SECONDS <= pos
                                <= sicht_frontier + PUBLISH_AHEAD_MARGIN],
                     "key": key_dict,
@@ -1488,9 +1501,17 @@ class EventLedger:
         # wenn ihr Bass anders gemessen wurde.
         self._blip_at: float | None = None
 
-    def _stable_bass(self, pos_key: float) -> str | None:
-        note, hops = self._streaks.get(pos_key, (None, 0))
-        return note if note is not None and hops >= BASS_COMMIT_HOPS else None
+    def _stable_bass(self, pos_key: float) -> tuple[str | None, int | None]:
+        """(Note, MIDI-Tonhoehe) des stabilen Basses - oder (None, None).
+
+        Note UND Lage muessen BASS_COMMIT_HOPS Hops lang dieselben sein:
+        Beide kommen aus demselben Pooling, und ein Event wird einmal
+        geschrieben - eine Note mit noch flackernder Oktave ist nicht
+        stabil."""
+        note, midi, hops = self._streaks.get(pos_key, (None, None, 0))
+        if note is None or hops < BASS_COMMIT_HOPS:
+            return None, None
+        return note, midi
 
     def published_at(self, pos: float) -> float:
         """Der Event-Onset zu einem Zeitleisten-Onset - derselbe, wenn das
@@ -1498,7 +1519,8 @@ class EventLedger:
         return self._at_of.get(round(pos, 3), pos)
 
     def advance(self, timeline, basslinie, key_dict, frontier: float,
-                snap=None, passing=None, beat_interval: float | None = None):
+                snap=None, passing=None, beat_interval: float | None = None,
+                pitches=None):
         """Ein Hop: was die Commit-Grenze passiert hat, wird Event.
 
         `snap(pos)` liefert den Beat, auf den der Onset gelegt wird (Viertel-
@@ -1518,17 +1540,26 @@ class EventLedger:
 
         `beat_interval` (Sekunden je Schlag aus dem Raster oder None) setzt
         die Schwelle der Blip-Sperre (BLIP_BEATS, s. dort).
+
+        `pitches` (je Zeitleisteneintrag die MIDI-Tonhoehe des Basses oder
+        None, _bass_per_segment) ist die LAGE zur Bassnote: E1, E2 oder E3.
+        Sie wandert mit der Note durch Streak und Event (`p`), damit das
+        Griffbrett nicht den Handweg raten muss. Ohne Lieferung bleibt
+        `p` None.
         """
         # Bass-Streaks fortschreiben (ein Aufruf = ein Hop); verschwundene
         # Onsets vergessen.
         if passing is None:
             passing = [None] * len(timeline)
+        if pitches is None:
+            pitches = [None] * len(timeline)
         live = set()
-        for (pos, _), bassnote, cand in zip(timeline, basslinie, passing):
+        for (pos, _), bassnote, cand, midi in zip(timeline, basslinie, passing, pitches):
             k = round(pos, 3)
             live.add(k)
-            note, hops = self._streaks.get(k, (None, 0))
-            self._streaks[k] = (bassnote, hops + 1 if bassnote == note else 1)
+            note, alt, hops = self._streaks.get(k, (None, None, 0))
+            gleich = bassnote == note and midi == alt
+            self._streaks[k] = (bassnote, midi, hops + 1 if gleich else 1)
             pnote = cand[1] if cand is not None else None
             note, hops = self._passing.get(k, (None, 0))
             self._passing[k] = (pnote, hops + 1 if pnote == note else 1)
@@ -1554,16 +1585,17 @@ class EventLedger:
         # einmal gesetzter Bass wird nie wieder angefasst.
         for e in self.events:
             if e["b"] is None:
-                stable = self._stable_bass(self._origin.get(e["at"], e["at"]))
+                stable, midi = self._stable_bass(self._origin.get(e["at"], e["at"]))
                 if stable is not None:
                     e["b"] = stable
+                    e["p"] = midi
                     e["b_up"] = True
 
     def _commit(self, pos, name, key_dict, snap, fresh,
                 blip_threshold: float = BLIP_FALLBACK_SECONDS, next_name=None):
         """Ein Zeitleisteneintrag passiert die Commit-Grenze."""
         k = round(pos, 3)
-        at, bass = k, self._stable_bass(k)
+        at, (bass, midi) = k, self._stable_bass(k)
         beat = snap(pos) if snap is not None else None
         if beat is not None:
             at = round(beat, 3)
@@ -1571,7 +1603,7 @@ class EventLedger:
             return
         while self.events:
             last = self.events[-1]
-            if last["c"] == name and last["b"] == bass:
+            if last["c"] == name and last["b"] == bass and last.get("p") == midi:
                 break                       # dieselbe Aussage: kein Event
             if at - last["at"] >= MIN_EVENT_GAP:
                 break
@@ -1584,9 +1616,13 @@ class EventLedger:
             break
         else:
             last = None
-        if last is not None and last["c"] == name and last["b"] == bass:
+        if last is not None and last["c"] == name and last["b"] == bass \
+                and last.get("p") == midi:
             return
-        event = {"at": at, "c": name, "b": bass, "key": key_dict}
+        # Gleicher Akkord, gleiche Note, andere LAGE ist eine eigene Aussage:
+        # Der Bassist, der vom Refrain tief in die hohe Strophe wechselt,
+        # bekommt dafuer ein Event - und das Griffbrett den Sprung.
+        event = {"at": at, "c": name, "b": bass, "p": midi, "key": key_dict}
         if at != k:
             self._origin[at] = k
             self._at_of[k] = at
@@ -1618,7 +1654,8 @@ class EventLedger:
         k = round(pos, 3)
         if cand is None or k in self._passing_done:
             return
-        start, note = cand
+        start, note = cand[0], cand[1]
+        midi = cand[2] if len(cand) > 2 else None
         if start > frontier:
             return
         pnote, hops = self._passing.get(k, (None, 0))
@@ -1635,7 +1672,8 @@ class EventLedger:
         at = round(start, 3)
         if at - last["at"] < MIN_EVENT_GAP:
             return
-        self.events.append({"at": at, "c": name, "b": note, "key": key_dict})
+        self.events.append({"at": at, "c": name, "b": note, "p": midi,
+                            "key": key_dict})
         self._passing_done.add(k)
 
     def prune(self, heard_pos: float, rueckhalt: float = 2.0):
@@ -1671,35 +1709,46 @@ def _passing_per_segment(timeline, track) -> list[tuple[float, str] | None]:
                 frames, erster = got
                 hit = bassmodul.passing_note(frames, root, next_root)
                 if hit is not None:
-                    cand = (erster + hit[0] * track.frame_seconds,
-                            bassmodul.name(hit[1]))
+                    start = erster + hit[0] * track.frame_seconds
+                    # Die Lage des Durchgangstons aus denselben Frames des
+                    # Laufs - (Laufstart, Note, MIDI oder None).
+                    lage = bassmodul.pitch(
+                        track.pitches_between(start, timeline[i + 1][0]), hit[1])
+                    cand = (start, bassmodul.name(hit[1]), lage)
         out.append(cand)
     return out
 
 
-def _bass_per_segment(timeline, track, front: float) -> list[str | None]:
-    """Zu jedem Zeitleisten-Segment die vorherrschende Bassnote (kanonisch).
+def _bass_per_segment(timeline, track, front: float
+                      ) -> tuple[list[str | None], list[int | None]]:
+    """Zu jedem Zeitleisten-Segment die vorherrschende Bassnote (kanonisch)
+    und ihre Lage (MIDI, E1 = 28) - zwei gleich lange Listen.
 
     Gemessen wird in einem FESTEN Fenster ab dem Onset (BASS_POOL_SECONDS,
     gekappt am naechsten Onset bzw. der Analysefront): gleiche Urteilsqualitaet
     wie das volle Segment, aber unabhaengig davon, wie sich das Segmentende
     spaeter noch verschiebt. Waehrend einer Stille gibt es keinen Bass - und wo
     die Messung keine Mehrheit findet, steht None: lieber nichts anzeigen als
-    raten.
+    raten. Die Lage kommt aus demselben Fenster (bass.octave); ohne Notenbins
+    im Track (Chroma-Pfad, Tests) bleibt sie None.
     """
     from . import bass as bassmodul
 
-    noten = []
+    noten: list[str | None] = []
+    lagen: list[int | None] = []
     for i, (onset, chord) in enumerate(timeline):
         ende = timeline[i + 1][0] if i + 1 < len(timeline) else front
         ende = min(ende, onset + BASS_POOL_SECONDS)
         if chord == "-" or ende <= onset:
             noten.append(None)
+            lagen.append(None)
             continue
         pooled = track.pooled_between(onset, ende)
         register = track.register_between(onset, ende)
-        noten.append(bassmodul.name(bassmodul.slash_note(pooled, chord, register)))
-    return noten
+        pc = bassmodul.slash_note(pooled, chord, register)
+        noten.append(bassmodul.name(pc))
+        lagen.append(bassmodul.pitch(track.pitches_between(onset, ende), pc))
+    return noten, lagen
 
 
 def main():

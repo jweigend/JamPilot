@@ -1228,11 +1228,18 @@ function renderFretboard(seg) {
 // spielenden Ton und, in anderer Farbe, den NAECHSTEN, an der Position mit dem
 // kuerzesten Weg. So sieht man das Muster und kann den Wechsel im Voraus greifen.
 //
-// Wir kennen nur die Tonklasse, nicht Saite oder Oktave (bass.py). Also SCHLAGEN
-// wir eine sinnvolle Lage VOR - tiefe, dicke Saite und tiefer Bund bevorzugt, so
-// landet z.B. Eb auf der A-Saite und nicht hoch auf der E-Saite -, und der
-// Vorlauf entscheidet mit: von der gewaehlten Note der kuerzeste Weg zum
-// Folgeton. Dieselbe Idee wie die Voicing-Wahl der Gitarre, nur fuer Einzeltoene.
+// Der Server misst die Tonklasse (bass.py) und, wo die CQT sie hergibt, die
+// LAGE als MIDI-Tonhoehe (`p`: E1 = 28, E2 = 40, E3 = 52 - bass.octave). Mit
+// Lage bleiben nur die Griffe uebrig, die genau diesen Ton geben (E2: A-Saite
+// 7. Bund oder D-Saite 2. Bund), und der Handweg entscheidet nur noch
+// zwischen denen. Ohne Lage SCHLAGEN wir eine sinnvolle vor - tiefe, dicke
+// Saite und tiefer Bund bevorzugt, so landet z.B. Eb auf der A-Saite und
+// nicht hoch auf der E-Saite -, und der Vorlauf entscheidet mit: von der
+// gewaehlten Note der kuerzeste Weg zum Folgeton. Dieselbe Idee wie die
+// Voicing-Wahl der Gitarre, nur fuer Einzeltoene. Gemessen: Der reine
+// Handweg lag auf zwei Referenzstuecken in 72-73 % der Events in der Oktave
+// des Bassisten, die gemessene Lage in 92-98 %
+// (docs/exploration/lagenkorrekte-bassanzeige.md).
 const BASS_TUNING = [4, 9, 2, 7];         // Saiten E A D G (Spalten links->rechts)
 const BASS_MIDI   = [28, 33, 38, 43];     // deren Leersaiten (E1 A1 D2 G2)
 const BASS_NAMES  = ["E", "A", "D", "G"];
@@ -1245,9 +1252,16 @@ const svgDot = (x, y, r, c, o) =>
   '<circle cx="' + x + '" cy="' + y + '" r="' + r + '" fill="' + c + '"'
   + (o < 1 ? ' fill-opacity="' + o + '"' : "") + "/>";
 
-// Alle Lagen einer Tonklasse: je Saite der Bund 0..11.
-function bassPositions(pc) {
-  return BASS_TUNING.map((open, s) => ({ s, f: (((pc - open) % 12) + 12) % 12 }));
+// Die Lagen eines Tons: je Saite der Bund 0..11 - oder, wenn die Tonhoehe
+// gemessen ist und im Fenster liegt, nur die Saiten, auf denen GENAU dieser
+// Ton liegt. `tone` ist eine Tonklasse (Zahl) oder {pc, p} mit MIDI `p`.
+function bassPositions(tone) {
+  const pc = typeof tone === "number" ? tone : tone.pc;
+  const p = typeof tone === "number" ? null : tone.p;
+  const alle = BASS_TUNING.map((open, s) => ({ s, f: (((pc - open) % 12) + 12) % 12 }));
+  if (p == null) return alle;
+  const genau = alle.filter(q => BASS_MIDI[q.s] + q.f === p);
+  return genau.length ? genau : alle;      // Lage ausserhalb des Halsfensters
 }
 // Knotenkosten: tiefe (dicke) Saite und tiefer Bund bevorzugt, Hochlagen
 // gestraft. So ist die isolierte Vorgabe idiomatisch (Eb -> A-Saite, 6. Bund);
@@ -1297,9 +1311,10 @@ function planBassLine(pcs, last, fest) {
   return path;
 }
 
-// Die kommende Basslinie ab `seg`: Tonklassen aus dem gemessenen Bass (oder, wo
-// keiner gemessen wurde, dem Akkord-Grundton), Dubletten zusammengefasst, kurz
-// genug fuer den Vorlauf.
+// Die kommende Basslinie ab `seg`: Toene {pc, p} aus dem gemessenen Bass (oder,
+// wo keiner gemessen wurde, dem Akkord-Grundton ohne Lage), Dubletten
+// zusammengefasst, kurz genug fuer den Vorlauf. Dieselbe Tonklasse in anderer
+// Lage ist KEINE Dublette - der Oktavsprung ist der Punkt.
 function bassLine(seg) {
   const out = [];
   for (const c of events) {
@@ -1308,8 +1323,10 @@ function bassLine(seg) {
     if (!m) continue;
     const pc = c.b != null ? NOTE_PC[c.b] : NOTE_PC[m[1]];
     if (pc == null) continue;
-    if (out.length && out[out.length - 1] === pc) continue;   // Dublette
-    out.push(pc);
+    const p = c.b != null && c.p != null ? c.p : null;
+    const last = out.length ? out[out.length - 1] : null;
+    if (last && last.pc === pc && last.p === p) continue;     // Dublette
+    out.push({ pc, p });
     if (out.length >= 5) break;
   }
   return out;
@@ -1375,7 +1392,8 @@ function renderBassBoard(seg) {
     return;
   }
   const fest = bassPins.get(seg.at.toFixed(2)) || null;
-  const key = seg.at.toFixed(2) + "|" + line.slice(0, 2).join(",") + "|" + schreibweise
+  const key = seg.at.toFixed(2) + "|"
+            + line.slice(0, 2).map(t => t.pc + ":" + t.p).join(",") + "|" + schreibweise
             + (fest ? "|" + fest.s + "," + fest.f : "");
   if (key === bbShown) return;
   bbShown = key;
@@ -1384,7 +1402,7 @@ function renderBassBoard(seg) {
   lastBassPos = cur;
   $("fbdiagram").innerHTML = bassLineSvg(cur, nxt);
   // Darunter: aktueller Ton -> Folgeton, in denselben Farben wie die Punkte.
-  const nm = pc => schreibeGrundton(PC_NAME[pc], schreibweise);
+  const nm = t => schreibeGrundton(PC_NAME[t.pc], schreibweise);
   $("fbname").innerHTML = '<span style="color:#6ea8ff">' + nm(line[0]) + "</span>"
     + (nxt ? '<span style="color:#7b828b"> &rarr; </span>'
              + '<span style="color:#e8934a">' + nm(line[1]) + "</span>" : "");
@@ -1470,7 +1488,7 @@ function planKeyVoicing(window, last) {
 // Die Klaviatur als SVG: zwei Oktaven, gedrueckte Tasten blau gefuellt, die
 // gemessene Bassnote (linke Hand) als orangener Punkt auf ihrer tiefsten Taste.
 // Self-contained wie die Griffbrett-SVGs, Farben aus dem Bestand.
-function pianoSvg(v, bassPc) {
+function pianoSvg(v, bassPc, bassMidi) {
   const pressed = new Set(v.notes);
   const kw = 24, bw = 14, wh = 112, bh = 68, W = 14 * kw + 4, H = 138;
   const acc = "#6ea8ff", bassC = "#e8934a", mk = "#5b636d";
@@ -1499,7 +1517,10 @@ function pianoSvg(v, bassPc) {
       s += '<text x="' + (x + kw / 2) + '" y="' + (H - 8) + '" fill="' + mk
          + '" font-size="11" text-anchor="middle" font-family="sans-serif">C</text>';
   if (bassPc != null) {                         // linke Hand: tiefste passende Taste
-    const m = KEY_LOW + bassPc;
+    // Mit gemessener Lage (p) die echte Taste, wenn sie im Fenster liegt -
+    // sonst die tiefste passende.
+    const m = bassMidi != null && bassMidi >= KEY_LOW && bassMidi <= KEY_HIGH
+      ? bassMidi : KEY_LOW + bassPc;
     const schwarz = !WHITE_PC.includes(bassPc);
     const cx = schwarz ? blackX.get(m) + bw / 2 : whiteX.get(m) + kw / 2;
     s += svgDot(cx, (schwarz ? bh : wh) - 11, 5, bassC, 1);
@@ -1537,13 +1558,13 @@ let kbShown = "";
 function renderKeyboard(seg) {
   const name = seg ? seg.c : null;
   const key = (name || "-") + "|" + (name ? seg.at.toFixed(2) : "") + "|"
-            + schreibweise + "|" + (seg && seg.b ? seg.b : "");
+            + schreibweise + "|" + (seg && seg.b ? seg.b : "") + "|" + (seg && seg.p != null ? seg.p : "");
   if (key === kbShown) return;
   kbShown = key;
   const v = seg && name && name !== "?" && name !== "-" ? decideKeyVoicing(seg) : null;
   if (!v) { $("fbdiagram").innerHTML = ""; $("fbname").innerHTML = ""; return; }
   const bassPc = seg.b != null ? NOTE_PC[seg.b] : null;
-  $("fbdiagram").innerHTML = pianoSvg(v, bassPc);
+  $("fbdiagram").innerHTML = pianoSvg(v, bassPc, seg.p != null ? seg.p : null);
   const inv = umkehrung(seg);
   $("fbname").innerHTML = chordHtml(seg.c)
     + (inv ? '<span style="color:#e8934a">/'
@@ -1616,7 +1637,9 @@ function lagenKontext(seg) {
     // `lastBassPos` IST die gerade gezeigte Lage - renderBassBoard setzt sie
     // bei jedem Neuaufbau. Ein eigener Cache waere ein zweiter Zustand fuer
     // dieselbe Zahl.
-    return { alts: bassPositions(line[0]), id: p => p.s + "," + p.f,
+    // Zum Durchschalten ALLE vier Saitenlagen, auch gegen die gemessene
+    // Lage: Der Anker ist die Wahl des Spielers, nicht die der Messung.
+    return { alts: bassPositions(line[0].pc), id: p => p.s + "," + p.f,
              pinned: !!fest, cur: fest || lastBassPos,
              anker: p => { bassPins.set(at, p); bbShown = ""; } };
   }

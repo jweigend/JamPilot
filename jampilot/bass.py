@@ -90,6 +90,19 @@ SLASH_ROOT_RATIO = 3.0
 # (None) gilt die Quinte als Grundton-Lage.
 FIFTH_REGISTER_SHARE = 0.05
 
+# Die LAGE: Von den drei Oktavbins einer Tonklasse (C1..B3, btc.bass_pitches)
+# gilt die TIEFSTE Oktave, deren Bin mindestens diesen Anteil des staerksten
+# erreicht. Nicht "der staerkste Bin": Der Grundton eines E-Basses ist im Mix
+# oft schwaecher als sein erster Oberton (eine Regel "Grundton mindestens so
+# stark wie die Oktave darueber" verliert die Haelfte der Oktave-1-Noten,
+# selbst auf der isolierten Bassspur). Gemessen gegen pYIN auf isolierten
+# Bassspuren (docs/exploration/lagenkorrekte-bassanzeige.md): je Note Echoes
+# 94 %, Sailing to Philadelphia 100 %; segmentweise durch die ganze Kette
+# 92 % bzw. 98 %, der reine Handweg-Planer der Anzeige lag bei 72-73 %.
+# 0,2 und 0,5 sind auf beiden Stuecken gleichauf oder schlechter.
+OCTAVE_SHARE = 0.3
+OCTAVES = 3                 # C1..B3 - mehr hat ein Bass im Fenster nicht
+
 
 def dominant(bass_frames: np.ndarray | None) -> int | None:
     """Die vorherrschende Tonklasse im Tiefband - oder None.
@@ -110,6 +123,31 @@ def dominant(bass_frames: np.ndarray | None) -> int | None:
     if zweiter > 0 and bester < MIN_DOMINANCE * zweiter:
         return None                      # kein klarer Gewinner -> nicht raten
     return int(rang[0])
+
+
+def octave(pitches: np.ndarray | None, pitch_class: int | None,
+           share: float = OCTAVE_SHARE) -> int | None:
+    """Die Oktave (1..3) der Tonklasse im Bass - oder None.
+
+    `pitches` sind die ungefalteten Notenbins C1..B3 (36,) oder (36, F)
+    aus btc.bass_pitches, ueber das Segment gepoolt. Tiefste Oktave, deren
+    Bin mindestens `share` des staerksten Oktavbins dieser Tonklasse hat.
+    """
+    if pitches is None or pitch_class is None:
+        return None
+    pooled = np.asarray(pitches, dtype=float)
+    if pooled.ndim == 2:
+        pooled = pooled.sum(axis=1)
+    bins = pooled[pitch_class::12][:OCTAVES]
+    if bins.size < OCTAVES or bins.max() < BASS_SILENCE:
+        return None
+    return int(np.flatnonzero(bins >= share * bins.max())[0]) + 1
+
+
+def pitch(pitches: np.ndarray | None, pitch_class: int | None) -> int | None:
+    """MIDI-Tonhoehe des Basses (E1 = 28, E2 = 40, E3 = 52) - oder None."""
+    o = octave(pitches, pitch_class)
+    return None if o is None else 24 + 12 * (o - 1) + pitch_class
 
 
 class BassTrack:
@@ -141,10 +179,14 @@ class BassTrack:
         # (Chroma-Pfad, Tests), bekommt None zurueck.
         self._register = np.zeros((12, self.size), dtype=np.float32)
         self._has_register = False
+        # Die ungefalteten Notenbins C1..B3 (btc.bass_pitches), fuer die LAGE
+        # (octave). Gleiches Raster, gleicher Ring; ohne Lieferung None.
+        self._pitches = np.zeros((12 * OCTAVES, self.size), dtype=np.float32)
+        self._has_pitches = False
         self.end = 0
 
     def add(self, bass_frames: np.ndarray | None, window_start: float,
-            register: np.ndarray | None = None):
+            register: np.ndarray | None = None, pitches: np.ndarray | None = None):
         if bass_frames is None or bass_frames.shape[1] <= 2 * self.EDGE:
             return
         innen = bass_frames[:, self.EDGE : bass_frames.shape[1] - self.EDGE]
@@ -154,6 +196,9 @@ class BassTrack:
         if register is not None:
             self._register[:, ziel] = register[:, self.EDGE : self.EDGE + innen.shape[1]]
             self._has_register = True
+        if pitches is not None:
+            self._pitches[:, ziel] = pitches[:, self.EDGE : self.EDGE + innen.shape[1]]
+            self._has_pitches = True
         self.end = max(self.end, erster + innen.shape[1])
 
     def _index(self, start: float, end: float) -> np.ndarray | None:
@@ -175,6 +220,14 @@ class BassTrack:
             return None
         index = self._index(start, end)
         return None if index is None else self._register[:, index].sum(axis=1)
+
+    def pitches_between(self, start: float, end: float) -> np.ndarray | None:
+        """Aufsummierte Notenbins C1..B3 (36,) im Intervall - oder None, wenn
+        keine mitgefuehrt werden oder das Intervall leer ist. Fuer octave()."""
+        if not self._has_pitches:
+            return None
+        index = self._index(start, end)
+        return None if index is None else self._pitches[:, index].sum(axis=1)
 
     @property
     def frame_seconds(self) -> float:
