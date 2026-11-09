@@ -457,6 +457,19 @@ def fold_bass_register(features: np.ndarray) -> np.ndarray:
     return _fold_note_bins(features, BTC_REGISTER_BINS)
 
 
+def bass_pitches(features: np.ndarray) -> np.ndarray:
+    """Log-CQT-Frames (T, 144) -> UNGEFALTETE Notenbins C1..B3 (36, T).
+
+    Dieselben Bins, die fold_bass_chroma zu zwoelf Tonklassen summiert - nur
+    bleibt hier die Oktave erhalten: Zeile o*12 + pc ist die Tonklasse pc in
+    Oktave o+1 (Zeile 4 = E1, 16 = E2, 28 = E3). Fuer bass.octave: Aus den
+    drei Oktavbins einer Tonklasse liest sich die LAGE des Basses, nicht nur
+    sein Name (docs/exploration/lagenkorrekte-bassanzeige.md). 36 Floats je
+    Frame, keine zusaetzliche Rechnung.
+    """
+    return np.exp(features[:, 0:BTC_BASS_BINS:2]).T.astype(np.float32)
+
+
 def _fold_note_bins(features: np.ndarray, n_bins: int) -> np.ndarray:
     idx = np.arange(n_bins)
     noten = idx[idx % 2 == 0]

@@ -431,3 +431,21 @@ class TestModeVotes:
         assert votes[g][1] == 2.0     # Moll: Gm, Gm7
         assert votes[g][0] == 1.0     # Dur: G
         assert votes.sum() == 3.0     # sus/dim/N enthalten sich
+
+
+class TestNotenbins:
+    """bass_pitches: dieselben Bins wie fold_bass_chroma, nur mit Oktave."""
+
+    def test_form_und_zuordnung(self):
+        feats = np.full((4, 144), np.log(1e-6), dtype=np.float32)
+        feats[:, 2 * 16] = 0.0             # 16 Halbtoene ueber C1 = E2
+        out = btc.bass_pitches(feats)
+        assert out.shape == (36, 4)
+        assert np.argmax(out[:, 0]) == 16  # Zeile 12 + 4: Oktave 2, Tonklasse E
+
+    def test_summe_der_oktaven_ist_das_tiefband_chroma(self):
+        rng = np.random.default_rng(1)
+        feats = rng.normal(size=(6, 144)).astype(np.float32)
+        out = btc.bass_pitches(feats)
+        gefaltet = out.reshape(3, 12, -1).sum(axis=0)
+        assert np.allclose(gefaltet, btc.fold_bass_chroma(feats), rtol=1e-5)
