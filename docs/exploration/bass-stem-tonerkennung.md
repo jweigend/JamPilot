@@ -123,3 +123,137 @@ der echten Pipeline-Funktion nachmessen.
 - `tests/reference/export_umx_bass.py`, `messung_bass_stem.py`,
   `messung_bass_stem_hopweise.py`, `messung_bass_stem_tonerkennung.py`
 - `docs/exploration/bass-stem-huellkurve.md` (Huellkurve), diese Notiz (Erkennung)
+
+## 6. Breite Messung: 193 Isophonics-Titel (2026-11-09, Arbeits-PC)
+
+`tests/reference/messung_bass_stem_isophonics.py`. Referenz: die Isophonics-
+Slashes aller Beatles-Alben (180 Titel), Queen (20) und Carole King (7);
+Zuordnung Lab -> CD-Rip und Zeitversatz aus dem ML-Repo
+(`chordml.isophonics.build_matching`, Chroma-Korrelation), als
+`tests/reference/isophonics_matching.csv` eingecheckt. Genommen wurden die
+193 Titel mit Korrelations-Score >= 0,5 und Versatz innerhalb des Sweeps.
+Gleiche Kette wie in §1: Stem aus UMX-HQ int8 (6-s-Bloecke, 1 s Rand), BTC-
+CQT auf Mix und Stem, `bass.slash_note` je Segment >= 1 s, Pooling 2 s ab
+Onset, Akkord aus der Annotation. 11 384 Grundton-Segmente, 1 175
+Umkehrungen. Stufe 1 (Trennung + CQT, 16 Prozesse) 2,4 min, Cache im
+ML-Repo (`data/cache/stems_iso`), Stufe 2 Sekunden. `main` (Lagen-Merge
+d9f8d2e) ist seit dieser Messung in den Branch gemergt.
+
+**Vorher keine echten Bass-Stems auf diesem Rechner** - der pYIN-Teil aus
+§2 (Tonklasse/Oktave je Note) liess sich hier nicht verbreitern. Die
+Isophonics-Referenz ist die Harmonie-Annotation, nicht der Bassist.
+
+### Ergebnis
+
+| Variante | falsche Slashes (Grundton-Seg.) | leer (Grundton-Seg.) | Umkehrung gefunden | falscher Ton (Umk.) | leer (Umk.) |
+|---|---|---|---|---|---|
+| **Mix** (Pipeline heute) | **48 = 0,4 %** | 4213 = 37 % | 383 = 33 % | 124 | 668 |
+| **Stem** | **169 = 1,5 %** | **3464 = 30 %** | **469 = 40 %** | 189 | 517 |
+| Stem, MIN_DOMINANCE 1,5 | 146 = 1,3 % | 4530 = 40 % | 454 = 39 % | 163 | 558 |
+| Dom:Stem (Stem entscheidet leer, Ton aus Mix) | 44 = 0,4 % | 4714 = 41 % | 375 = 32 % | 109 | 691 |
+| Dom:Mix (Mix entscheidet leer, Ton aus Stem) | 121 = 1,1 % | 4586 = 40 % | 435 = 37 % | 151 | 589 |
+| Stem, SLASH_ROOT_RATIO 5 | 84 = 0,7 % | 3625 = 32 % | 415 = 35 % | 173 | 587 |
+| Stem, Quinte nie als Slash | 75 = 0,7 % | 3464 = 30 % | 289 = 25 % | 369 | 517 |
+| Stem nur ohne Widerspruch des Mixes | 157 = 1,4 % | 3483 = 31 % | 460 = 39 % | 154 | 561 |
+| Mix, Pooling 1 s | 53 = 0,5 % | 3585 = 31 % | 409 = 35 % | 118 | 648 |
+| Stem, Pooling 1 s | 164 = 1,4 % | 2867 = 25 % | 496 = 42 % | 171 | 508 |
+| Stem, Pooling 0,5 s | 202 = 1,8 % | 2438 = 21 % | 522 = 44 % | 184 | 469 |
+
+Je Kuenstler (Mix -> Stem): Beatles falsche Slashes 0,4 -> 1,5 %, leer
+39 -> 32 %, Umkehrungen 30 -> 37 %; Queen 0,5 -> 0,9 %, 28 -> 20 %,
+47 -> 60 %; Carole King 1,2 -> 2,2 %, 19 -> 13 %, 22 -> 26 %.
+
+### Falsche Slashes nach Intervall zum Grundton
+
+| Variante | Terz | kl. Terz | **Quinte** | kl. Sept | andere | betroffene Titel |
+|---|---|---|---|---|---|---|
+| Mix | 11 | 3 | 22 | 1 | 11 | 31 |
+| Stem | 36 | 17 | **94** | 3 | 19 | 66 |
+| Stem, Ratio 5 | 21 | 4 | 45 | 1 | 13 | 39 |
+| Mix, Pooling 1 s | 12 | 15 | 15 | 1 | 10 | 27 |
+
+Typische Stem-Fehler: *Can't Buy Me Love* C7 -> G (zehnmal), *Roll Over
+Beethoven* D -> F#, *Who Wants to Live Forever* Cmaj7 -> E, *For You Blue*
+(9 falsche, Mix 0). Das ist der Bassist: Walking- und Wechselbass spielen
+Quinte und Terz, der Mix haelt mit Gitarre und Klavier den Grundton oben,
+der Stem nicht mehr. Die Quinten-Regel (`FIFTH_REGISTER_SHARE`) greift auf
+dem Stem nicht - dort klingt die Quinte im Bassregister, weil sie der Bass
+wirklich spielt.
+
+### Lesart
+
+Das Bild der fuenf Titel aus §2 (Stem: ein falscher Slash weniger, ein
+Drittel weniger leer) haelt in der Breite **nicht**. Der Gewinn an
+Ausbeute bleibt (leer 37 -> 30 %, Umkehrungen 33 -> 40 %), aber die
+falschen Slashes verdreieinhalbfachen sich (48 -> 169) und treten auf
+doppelt so vielen Titeln auf (31 -> 66). Keine der Mischformen holt das
+zurueck: Entscheidet der Stem nur ueber leer/nicht leer, bleibt es der Mix
+(44 falsch, aber auch 41 % leer); die hoehere Grundton-Ratio ist der beste
+Kompromiss (84 falsch, 32 % leer, 35 % Umkehrungen) und liegt immer noch
+75 % ueber dem Mix. Die Quinte zu verbieten tauscht falsche Slashes gegen
+verlorene echte Quint-Umkehrungen (289 statt 383 gefunden).
+
+Der Zielkonflikt aus §2 ist damit kein Randfall, sondern der Hauptbefund:
+**Der Stem hoert den Bassisten, die Slash-Annotation meint die Harmonie.**
+Fuer den Akkordnamen (C/G) ist der Mix die richtige Quelle, und sie bleibt
+es. Fuer die *Bass-Ansicht* (was spielt der Bassist gerade) waere der Stem
+die richtige Quelle - aber dafuer ist Isophonics die falsche Referenz, das
+braucht echte Stems (§2, zwei Titel, dort +3-4 Punkte Tonklasse). Beide
+Fragen aus einem Urteil zu beantworten geht nicht mehr, sobald der Stem im
+Spiel ist.
+
+**Nebenbefund, unabhaengig vom Stem:** Pooling 1 s statt 2 s auf dem Mix
+senkt leer von 37 auf 31 % und hebt die Umkehrungen von 33 auf 35 % bei
+48 -> 53 falschen Slashes (die kleinen Terzen steigen 3 -> 15). Der Bassist
+spielt den Grundton auf die Eins und wechselt danach - die erste Sekunde ist
+die ehrlichere. Nicht eingebaut, waere eine eigene kleine Aenderung an
+`BASS_POOL_SECONDS` mit Realaudio-Gegenprobe.
+
+### Ohne Bassgitarre: erfindet der Stem etwas?
+
+Neun Beatles-Titel ohne Bassgitarre (Yesterday, Blackbird, Julia, Mother
+Nature's Son, Eleanor Rigby, Her Majesty, Within You Without You, Good
+Night, Love You To): 331 Grundton-Segmente. Falsche Slashes Mix 0, Stem 3;
+leer Mix 45 %, Stem 37 %. Stem-Energie relativ zum Mix (Median je Titel;
+Titel MIT Bass: Median 0,36, 10-%-Quantil 0,21):
+
+| Titel | Stem/Mix |
+|---|---|
+| Mother Nature's Son, Love You To | 0,02 |
+| Good Night (Orchester) | 0,13 |
+| Eleanor Rigby (Streicher) | 0,16 |
+| Yesterday | 0,19 |
+| Julia | 0,35 |
+| Her Majesty (nur Gitarre) | 0,57 |
+
+Bei reiner Gitarre nimmt der Stem die Gitarre als Bass (Her Majesty liegt
+ueber dem Median der Titel mit Bass), bei Streichern und Orchester bleibt
+er leise. Als "spielt hier ein Bass?"-Detektor taugt er fuer Gitarrenstuecke
+nicht - genau die Faelle von If This Is Goodbye (§3 Punkt 1, `leak`).
+
+### Hopweise wie live (§3 Punkt 2)
+
+14 Titel (die fuenf Referenztitel, Come Together, Taxman, Hey Jude, Penny
+Lane, Yesterday, Here Comes the Sun, Dear Prudence, I Feel the Earth Move,
+You've Got a Friend, We Will Rock You), Trennung mit Kern 0,25 s, 1,0 s
+Kontext davor, 0,5 s dahinter (`--hopweise`) gegen 6-s-Bloecke:
+
+| | falsche Slashes | leer | Umkehrungen | falscher Ton (Umk.) |
+|---|---|---|---|---|
+| Mix | 5/775 | 31 % | 31/172 | 31 |
+| Stem, 6-s-Block | 7/775 | 27 % | 47/172 | 49 |
+| Stem, hopweise | 8/775 | 27 % | 46/172 | 47 |
+
+Die Live-Konfiguration liefert fuer die CQT dasselbe wie die Trennung am
+Stueck. Die zeitliche Lage (Stem endet 0,5 s + eine Hop-Laufzeit vor der
+Analysefront) bleibt ein Einbau-Thema, ist aber kein Qualitaetsthema.
+
+### Stand nach der Messung
+
+- Stem fuer Slash-Namen: **nicht einbauen** (Hauptbefund oben).
+- Stem fuer die Bass-Ansicht: offen, braucht echte Stems als Referenz
+  (Sailing, Echoes liegen nicht auf diesem Rechner) und eine Trennung der
+  beiden Fragen in der Pipeline (Slash aus dem Mix, Bassnote aus dem Stem).
+- Pooling 1 s auf dem Mix: eigener kleiner Kandidat, Realaudio-Gegenprobe.
+- Punkte 3-5 aus §3 (zweite CQT, Mischform, Register-Regel) sind damit fuer
+  den Slash-Pfad erledigt bzw. gegenstandslos.
