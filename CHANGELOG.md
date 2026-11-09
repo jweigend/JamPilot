@@ -20,6 +20,14 @@ for the height (instant attack, slow release), and a gear-menu switch,
 default on. In record mode the curve follows the recording like the
 events. Untested in the rehearsal room so far.
 
+Follow-ups on the same prototype: the chips no longer carry an opaque
+background (the curve shows through; the later chip still cuts the earlier
+one off, now via `clip-path`), the curve is drawn as a line, blue, scaled
+so that a loud bass note reaches exactly the baseline of the chord letters,
+and its height normalisation hardly ever lets go (1 %/s) — a quiet passage
+no longer rescales it; a pause between songs resets it. In bass view only
+the bass curve is shown.
+
 ## 1.4.2 — 2026-10-14
 
 The theme of this release: **the root.** Two fixes for the same symptom
