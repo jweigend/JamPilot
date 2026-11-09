@@ -589,17 +589,17 @@
 
       <h2 class="second">Waveform</h2>
       <p class="sub">The music's own attacks under the timeline, as a faint
-         line: the mix in the background, the low band (bass and chord
-         root) a little stronger; in bass view only the low band. It
-         decides nothing &ndash; where a chord is held and the bass hits now
-         and then, the bumps show you where, and you take the ones you want.
-         Because the sound is delayed, you see the hits before you hear
-         them.</p>
+         line: the mix in the background, the bass a little stronger
+         &ndash; separated from the mix by a small model, so the kick drum
+         stays out of it; in bass view only the bass. It decides nothing
+         &ndash; where a chord is held and the bass hits now and then, the
+         bumps show you where, and you take the ones you want. Because the
+         sound is delayed, you see the hits before you hear them.</p>
       <button class="opt" data-wave="on" role="radio">
         <span class="glyph">&#8767;</span>
         <span class="text">
           <span class="label">Shown</span>
-          <span class="desc">Envelope of the mix and the low band.</span>
+          <span class="desc">Envelope of the mix and the bass.</span>
         </span>
       </button>
       <button class="opt" data-wave="off" role="radio">
@@ -821,8 +821,11 @@ let ticks = new Map();       // at-Schluessel -> {el, at}
 
 // HUELLKURVE. Kein Publish-once-Kanal, sondern ein Ausschnitt: der Server
 // schickt mit jedem Snapshot {t0, dt, full, bass} - RMS je 12,5 ms fuer den
-// Mix und fuer das Tiefband (30..250 Hz), von knapp hinter JETZT bis zum
-// rechten Rand. Gezeichnet wird auf einem Canvas mit derselben Uhr und
+// Mix und fuer den Bass (getrennter Stem, stems.py; ohne Modell das Tiefband
+// 30..250 Hz), von knapp hinter JETZT bis zum rechten Rand. `bass` darf
+// KUERZER sein als `full`: die Trennung laeuft asynchron und hinkt der
+// Analysefront um gut eine halbe Sekunde nach - jede Kurve wird so weit
+// gezeichnet, wie sie Werte hat. Gezeichnet wird auf einem Canvas mit derselben Uhr und
 // derselben x-Formel wie die Chips. Die Hoehe normiert ein Spitzenwert-
 // Folger je Kurve: sofort hoch, praktisch nie runter - leise Stellen bleiben
 // leise, neu justiert wird erst beim naechsten Song (s. drawWave).

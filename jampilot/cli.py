@@ -762,6 +762,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     """
     from . import bass as bassmodul
     from . import envelope as envelope_modul
+    from . import stems as stems_modul
     from .beats import BeatTracker
     from .engine import Startprotokoll
     from .btc import (BTC_FRAME_SECONDS, BTCModel, features_from_audio,
@@ -798,9 +799,16 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     # bis zur Analysefront (wie im Template-Pfad, nur im 93-ms-Raster; der
     # Randbeschnitt schrumpft mit, EDGE zaehlt Frames).
     # Huellkurve unter dem Laufband (envelope.py): RMS je 12,5 ms, Mix und
-    # Tiefband, aus demselben Fenster wie die Analyse. Reicht im Record-Modus
-    # so weit zurueck wie der Mitschnitt (prune unten).
-    huellkurve = envelope_modul.Envelope(sr, hop_frames)
+    # Bass, aus demselben Fenster wie die Analyse. Reicht im Record-Modus
+    # so weit zurueck wie der Mitschnitt (prune unten). Der Bass kommt aus
+    # dem getrennten Stem (stems.py, eigener Thread, ein Hop je Lauf) - ohne
+    # onnxruntime oder Modell aus dem Bandpass wie zuvor.
+    stem_worker = stems_modul.BassStemWorker.create()
+    huellkurve = envelope_modul.Envelope(sr, hop_frames,
+                                         separated=stem_worker is not None)
+    stem_context = int(round((stems_modul.CONTEXT_BACK + stems_modul.CONTEXT_FRONT) * sr))
+    stem_front = int(round(stems_modul.CONTEXT_FRONT * sr))
+    stem_modell_gemeldet = stem_worker is None
     bass_track = bassmodul.BassTrack(args.delay + BTC_LIVE_WINDOW + 4.0,
                                      frame_seconds=BTC_FRAME_SECONDS, edge=2)
 
@@ -877,6 +885,27 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                 continue
             window_start = (window_end - len(audio)) / sr
             huellkurve.add(audio, window_end)
+            if stem_worker is not None:
+                # Den juengsten Hop trennen, mit Kontext davor und dahinter;
+                # der Kern endet CONTEXT_FRONT vor der Analysefront.
+                stueck = audio[-(hop_frames + stem_context):]
+                if len(stueck) >= hop_frames + stem_context:
+                    stem_worker.submit(stueck, sr, window_end - len(stueck),
+                                       window_end - stem_front - hop_frames,
+                                       window_end - stem_front)
+                for bass_stem, core_end in stem_worker.poll():
+                    huellkurve.add_bass(bass_stem, core_end)
+                if stem_worker.error and huellkurve.separated:
+                    # Beim Laden oder mitten im Lauf gescheitert: weiter mit
+                    # dem Bandpass - ab hier rechnet add() den Bass selbst,
+                    # die Kurve setzt mit Nullen an.
+                    huellkurve.separated = False
+                    stem_modell_gemeldet = True
+                    protokoll.melden(f"Bass stem model failed - low band instead: "
+                                     f"{stem_worker.error}")
+                elif not stem_modell_gemeldet and stem_worker.ready:
+                    stem_modell_gemeldet = True
+                    protokoll.melden(f"Bass stem model ready ({stem_worker.provider})")
 
             features = features_from_audio(audio, sr)
             labels = model.predict(features)
@@ -1117,6 +1146,8 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     finally:
         if tracker is not None:
             tracker.stop()
+        if stem_worker is not None:
+            stem_worker.stop()
         if debug:
             debug.close()
     if loop.xruns:

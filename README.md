@@ -470,4 +470,6 @@ practice room? Which instruments or views are missing?
 
 [MIT](LICENSE). The chord recogniser is a NumPy port of the
 [BTC model](https://github.com/jayg996/BTC-ISMIR19) (Park et al., ISMIR 2019),
-which is also MIT-licensed.
+which is also MIT-licensed. The bass curve under the lane comes from
+[Open-Unmix](https://github.com/sigsep/open-unmix-pytorch) UMX-HQ (Stöter et
+al., JOSS 2019), whose weights are MIT-licensed as well (Zenodo 3370489).
