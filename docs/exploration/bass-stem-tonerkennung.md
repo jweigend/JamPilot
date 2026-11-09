@@ -248,12 +248,31 @@ Die Live-Konfiguration liefert fuer die CQT dasselbe wie die Trennung am
 Stueck. Die zeitliche Lage (Stem endet 0,5 s + eine Hop-Laufzeit vor der
 Analysefront) bleibt ein Einbau-Thema, ist aber kein Qualitaetsthema.
 
-### Stand nach der Messung
+### Stand nach der Messung - und der Bass-Ansicht (Nachtrag, gleicher Tag)
 
-- Stem fuer Slash-Namen: **nicht einbauen** (Hauptbefund oben).
-- Stem fuer die Bass-Ansicht: offen, braucht echte Stems als Referenz
-  (Sailing, Echoes liegen nicht auf diesem Rechner) und eine Trennung der
-  beiden Fragen in der Pipeline (Slash aus dem Mix, Bassnote aus dem Stem).
-- Pooling 1 s auf dem Mix: eigener kleiner Kandidat, Realaudio-Gegenprobe.
-- Punkte 3-5 aus §3 (zweite CQT, Mischform, Register-Regel) sind damit fuer
-  den Slash-Pfad erledigt bzw. gegenstandslos.
+Der Gedanke "fuer die Bass-Ansicht waere der Stem die richtige Quelle" ist
+beim zweiten Hinsehen falsch, und zwar aus demselben Grund wie oben. Beim
+Country-Wechselbass spielt der Bassist C, G, C, G ueber C-Dur. Die
+Bass-Ansicht soll dem Mitspieler sagen, auf welchem Ton er landet - das
+ist der Grundton, und nur bei einer echten Umkehrung (Bass liegt den ganzen
+Akkord lang auf Terz oder Quinte) der Slash-Ton. Eine Transkription des
+gerade gezupften Tons waere zum Mitspielen falsch. Das ist eine harmonische
+Frage, keine akustische; die drei Huerden in `slash_note` SIND dieser
+harmonische Filter, und sie funktionieren auf dem Mix, weil Gitarre und
+Klavier den Grundton mittragen. Die 94 Quinten-Fehler des Stems sind der
+Wechselbass in Zahlen. (README: "Harmony, not transcription" - gilt auch
+fuer den Bass.)
+
+- Stem fuer Slash-Namen UND Bass-Ansicht: **nicht einbauen.** Nette Idee,
+  falsche Konsequenz: Der Stem beantwortet die Frage "was spielt der
+  Bassist", die Anzeige stellt die Frage "wo liegt der Bass der Harmonie".
+  Die Erkennungsfrage ist damit geschlossen.
+- Der Stem bleibt, wo er ist: in der Huellkurve (bass-stem-huellkurve.md).
+  Echte Stems (Moises o. ae.) haetten fuer die Erkennung nur noch bestaetigt,
+  dass der Stem den Bassisten trifft. Mehrwert haetten sie allein fuer die
+  Huellkurve (Kick-Anteil, laute Mixe; bisher zwei Titel) und allenfalls die
+  Lage (Oktave auf dem Mix schon bei 96-100 %). Beides Kuer.
+- Pooling 1 s auf dem Mix: eigener kleiner Kandidat, aber gerade am
+  Wechselbass gegenzupruefen - bei langsamem Tempo faellt die Quinte schon
+  in die erste Sekunde, und die kleinen Terzen stiegen 3 -> 15.
+- Punkte 2-5 aus §3 sind damit gegenstandslos.
