@@ -420,12 +420,13 @@
   .beat.bar { height: 2.8vh; background: #6ea8ff70; }
   body.nobeats .beat { display: none; }
 
-  /* Huellkurve: die Anschlaege der Musik, Mix blass und Tiefband etwas
-     kraeftiger, beide dunkelgrau, als gefuellte Flaeche am Boden der Spur,
-     HINTER Ticks und Chips (die Chips sind durchsichtig). Zeigt
-     nichts an, was die Pipeline entschieden hat - nur, wo das Audio
-     anschlaegt. Dieselbe Uhr und dieselbe Formel wie die Chips; links von
-     JETZT laeuft sie als Vergangenheit aus. Prototyp, abschaltbar. */
+  /* Huellkurve: die Anschlaege der Musik als duenne blaue Linien, Mix blass
+     und Tiefband etwas kraeftiger, vom Boden der Spur, HINTER Ticks und
+     Chips (die Chips sind durchsichtig). Zeigt nichts an, was die Pipeline
+     entschieden hat - nur, wo das Audio anschlaegt. Dieselbe Uhr und
+     dieselbe Formel wie die Chips; links von JETZT laeuft sie als
+     Vergangenheit aus. Proberaum-validiert (09.11.2026): die am wenigsten
+     stoerende Form, die beim Setzen der Einsaetze noch hilft. Abschaltbar. */
   #wave { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
           z-index: 0; pointer-events: none; }
   body.nowave #wave { display: none; }
@@ -588,18 +589,19 @@
       </button>
 
       <h2 class="second">Waveform</h2>
-      <p class="sub">The music's own attacks under the timeline, as a faint
-         line: the mix in the background, the low band (bass and chord
-         root) a little stronger; in bass view only the low band. It
-         decides nothing &ndash; where a chord is held and the bass hits now
-         and then, the bumps show you where, and you take the ones you want.
-         Because the sound is delayed, you see the hits before you hear
-         them.</p>
+      <p class="sub">The music's own attacks under the timeline as thin blue
+         lines: the whole mix, faint, and the low band (bass and chord root)
+         a little stronger &ndash; in bass view the low band alone. It
+         decides nothing: where a chord is held and the bass hits now and
+         then, the peaks show you where, and you take the ones you want to
+         place your entry. Because the sound is delayed, you see a hit
+         before you hear it. A loud bass note reaches the baseline of the
+         chord letters, never higher.</p>
       <button class="opt" data-wave="on" role="radio">
         <span class="glyph">&#8767;</span>
         <span class="text">
           <span class="label">Shown</span>
-          <span class="desc">Envelope of the mix and the low band.</span>
+          <span class="desc">Thin blue lines: the mix faint, the low band stronger.</span>
         </span>
       </button>
       <button class="opt" data-wave="off" role="radio">
@@ -1914,9 +1916,11 @@ if (window.ResizeObserver)
 
 // Die Huellkurve zeichnen. x wie bei Chips und Ticks, nur dass die
 // Vergangenheit nicht bei JETZT gestaut wird, sondern links weiterlaeuft -
-// eine Kurve hat keinen Onset, den man festhalten muesste. Zwei Flaechen
-// uebereinander: Mix blass, Tiefband etwas kraeftiger, beide dunkelgrau
-// vom Boden der Spur.
+// eine Kurve hat keinen Onset, den man festhalten muesste. Zwei duenne
+// blaue Linien: Mix blass, Tiefband etwas kraeftiger, vom Boden der Spur;
+// im Bass-Modus nur das Tiefband. Im Proberaum gegen gefuellte Flaechen
+// (grau), kraeftigere Farben und schnelleres Abklingen getestet - die Linie
+// stoert am wenigsten und hilft trotzdem, Einsaetze zu setzen (09.11.2026).
 // Der Spitzenwert-Folger normiert die Hoehe: sofort hoch, praktisch nie
 // runter (1 % je Sekunde, halbiert erst nach gut einer Minute). Ein
 // schnelleres Abklingen liess die Kurve an leisen Stellen wieder auf volle
@@ -1989,8 +1993,7 @@ function drawWave(now, dt) {
     } else if (!waveTop.px) waveTop.px = 0.45 * h;
   }
   const top = waveTop.px;
-  // TEST 1: nur als Linie statt gefuellter Flaeche (zum Rueckbau: fill()
-  // mit closePath/fillStyle/fill wiederherstellen, Farben #9aa3ad14/#9aa3ad2e).
+  // Linie statt gefuellter Flaeche (verworfen: Flaechen #9aa3ad14/#9aa3ad2e).
   const line = (werte, peak, farbe, breite) => {
     if (!(peak > 0)) return;
     ctx.beginPath();
@@ -2004,8 +2007,8 @@ function drawWave(now, dt) {
     ctx.lineJoin = "round";
     ctx.stroke();
   };
-  // TEST 2: in Blau (Akzent der Seite) statt Grau (#9aa3ad40 / #9aa3ad80).
-  // TEST 3: im Bass-Modus nur das Tiefband, der Mix entfaellt.
+  // Blau (Akzent der Seite) statt Grau (verworfen: #9aa3ad40 / #9aa3ad80);
+  // im Bass-Modus nur das Tiefband, der Mix entfaellt.
   if (instrument !== "bass") line(full, wavePeak.full, "#6ea8ff40", 1);
   line(bass, wavePeak.bass, "#6ea8ff90", 1.5);
 }

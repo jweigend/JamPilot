@@ -131,14 +131,17 @@ glance, while both your hands are busy:
   tick under it shows you where the bar does. The same beat grid pulls
   every chord change onto its nearest quarter note, which halves the timing
   error of the chips. Off in the gear menu if you hear the one yourself.
-- **The waveform under the lane** *(prototype)* — the music's own attacks as
-  a faint filled curve: the whole mix in the background, the low band (bass
-  and chord root, 30–250 Hz) a little stronger. It decides nothing. Where a
-  chord is held for bars and the bass hits now and then, the chip cannot
-  tell you which hits matter and which do not — the bumps show you where
-  they are, and you take the ones you want. Because the sound reaches you
-  delayed, the curve shows the hits *before* you hear them, running towards
-  the `NOW` line like the chips. Off in the gear menu.
+- **The waveform under the lane** — the music's own attacks as two thin
+  blue lines: the whole mix, faint, and the low band (bass and chord root,
+  30–250 Hz) a little stronger; in bass view the low band alone. It decides
+  nothing. Where a chord is held for bars and the bass hits now and then,
+  the chip cannot tell you which hits matter and which do not — the peaks
+  show you where they are, and you take the ones you want. Because the
+  sound reaches you delayed, the curve shows the hits *before* you hear
+  them, running towards the `NOW` line like the chips. A loud bass note
+  reaches exactly the baseline of the chord letters, never higher. Tested
+  in the rehearsal room: the least distracting form that still helps you
+  place your entries. Off in the gear menu.
 - **The key badge**, top left, once there is enough music to be sure of it.
 - **The QR code** — scan it with a phone on the same Wi-Fi and you get the same
   display on your music stand. The computer does the listening; every other

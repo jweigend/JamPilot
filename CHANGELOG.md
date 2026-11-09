@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### Waveform under the lane (prototype)
+### Waveform under the lane
 
 When exactly a chord is shown is a trade-off the pipeline cannot win: show
 every bass hit and the lane flickers, hide them and a real change goes
@@ -18,15 +18,17 @@ heard, running towards `NOW` like the chips. New module `envelope.py`
 in the lane drawn with the chips' clock and x-formula, a peak follower
 for the height (instant attack, slow release), and a gear-menu switch,
 default on. In record mode the curve follows the recording like the
-events. Untested in the rehearsal room so far.
+events.
 
-Follow-ups on the same prototype: the chips no longer carry an opaque
+What the rehearsal room made of it (2026-11-09): the chips no longer carry an opaque
 background (the curve shows through; the later chip still cuts the earlier
 one off, now via `clip-path`), the curve is drawn as a line, blue, scaled
 so that a loud bass note reaches exactly the baseline of the chord letters,
 and its height normalisation hardly ever lets go (1 %/s) — a quiet passage
 no longer rescales it; a pause between songs resets it. In bass view only
-the bass curve is shown.
+the bass curve is shown. That form — a thin blue line — is the one that
+stayed: the least distracting of the variants tried, and it still helps
+to place an entry on the right hit.
 
 ## 1.4.2 — 2026-10-14
 
