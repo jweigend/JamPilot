@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Waveform under the lane (prototype)
+
+When exactly a chord is shown is a trade-off the pipeline cannot win: show
+every bass hit and the lane flickers, hide them and a real change goes
+under. The lane now carries the music's own envelope underneath the chips
+— the mix faint, the low band (30–250 Hz, where bass and chord root attack)
+a little stronger — computed per 12.5 ms from the same analysis window.
+Nothing is decided here: where a chord is held and the bass hits now and
+then, the bumps show where, and the player takes the ones they want.
+Because playback is delayed, the curve shows the attacks before they are
+heard, running towards `NOW` like the chips. New module `envelope.py`
+(stateful Butterworth band-pass, so consecutive hops join seamlessly), new
+`envelope` field in the state snapshot (about 6 s, under 10 kB), a canvas
+in the lane drawn with the chips' clock and x-formula, a peak follower
+for the height (instant attack, slow release), and a gear-menu switch,
+default on. In record mode the curve follows the recording like the
+events. Untested in the rehearsal room so far.
+
+Follow-ups on the same prototype: the chips no longer carry an opaque
+background (the curve shows through; the later chip still cuts the earlier
+one off, now via `clip-path`), the curve is drawn as a line, blue, scaled
+so that a loud bass note reaches exactly the baseline of the chord letters,
+and its height normalisation hardly ever lets go (1 %/s) — a quiet passage
+no longer rescales it; a pause between songs resets it. In bass view only
+the bass curve is shown.
+
 ## 1.4.2 — 2026-10-14
 
 The theme of this release: **the root.** Two fixes for the same symptom

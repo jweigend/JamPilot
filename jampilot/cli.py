@@ -201,6 +201,9 @@ def _blip_threshold(beat_interval: float | None) -> float:
 # selbst im Fenster; der Schnitt ist dann die Identitaet.
 PUBLISH_BACK_SECONDS = 8.0
 PUBLISH_AHEAD_MARGIN = 2.0
+# Die Huellkurve reicht nur so weit zurueck, wie das Laufband links von JETZT
+# zeigt (14 % der Spur, knapp eine halbe Sekunde) - sie ist kein Archiv.
+ENVELOPE_BACK_SECONDS = 1.0
 
 # Wie lange der Ringpuffer stillstehen darf, bevor der Stream als tot gilt.
 # Ein Callback kommt alle ~43ms (2048 Frames bei 48kHz); selbst ein schwer
@@ -766,6 +769,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     aktuellen Vorlauf fuer die GUI-Statusanzeige.
     """
     from . import bass as bassmodul
+    from . import envelope as envelope_modul
     from .beats import BeatTracker
     from .engine import Startprotokoll
     from .btc import (BTC_FRAME_SECONDS, BTCModel, bass_pitches,
@@ -801,6 +805,10 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     # Die Bassspur muss die ganze Zeitleiste abdecken - vom Anzeige-Rueckblick
     # bis zur Analysefront (wie im Template-Pfad, nur im 93-ms-Raster; der
     # Randbeschnitt schrumpft mit, EDGE zaehlt Frames).
+    # Huellkurve unter dem Laufband (envelope.py): RMS je 12,5 ms, Mix und
+    # Tiefband, aus demselben Fenster wie die Analyse. Reicht im Record-Modus
+    # so weit zurueck wie der Mitschnitt (prune unten).
+    huellkurve = envelope_modul.Envelope(sr, hop_frames)
     bass_track = bassmodul.BassTrack(args.delay + BTC_LIVE_WINDOW + 4.0,
                                      frame_seconds=BTC_FRAME_SECONDS, edge=2)
 
@@ -876,6 +884,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             if audio is None:
                 continue
             window_start = (window_end - len(audio)) / sr
+            huellkurve.add(audio, window_end)
 
             features = features_from_audio(audio, sr)
             labels = model.predict(features)
@@ -1015,6 +1024,7 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             ledger.prune(heard_pos, rueckhalt=rueckhalt)
             if raster is not None:
                 raster.prune(heard_pos, rueckhalt=rueckhalt)
+            huellkurve.prune(heard_pos, rueckhalt=rueckhalt)
             # Kontrollflaeche (control_pad.py) ohne Safe-Voicing-Filter
             # (drittes Feld None): sie haelt den VOLLEN Akkord, auch
             # dim7/sus/6 - die Tonstrukturen kommen aus btc.BTC_CHORD_TONES.
@@ -1068,6 +1078,11 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
                                in zip(timeline, basslinie, tonhoehen)
                                if heard_pos - PUBLISH_BACK_SECONDS <= pos
                                <= sicht_frontier + PUBLISH_AHEAD_MARGIN],
+                    # Huellkurve {t0, dt, full, bass}: nur das, was die Seite
+                    # zeigt - knapp hinter JETZT bis zum rechten Rand. Nach
+                    # einem Sprung im Mitschnitt fuellt der naechste Hop nach.
+                    "envelope": huellkurve.window(heard_pos - ENVELOPE_BACK_SECONDS,
+                                                  sicht_frontier + PUBLISH_AHEAD_MARGIN),
                     "key": key_dict,
                     "muted": loop.muted,
                     "control_guitar": loop.control_guitar,

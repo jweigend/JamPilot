@@ -370,11 +370,14 @@
     /* Bewegung per transform (Compositor), nicht per `left` (Layout): sonst
        ruckelt das Laufband, sobald der Browser pro Frame layouten muss. */
     white-space: nowrap; will-change: transform, opacity;
-    /* Deckender Hintergrund (auf Schwarz unsichtbar): Bei schnellen Wechseln
-       schneidet der SPAETERE Chip den frueheren rechts an, statt sich mit ihm
-       zu ueberlagern - seine linke Kante IST das Ende des vorigen Akkords.
-       Die Stapelreihenfolge (spaeter = vorn) setzt syncChips per z-index. */
-    background: #000; padding-right: .25em;
+    /* Kein Hintergrund: die Huellkurve (#wave) soll durch die Chips scheinen.
+       Dass bei schnellen Wechseln der SPAETERE Chip den frueheren rechts
+       abschneidet - seine linke Kante IST das Ende des vorigen Akkords -
+       uebernimmt stattdessen ein clip-path: der Frame-Loop beschneidet
+       jeden Chip rechts auf den Abstand zum naechsten (minus .25em Luecke),
+       der letzte bleibt frei. clip-path kostet kein Layout, anders als
+       width - und kann auf exakt null, wo bei width das Padding stuende. */
+    background: transparent;
     /* Spalte (Stufe / Name / Countdown) als Flex: so kann der Invert-Modus
        Stufe und Name rein per CSS-`order` tauschen, ohne Chip-Neuaufbau. */
     display: flex; flex-direction: column; align-items: flex-start;
@@ -416,6 +419,16 @@
           pointer-events: none; }
   .beat.bar { height: 2.8vh; background: #6ea8ff70; }
   body.nobeats .beat { display: none; }
+
+  /* Huellkurve: die Anschlaege der Musik, Mix blass und Tiefband etwas
+     kraeftiger, beide dunkelgrau, als gefuellte Flaeche am Boden der Spur,
+     HINTER Ticks und Chips (die Chips sind durchsichtig). Zeigt
+     nichts an, was die Pipeline entschieden hat - nur, wo das Audio
+     anschlaegt. Dieselbe Uhr und dieselbe Formel wie die Chips; links von
+     JETZT laeuft sie als Vergangenheit aus. Prototyp, abschaltbar. */
+  #wave { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+          z-index: 0; pointer-events: none; }
+  body.nowave #wave { display: none; }
 
   #hint { position: fixed; bottom: 24.5vh; right: 2.6vmin; color: #333;
           font-size: 1.7vmin; z-index: 5; }
@@ -574,6 +587,29 @@
         </span>
       </button>
 
+      <h2 class="second">Waveform</h2>
+      <p class="sub">The music's own attacks under the timeline, as a faint
+         line: the mix in the background, the low band (bass and chord
+         root) a little stronger; in bass view only the low band. It
+         decides nothing &ndash; where a chord is held and the bass hits now
+         and then, the bumps show you where, and you take the ones you want.
+         Because the sound is delayed, you see the hits before you hear
+         them.</p>
+      <button class="opt" data-wave="on" role="radio">
+        <span class="glyph">&#8767;</span>
+        <span class="text">
+          <span class="label">Shown</span>
+          <span class="desc">Envelope of the mix and the low band.</span>
+        </span>
+      </button>
+      <button class="opt" data-wave="off" role="radio">
+        <span class="glyph">&#8709;</span>
+        <span class="text">
+          <span class="label">Hidden</span>
+          <span class="desc">Chords and bar lines only.</span>
+        </span>
+      </button>
+
       <h2 class="second">Control pad</h2>
       <p class="sub">A quiet, clean keyboard pad that holds every detected
          chord until the next change. It is deliberately simple &ndash; no
@@ -690,7 +726,7 @@
     <div id="idle"><div id="idleTitle"></div><div id="idleHint"></div></div>
   </div>
 
-  <div id="lane"><div id="nowline"></div><div id="nowlabel">NOW</div></div>
+  <div id="lane"><canvas id="wave"></canvas><div id="nowline"></div><div id="nowlabel">NOW</div></div>
   <div id="mutebadge">
     Muted <small>&mdash; sound off only; the display keeps running</small>
   </div>
@@ -782,6 +818,21 @@ const BEATS_KEY = "jampilot.beats";
 let taktstriche = localStorage.getItem(BEATS_KEY) !== "off";
 let beats = [];              // committete Beats [{at, n}]
 let ticks = new Map();       // at-Schluessel -> {el, at}
+
+// HUELLKURVE. Kein Publish-once-Kanal, sondern ein Ausschnitt: der Server
+// schickt mit jedem Snapshot {t0, dt, full, bass} - RMS je 12,5 ms fuer den
+// Mix und fuer das Tiefband (30..250 Hz), von knapp hinter JETZT bis zum
+// rechten Rand. Gezeichnet wird auf einem Canvas mit derselben Uhr und
+// derselben x-Formel wie die Chips. Die Hoehe normiert ein Spitzenwert-
+// Folger je Kurve: sofort hoch, praktisch nie runter - leise Stellen bleiben
+// leise, neu justiert wird erst beim naechsten Song (s. drawWave).
+// Abschaltbar pro Geraet wie die Taktstriche; Standard: an (Prototyp).
+const WAVE_KEY = "jampilot.wave";
+let wellenform = localStorage.getItem(WAVE_KEY) !== "off";
+let huellkurve = null;       // {t0, dt, full, bass} oder null
+let wavePeak = { full: 0, bass: 0 };
+let waveSize = { w: 0, h: 0, dpr: 1 };
+let waveTop = { px: 0, key: "" };   // hoechster Ausschlag (Canvas-px), gecacht
 
 // SCHREIBWEISE. Der Server schickt die Akkorde kanonisch, immer mit Kreuz
 // ("A#m7") - das ist eine ID, keine Anzeige. Wie sie GESCHRIEBEN werden,
@@ -1725,18 +1776,23 @@ function syncChips(now) {
     el.className = "chip";
     el.innerHTML = html + '<span class="eta"></span>';
     $("lane").appendChild(el);
-    chips.set(key, { el, at: c.at, sig,
+    chips.set(key, { el, at: c.at, sig, x: 0, next: null, clipText: "",
                      eta: el.querySelector(".eta"), etaText: "" });
   }
   for (const [key, chip] of chips) {
     if (wanted.has(key)) continue;         // durchgelaufen (Server raeumt auf)
     chip.el.remove(); chips.delete(key);
   }
-  // Stapelreihenfolge: der spaetere Akkord liegt vorn und schneidet mit
-  // seinem deckenden Hintergrund den frueheren rechts an (CSS .chip).
-  let z = 0;
-  for (const chip of [...chips.values()].sort((a, b) => a.at - b.at))
+  // Reihenfolge: jeder Chip kennt seinen Nachfolger - bis zu dessen linker
+  // Kante reicht sein Beschnitt (clip-path im Frame-Loop, CSS .chip). Der
+  // spaetere liegt zudem vorn, falls sich doch einmal etwas ueberlappt.
+  let z = 0, prev = null;
+  for (const chip of [...chips.values()].sort((a, b) => a.at - b.at)) {
     chip.el.style.zIndex = String(++z);
+    if (prev) prev.next = chip;
+    prev = chip;
+  }
+  if (prev) prev.next = null;
 }
 
 // Die Striche wie die Chips: publish-once, der Onset ist der Schluessel, ein
@@ -1780,6 +1836,7 @@ function animate() {
     chips.clear();
     for (const tick of ticks.values()) tick.el.remove();
     ticks.clear();
+    drawWave(null, 0);
     return;
   }
   // Die Anzeige-Uhr dem Schaetzer nachfuehren: grosse Spruenge (Reconnect,
@@ -1815,6 +1872,7 @@ function animate() {
     const remaining = chip.at - now;       // dieselbe Uhr wie oben
     const frac = Math.max(remaining, 0) / horizon;
     const x = (NOW_PCT + Math.min(frac, 1.15) * (RIGHT_PCT - NOW_PCT)) / 100 * laneW;
+    chip.x = x;
     chip.el.style.transform = "translate(" + x.toFixed(1) + "px, -50%)";
     chip.el.style.opacity = remaining < 0 ? String(1 + remaining / 0.7)
                           : String(0.45 + 0.55 * (1 - Math.min(frac, 1)));
@@ -1822,6 +1880,20 @@ function animate() {
     // textContent-Zuweisungen pro Sekunde sind unnoetige Style-Arbeit.
     const eta = remaining > 0.05 ? "in " + remaining.toFixed(1) + "s" : "";
     if (eta !== chip.etaText) { chip.etaText = eta; chip.eta.textContent = eta; }
+  }
+  // Beschnitt bis zur linken Kante des Nachfolgers: so schneidet der
+  // spaetere Chip den frueheren ab, ohne deckenden Hintergrund (die
+  // Huellkurve scheint durch). Rechts weggeschnitten wird alles jenseits
+  // des Abstands, min. 0 (max() in CSS, denn die Chipbreite kennt nur der
+  // Browser). Zwischen zwei laufenden Chips ist der Abstand konstant, also
+  // aendert sich der Wert nur an den Raendern (Klemmung bei JETZT und
+  // rechts) - und nur dann wird geschrieben.
+  for (const chip of chips.values()) {
+    const clip = chip.next
+      ? "inset(0 max(0px, 100% - " + Math.max(0, chip.next.x - chip.x).toFixed(0)
+        + "px + .25em) 0 0)"
+      : "";
+    if (clip !== chip.clipText) { chip.clipText = clip; chip.el.style.clipPath = clip; }
   }
 
   // Dieselbe Formel, dieselbe Uhr, derselbe Horizont wie die Chips: ein
@@ -1832,9 +1904,111 @@ function animate() {
     const x = (NOW_PCT + Math.min(frac, 1.15) * (RIGHT_PCT - NOW_PCT)) / 100 * laneW;
     tick.el.style.transform = "translateX(" + x.toFixed(1) + "px)";
   }
+
+  drawWave(now, dt);
 }
 
-window.addEventListener("resize", () => { laneW = 0; });
+window.addEventListener("resize", () => { laneW = 0; waveSize.w = 0; });
+if (window.ResizeObserver)
+  new ResizeObserver(() => { waveSize.w = 0; }).observe($("lane"));
+
+// Die Huellkurve zeichnen. x wie bei Chips und Ticks, nur dass die
+// Vergangenheit nicht bei JETZT gestaut wird, sondern links weiterlaeuft -
+// eine Kurve hat keinen Onset, den man festhalten muesste. Zwei Flaechen
+// uebereinander: Mix blass, Tiefband etwas kraeftiger, beide dunkelgrau
+// vom Boden der Spur.
+// Der Spitzenwert-Folger normiert die Hoehe: sofort hoch, praktisch nie
+// runter (1 % je Sekunde, halbiert erst nach gut einer Minute). Ein
+// schnelleres Abklingen liess die Kurve an leisen Stellen wieder auf volle
+// Hoehe springen - das sah aus wie ein Anschlag, war aber keiner. Neu
+// justiert wird beim naechsten Song: dessen lauteste Stelle hebt den
+// Spitzenwert sofort, und ist er leiser, loest die Pause davor den Reset aus -
+// ist das ganze sichtbare Fenster (~4 s) laenger als WAVE_QUIET_RESET s
+// praktisch still, faengt der Folger bei null an.
+const WAVE_RELEASE = 0.01;       // Anteil des Spitzenwerts, der je Sekunde abklingt
+const WAVE_QUIET_FRAC = 0.03;    // "still": Fenstermaximum unter 3 % des Spitzenwerts
+const WAVE_QUIET_RESET = 2.0;    // Sekunden Stille im Fenster bis zum Reset
+let waveQuiet = 0;               // Sekunden, die das Fenster schon still ist
+function drawWave(now, dt) {
+  const canvas = $("wave");
+  if (!wellenform || now === null || !huellkurve || !huellkurve.full.length) {
+    if (waveSize.w) canvas.getContext("2d").clearRect(0, 0, waveSize.w, waveSize.h);
+    wavePeak.full = wavePeak.bass = 0; waveQuiet = 0;
+    return;
+  }
+  const lane = $("lane");
+  const dpr = window.devicePixelRatio || 1;
+  if (!waveSize.w || waveSize.dpr !== dpr) {
+    waveSize = { w: Math.round(lane.clientWidth * dpr),
+                 h: Math.round(lane.clientHeight * dpr), dpr };
+    canvas.width = waveSize.w; canvas.height = waveSize.h;
+  }
+  const { w, h } = waveSize;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, w, h);
+
+  const { t0, dt: step, full, bass } = huellkurve;
+  const xOf = t => (NOW_PCT + (t - now) / horizon * (RIGHT_PCT - NOW_PCT)) / 100 * w;
+  // Spitzenwert-Folger: sofort hoch, sehr langsam runter (s. oben).
+  const decay = Math.max(0, 1 - WAVE_RELEASE * dt);
+  const maxima = {};
+  for (const k of ["full", "bass"]) {
+    let m = 0;
+    for (const v of huellkurve[k]) if (v > m) m = v;
+    maxima[k] = m;
+    wavePeak[k] = Math.max(m, wavePeak[k] * decay);
+  }
+  // Pause zwischen zwei Songs: das Fenster ist still -> Folger auf null,
+  // damit sich der naechste Song von vorn normiert, auch wenn er leiser ist.
+  waveQuiet = maxima.full < WAVE_QUIET_FRAC * wavePeak.full ? waveQuiet + dt : 0;
+  if (waveQuiet >= WAVE_QUIET_RESET) {
+    wavePeak.full = maxima.full; wavePeak.bass = maxima.bass; waveQuiet = 0;
+  }
+  // Hoechster Ausschlag: GENAU bis an die Grundlinie der grossen Buchstaben
+  // des Chips - ein lauter Basston reicht bis an den Akkordnamen, nicht nur
+  // bis unter den Countdown. Gemessen wird die Zeile mit der grossen Schrift
+  // (normal der Name, invertiert die Stufe): die untere der beiden Zeilen,
+  // minus den Unterlaengen-Raum der Zeilenbox (~0,2 em). Einmal messen,
+  // gecacht je Spurhoehe und body-Klassen (Stufen an/aus/invertiert
+  // aendern die Chiphoehe). Ohne Chip bleibt der alte Wert bzw. ein
+  // Schaetzwert.
+  const topKey = h + "|" + document.body.className;
+  if (waveTop.key !== topKey) {
+    const chip = chips.values().next().value;
+    if (chip) {
+      const laneTop = lane.getBoundingClientRect().top;
+      let baseline = 0;
+      for (const el of chip.el.querySelectorAll(".cname, .degree")) {
+        if (!el.textContent) continue;
+        const r = el.getBoundingClientRect();
+        const b = r.bottom - laneTop - 0.2 * parseFloat(getComputedStyle(el).fontSize);
+        if (b > baseline) baseline = b;
+      }
+      if (baseline > 0)
+        waveTop = { px: Math.max(0.15 * h, h - baseline * dpr), key: topKey };
+    } else if (!waveTop.px) waveTop.px = 0.45 * h;
+  }
+  const top = waveTop.px;
+  // TEST 1: nur als Linie statt gefuellter Flaeche (zum Rueckbau: fill()
+  // mit closePath/fillStyle/fill wiederherstellen, Farben #9aa3ad14/#9aa3ad2e).
+  const line = (werte, peak, farbe, breite) => {
+    if (!(peak > 0)) return;
+    ctx.beginPath();
+    for (let i = 0; i < werte.length; i++) {
+      const x = xOf(t0 + i * step);
+      const y = h - Math.min(werte[i] / peak, 1) * top;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = farbe;
+    ctx.lineWidth = breite * dpr;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+  };
+  // TEST 2: in Blau (Akzent der Seite) statt Grau (#9aa3ad40 / #9aa3ad80).
+  // TEST 3: im Bass-Modus nur das Tiefband, der Mix entfaellt.
+  if (instrument !== "bass") line(full, wavePeak.full, "#6ea8ff40", 1);
+  line(bass, wavePeak.bass, "#6ea8ff90", 1.5);
+}
 
 // Aendert sich die Schreibweise, muss ALLES neu geschrieben werden, was schon
 // dasteht - der grosse Akkord und jeder Chip auf dem Laufband. Beide cachen
@@ -1936,6 +2110,14 @@ function setzeTaktstriche(an) {
   if (!an) { for (const tick of ticks.values()) tick.el.remove(); ticks.clear(); }
 }
 
+function setzeWellenform(an) {
+  wellenform = an;
+  try { localStorage.setItem(WAVE_KEY, an ? "on" : "off"); } catch (e) {}
+  for (const opt of document.querySelectorAll(".opt[data-wave]"))
+    opt.setAttribute("aria-checked", String((opt.dataset.wave === "on") === an));
+  document.body.classList.toggle("nowave", !an);
+}
+
 function setzeStufen(modus) {
   if (modus !== "off" && modus !== "invert") modus = "on";   // auch Altbestand
   stufenModus = modus;
@@ -2015,6 +2197,7 @@ function dialog(offen) {
 function apply(state) {
   events = state.committed || [];
   beats = state.beats || [];
+  huellkurve = state.envelope || null;
   // Sichtbarer Vorlauf = Commit-Grenze; etwas Rand, damit ein frisch
   // committetes Event am rechten Rand einsteigt statt darauf.
   horizon = Math.max(1.5, (state.frontier != null
@@ -2172,6 +2355,7 @@ for (const opt of document.querySelectorAll(".opt"))
     else if (opt.dataset.inst) setzeInstrument(opt.dataset.inst);
     else if (opt.dataset.fret) setzeGriffbrett(opt.dataset.fret === "on");
     else if (opt.dataset.beats) setzeTaktstriche(opt.dataset.beats === "on");
+    else if (opt.dataset.wave) setzeWellenform(opt.dataset.wave === "on");
     else if (opt.dataset.degrees) setzeStufen(opt.dataset.degrees);
     else if (opt.dataset.keypin) setzeKeyPin(null);
     else if (opt.dataset.control)
@@ -2251,6 +2435,7 @@ setzeInstrument(instrument);   // gespeicherte Wahl anwenden und markieren
 setzeModus(modus);
 setzeGriffbrett(griffbrettAn);
 setzeTaktstriche(taktstriche);
+setzeWellenform(wellenform);
 setzeStufen(stufenModus);
 setzeKeyPin(keyPin);           // zeichnet auch den Picker (mit/ohne Pin)
 zeigeKontrollgitarre(false);
@@ -2283,7 +2468,17 @@ if (new URLSearchParams(location.search).has("demo")) {
     // Die Tonart faellt erst nach ein paar Sekunden - wie im echten Betrieb.
     const key = t < 8 ? null
       : { tonic: "F", minor: false, acc: "flat", label: "F-Dur" };
-    apply({ t, frontier: t + 2, committed: list, beats, key });
+    // Huellkurve: Viertel-Anschlaege mit Abklingen (Tiefband), dazu ein
+    // Achtel-Puls im Mix - von einer Sekunde hinter JETZT bis zum Rand.
+    const dt = 0.0125, t0 = Math.max(0, Math.floor((t - 1) / dt) * dt);
+    const full = [], bass = [];
+    for (let tt = t0; tt <= t + 4; tt += dt) {
+      const q = (tt % 0.5) / 0.5, e = (tt % 0.25) / 0.25;
+      bass.push(0.02 + 0.3 * Math.exp(-q * 5) * (Math.floor(tt / 0.5) % 2 ? 0.6 : 1));
+      full.push(0.12 + 0.25 * Math.exp(-e * 8) + 0.1 * Math.exp(-q * 6));
+    }
+    apply({ t, frontier: t + 2, committed: list, beats, key,
+            envelope: { t0, dt, full, bass } });
   }, 250);
   $("dot").classList.add("on");
 } else {
