@@ -62,7 +62,7 @@ Not verified on real hardware: the Windows fixes were run against the test
 doubles only, and the page fixes in Node, not in a browser. What the review
 found and did not fix is listed in the same document.
 
-### Bass stem instead of a low-pass (prototype)
+### Bass stem instead of a low-pass
 
 The low band showed every kick drum hit as a bass attack — the kick sits at
 50–100 Hz, right inside the bass, and no filter can tell them apart. The bass
@@ -80,8 +80,9 @@ leakage (correlation of the residual with the drum stem) drops from 0.59
 to 0.13. New module `stems.py`, model `data/umxhq_bass_int8.onnx`,
 reproduction in `tests/reference/export_umx_bass.py` and
 `messung_bass_stem.py`. Without onnxruntime or the model, the low band is
-used as before. The rehearsal tests of 2026-11-09/10 ran without the stem;
-the separated curve itself has not been on the rehearsal-room PC yet.
+used as before. Tried in the rehearsal room (2026-11-10) and kept: the
+separated curve runs alongside the chord and beat models on the
+rehearsal-room PC.
 
 Whether the same stem should also feed the bass *note* was measured and
 answered no (`docs/exploration/bass-stem-tonerkennung.md`): on 193
