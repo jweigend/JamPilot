@@ -3,6 +3,8 @@
 **Play any song on your computer. JamPilot shows you — and your whole band —
 the chords, seconds before you hear them.**
 
+**Website: [jweigend.github.io/JamPilot](https://jweigend.github.io/JamPilot/)**
+
 [**▶ Watch the 60-second demo**](https://www.youtube.com/watch?v=zSepTG2ZgY0) ·
 [Quick teaser (Short)](https://www.youtube.com/shorts/y1gzAMFe7cQ)
 
