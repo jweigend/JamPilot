@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JamPilot — jam along with anything, in real time</title>
+<meta name="description" content="Play any song on your computer. JamPilot shows you and your whole band the chords, seconds before you hear them. Free, open source, fully local — for Windows, Linux and macOS.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<meta property="og:type" content="website">
+<meta property="og:title" content="JamPilot — jam along with anything, in real time">
+<meta property="og:description" content="Play any song on your computer. JamPilot shows you and your whole band the chords, seconds before you hear them.">
+<meta property="og:image" content="https://jweigend.github.io/JamPilot/img/teaser.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="nav">
+  <a class="brand" href="#top">
+    <img src="mark.png" width="28" height="31" alt="">
+    <span>JamPilot</span>
+  </a>
+  <nav aria-label="Sections">
+    <a href="#how">How it works</a>
+    <a href="#instruments">Instruments</a>
+    <a href="#band">The band</a>
+    <a href="#download">Download</a>
+    <a href="https://github.com/jweigend/JamPilot" rel="noopener">GitHub</a>
+  </nav>
+</header>
+
+<main id="top">
+
+<section class="hero">
+  <div class="hero-text">
+    <p class="eyebrow">Free · open source · runs on your own machine</p>
+    <h1>Jam along with anything. <span class="accent">In real time.</span></h1>
+    <p class="lead">Play any song on your computer — Spotify, YouTube, an MP3 on
+      your disk. JamPilot shows you, and your whole band, the chords
+      <strong>seconds before you hear them</strong>.</p>
+    <div class="cta">
+      <a class="btn primary" href="#download" id="heroDownload">Download JamPilot</a>
+      <a class="btn ghost" href="https://www.youtube.com/watch?v=zSepTG2ZgY0" rel="noopener">Watch the 60-second demo</a>
+    </div>
+    <p class="fine">Windows · Linux · macOS — no account, no cloud, nothing uploaded.</p>
+  </div>
+
+  <figure class="stage-wrap">
+    <div class="stage" id="stage" aria-hidden="true">
+      <div class="st-top">
+        <span class="st-dot"></span><span class="st-brand">JAMPILOT</span>
+        <span class="st-key">C major · <b>♯</b></span>
+      </div>
+      <div class="st-now">
+        <span class="st-deg" id="stDeg">1</span>
+        <span class="st-chord" id="stChord">C</span>
+      </div>
+      <div class="st-lane" id="stLane">
+        <canvas id="stCanvas"></canvas>
+        <div class="st-chips" id="stChips"></div>
+        <div class="st-line"></div>
+        <span class="st-nowlabel">NOW</span>
+      </div>
+    </div>
+    <figcaption>The big chord is what you hear right now. The lane below is what
+      is coming, running towards the <span class="mono">NOW</span> line —
+      each chord with its countdown.</figcaption>
+  </figure>
+</section>
+
+<section class="pitch">
+  <p><strong>Ever wanted to just grab your instrument and play along with
+    whatever is coming out of your computer?</strong> The live take nobody ever
+    wrote a chord sheet for, the B-side no tutorial will ever cover. Not “look
+    it up, learn it, come back next week”. <em>Now.</em></p>
+  <p class="big">No more googling for chords. Press play, and play.</p>
+</section>
+
+<section id="how" class="block">
+  <h2>The delay is the feature</h2>
+  <div class="split">
+    <div class="prose">
+      <p>JamPilot taps your system audio, holds it back for a few seconds, and
+        plays it to your speakers <strong>delayed but otherwise
+        untouched</strong>. What it <em>analyses</em> is the fresh signal — the
+        part you have not heard yet.</p>
+      <p>So the chord is on your screen before it reaches your ears. Five
+        seconds of delay is the default: about two seconds of lead on the lane,
+        long enough to see a change coming, short enough that you still feel
+        like you are playing <em>with</em> the record.</p>
+      <p class="quiet">You do not notice the delay while playing: what you hear
+        and what you see are in sync, alone or with the whole room on the same
+        speakers.</p>
+    </div>
+    <div class="flow" role="img" aria-label="Signal flow: whatever plays on your computer goes into a buffer and reaches your speakers a few seconds later, unchanged. The fresh signal is analysed at once, so the chords appear on screen about two seconds ahead.">
+      <div class="flow-row">
+        <div class="node">Whatever is playing<small>Spotify, YouTube, MP3 …</small></div>
+        <div class="arrow" aria-hidden="true"></div>
+        <div class="node">Held back<small>5 seconds</small></div>
+        <div class="arrow" aria-hidden="true"></div>
+        <div class="node">Your speakers<small>delayed, unchanged</small></div>
+      </div>
+      <div class="flow-branch" aria-hidden="true"></div>
+      <div class="flow-row second">
+        <div class="node hot">Chord analysis<small>hears it first</small></div>
+        <div class="arrow hot" aria-hidden="true"></div>
+        <div class="node hot">Your screen<small>about 2 s ahead</small></div>
+      </div>
+    </div>
+  </div>
+  <p class="punch">You stop chasing the song. You see what is coming and play it.</p>
+</section>
+
+<section id="see" class="block">
+  <h2>Built to be read from across the room</h2>
+  <p class="sub">In a glance, while both your hands are busy.</p>
+  <div class="grid">
+    <article>
+      <h3>The big chord</h3>
+      <p>What is sounding right now, in sync with your speakers — not what the
+        analysis is chewing on.</p>
+    </article>
+    <article>
+      <h3>The lane</h3>
+      <p>The future, moving towards the <span class="mono">NOW</span> line. A
+        chord flips to the centre in exactly the frame its chip touches the
+        line.</p>
+    </article>
+    <article>
+      <h3>Bar lines</h3>
+      <p>A faint tick per beat, the downbeat a little taller. The chip says
+        <em>what</em> comes, the ticks say <em>where in the bar</em>.</p>
+    </article>
+    <article>
+      <h3>The waveform underneath</h3>
+      <p>The music’s own attacks under the chips. Where a chord is held for
+        bars, the peaks show you where the bass hits — before you hear them.</p>
+    </article>
+    <article>
+      <h3>Key and scale degrees</h3>
+      <p>JamPilot works out the key, spells every chord to match (B♭, not A♯)
+        and writes Nashville numbers above the names. Know the key? Pin it.</p>
+    </article>
+    <article>
+      <h3>Record mode</h3>
+      <p>Missed a change? Press <span class="mono">R</span> and step back and
+        forth chord by chord, like a CD player — then return to live.</p>
+    </article>
+  </div>
+</section>
+
+<section id="instruments" class="block">
+  <h2>Your instrument, not just a chord name</h2>
+  <p class="sub">Every device picks its own view — your phone and your laptop may disagree.</p>
+  <div class="tabs" role="tablist" aria-label="Instrument views">
+    <button role="tab" id="tab-chords" aria-controls="panel-chords" aria-selected="true">Chords</button>
+    <button role="tab" id="tab-bass" aria-controls="panel-bass" aria-selected="false" tabindex="-1">Bass</button>
+    <button role="tab" id="tab-guitar" aria-controls="panel-guitar" aria-selected="false" tabindex="-1">Guitar</button>
+    <button role="tab" id="tab-keys" aria-controls="panel-keys" aria-selected="false" tabindex="-1">Keyboard</button>
+  </div>
+  <div class="panels">
+    <div role="tabpanel" id="panel-chords" aria-labelledby="tab-chords">
+      <img src="img/hero.png" width="1920" height="1200" loading="lazy" alt="The display: the audible chord G large in the centre with its scale degree 5 above, the coming chords F and C in the lane below.">
+      <p><strong>Chords.</strong> The audible chord, big, with its scale degree
+        above. <span class="mono">F</span> is about to arrive,
+        <span class="mono">C</span> follows in 0.8 seconds — enough time to get
+        your hand there.</p>
+    </div>
+    <div role="tabpanel" id="panel-bass" aria-labelledby="tab-bass">
+      <img src="img/bass.png" width="1920" height="1200" loading="lazy" alt="Bass view: Cm sounding, a four-string neck top-left showing the move from C to A flat, A flat next in the lane.">
+      <p><strong>Bass.</strong> The chord says what the band plays; it does not
+        say what the bass plays. JamPilot <em>measures</em> the bass note
+        (<span class="mono">C/E</span>) and shows it on a four-string neck — in
+        the octave the bassist is actually in, with the next note already
+        marked.</p>
+    </div>
+    <div role="tabpanel" id="panel-guitar" aria-labelledby="tab-guitar">
+      <img src="img/guitar.png" width="1920" height="1200" loading="lazy" alt="Guitar view: the fretboard diagram for G minor as a barre chord at the 3rd fret top-left, F coming up in the lane.">
+      <p><strong>Guitar.</strong> A fretboard diagram for the sounding chord.
+        The shape is chosen with the lead: a look-ahead over the coming chords
+        picks the path with the least hand travel, so you stay in one position
+        instead of jumping across the neck.</p>
+    </div>
+    <div role="tabpanel" id="panel-keys" aria-labelledby="tab-keys">
+      <img src="img/keys.png" width="1920" height="1200" loading="lazy" alt="Keyboard view: A flat major seven as pressed keys on two octaves, G minor seven next in the lane.">
+      <p><strong>Keyboard.</strong> The chord as pressed keys on two octaves,
+        in the inversion that keeps your right hand in place — with the
+        measured bass marked for the left.</p>
+    </div>
+  </div>
+</section>
+
+<section id="band" class="block band">
+  <div class="split">
+    <div class="prose">
+      <h2>One computer listens. The whole band reads.</h2>
+      <p>Scan the QR code with any phone or tablet on the same Wi-Fi and the
+        same synced display is on every music stand in the room — each set to
+        its own instrument.</p>
+      <p>No app, no account: it is just a browser page. The computer does the
+        listening; every other device is a screen.</p>
+    </div>
+    <img class="shot small" src="img/connect-your-phone.png" width="336" height="272" loading="lazy" alt="The QR code in the corner of the display, labelled: Connect your phone.">
+  </div>
+</section>
+
+<section class="block">
+  <h2>Two things worth knowing before you start</h2>
+  <p class="sub">Because you would find them out anyway.</p>
+  <div class="grid two">
+    <article>
+      <h3>You hear the song a few seconds late</h3>
+      <p>That is not a glitch, it is the deal: those seconds are what gets the
+        chord onto your screen before your ears get the music.</p>
+    </article>
+    <article>
+      <h3>Harmony, not transcription</h3>
+      <p>JamPilot names the harmony — triads, sevenths, sus, dim, aug, 6 — and
+        shows where to play it. It does not transcribe riffs, melodies or solos
+        note by note, and it folds jazz extensions into their core chord. Pop,
+        rock, blues and folk are its home turf; recognition is very good, not
+        perfect.</p>
+    </article>
+  </div>
+</section>
+
+<section id="download" class="block download">
+  <h2>Download</h2>
+  <p class="sub">Nothing to install. <span id="relLine">The latest release, straight from GitHub.</span></p>
+  <div class="cards">
+    <article class="card" data-os="windows">
+      <h3>Windows</h3>
+      <p class="status">x86_64 · verified on Windows 10</p>
+      <a class="btn primary" data-asset="windows" href="https://github.com/jweigend/JamPilot/releases/latest" rel="noopener">Download for Windows</a>
+      <ol>
+        <li>Unzip, then double-click <span class="mono">JamPilot.cmd</span>.</li>
+        <li>SmartScreen asks once: <em>More info → Run anyway</em> (the program is not code signed).</li>
+        <li>Allow the firewall for private networks, or the QR code will not work.</li>
+      </ol>
+    </article>
+    <article class="card" data-os="linux">
+      <h3>Linux</h3>
+      <p class="status">x86_64 · the reference platform</p>
+      <a class="btn primary" data-asset="linux" href="https://github.com/jweigend/JamPilot/releases/latest" rel="noopener">Download for Linux</a>
+      <ol>
+        <li>Unpack the archive.</li>
+        <li>Once, from a terminal: <span class="mono">./jampilot install</span></li>
+        <li>From then on it is in your app menu.</li>
+      </ol>
+    </article>
+    <article class="card" data-os="macos">
+      <h3>macOS</h3>
+      <p class="status">Apple Silicon · audio setup by hand</p>
+      <a class="btn primary" data-asset="macos" href="https://github.com/jweigend/JamPilot/releases/latest" rel="noopener">Download for macOS</a>
+      <ol>
+        <li>Unpack, double-click <span class="mono">JamPilot.app</span>.</li>
+        <li>macOS blocks unsigned apps: <em>System Settings → Privacy &amp; Security → Open Anyway</em>.</li>
+        <li>Not one-click yet: it needs BlackHole and two flags —
+          <a href="https://github.com/jweigend/JamPilot#macos" rel="noopener">the steps</a>.</li>
+      </ol>
+    </article>
+  </div>
+  <p class="note">The very first start takes up to a minute — it unpacks and
+    builds its caches. Nothing has crashed; every start after that takes
+    seconds.</p>
+  <p class="more">
+    <a href="https://github.com/jweigend/JamPilot/releases" rel="noopener">All releases</a>
+    <a href="https://sourceforge.net/projects/jampilot/" rel="noopener">Also on SourceForge</a>
+    <a href="https://github.com/jweigend/JamPilot#get-it-running" rel="noopener">Run from source</a>
+    <a href="https://github.com/jweigend/JamPilot/blob/main/CHANGELOG.md" rel="noopener">What changed</a>
+  </p>
+</section>
+
+<section class="block open">
+  <h2>Local, open, and built to be played with</h2>
+  <div class="grid">
+    <article>
+      <h3>It all happens on your machine</h3>
+      <p>No account, no cloud, nothing uploaded anywhere. Open source under the
+        MIT license.</p>
+    </article>
+    <article>
+      <h3>How it works, with the numbers</h3>
+      <p>Why recognition works the way it does, and why it can never be 100 %:
+        <a href="https://github.com/jweigend/JamPilot/blob/main/HOW-IT-WORKS.md" rel="noopener">How it works</a>
+        · <a href="https://github.com/jweigend/JamPilot/blob/main/UNDER-THE-HOOD.md" rel="noopener">Under the hood</a></p>
+    </article>
+    <article>
+      <h3>Tell us about your rehearsal room</h3>
+      <p>If you rehearse regularly, your feedback is worth more than a star:
+        <a href="https://github.com/jweigend/JamPilot/issues" rel="noopener">Issues</a>
+        · <a href="https://github.com/jweigend/JamPilot/discussions" rel="noopener">Discussions</a></p>
+    </article>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p>JamPilot is MIT-licensed. The chord recogniser is a NumPy port of the
+    <a href="https://github.com/jayg996/BTC-ISMIR19" rel="noopener">BTC model</a>
+    (Park et al., ISMIR 2019); bar lines come from Beat This! (ISMIR 2024).</p>
+  <p><a href="https://github.com/jweigend/JamPilot" rel="noopener">github.com/jweigend/JamPilot</a></p>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>
