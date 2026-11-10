@@ -237,6 +237,56 @@ def _beats_pruefen(rng) -> tuple[bool | None, str]:
                 f"{60 / interval:.0f} bpm ({model.provider})")
 
 
+def _akkordmodell_pruefen() -> tuple[bool, str]:
+    """Das Akkordmodell aus dem Paket laden und die Grundstellungen erkennen.
+
+    Alles oberhalb prueft den Template-Pfad (chords.py, chroma.py) - und der
+    zeigt seit 1.1.0 keinen einzigen Akkord mehr an. Was live laeuft, ist der
+    BTC-Transformer (btc.py), und den fasste der Selbsttest nicht an: Das
+    Modul wurde nicht einmal importiert. Ein Bundle ohne
+    data/btc_large_voca.npz bestand also den einzigen Test, den der Build
+    faehrt, und fiel erst beim Nutzer auf, im Warmup von `run` - dieselbe
+    Fehlersorte wie bei der fehlenden HTML-Datei (_webseite_pruefen), nur
+    beim Kernstueck (Review 2026-11).
+
+    Geprueft wird der ganze Weg, den auch der Live-Pfad geht: Log-CQT ->
+    Modell -> Labels, auf denselben synthetischen Akkorden wie oben, am Stueck
+    hintereinander. Verlangt werden Grundton und Geschlecht jedes Akkords -
+    nicht die Vierklang-Erweiterung: Ein obertonreiner Sinus-C7 ohne
+    Schlagzeug ist fuer das Modell ein C, und das ist keine Aussage ueber das
+    Bundle.
+    """
+    from collections import Counter
+
+    try:
+        from .btc import (BTC_FRAME_SECONDS, LABEL_NAMES, BTCModel,
+                          features_from_audio)
+
+        audio = np.concatenate([_chord(notes) for _, notes in TEST_CASES])
+        labels = BTCModel().predict(features_from_audio(audio, SAMPLERATE))
+    except Exception as exc:
+        return False, f"FAILED to load or run: {exc}"
+
+    def familie(name: str) -> tuple[int | None, bool]:
+        rest = name[2:] if name[1:2] == "#" else name[1:]
+        return (bassmodul.chord_root(name),
+                rest.startswith("m") and not rest.startswith("maj"))
+
+    erkannt, treffer = [], 0
+    for i, (erwartet, _) in enumerate(TEST_CASES):
+        # Die Mitte des Abschnitts: An den Raendern liegt der Nachbarakkord
+        # im selben CQT-Fenster.
+        von = int((i * CHORD_SECONDS + 0.4) / BTC_FRAME_SECONDS)
+        bis = int(((i + 1) * CHORD_SECONDS - 0.4) / BTC_FRAME_SECONDS)
+        namen = Counter(LABEL_NAMES[int(lab)] for lab in labels[von:bis])
+        name = namen.most_common(1)[0][0] if namen else "?"
+        erkannt.append(name)
+        treffer += familie(name) == familie(erwartet)
+    ok = treffer == len(TEST_CASES)
+    return ok, (f"{'ok' if ok else 'FAILED'} - {treffer}/{len(TEST_CASES)} "
+                f"chords ({' '.join(erkannt)})")
+
+
 def _webseite_pruefen() -> bool:
     """Sind die Paketdaten der Weboberflaeche da? Der Import beantwortet es.
 
@@ -354,10 +404,15 @@ def run() -> bool:
     else:
         print("  Web display: FAILED - a data file is missing from this build")
 
+    # Das Akkordmodell - das, was live tatsaechlich die Akkorde liefert.
+    modell, modell_text = _akkordmodell_pruefen()
+    print(f"  Chord model: {modell_text}")
+
     # Das Beat-Modell: laedt es aus dem Paket, und trifft es den Puls?
     takt, takt_text = _beats_pruefen(rng)
     print(f"  Beat model: {takt_text}")
 
     return (scores["cqt_clean"] == total and scores["cqt_real"] >= total - 1
             and inv["clean"] == inv_total and inv["noisy"] >= inv_total - 1
-            and fenster is not False and seite and takt is not False)
+            and fenster is not False and seite and modell
+            and takt is not False)
