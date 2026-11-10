@@ -779,7 +779,14 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     from .chords import SILENCE_RMS
     from .tonality import TwoScaleKeyEstimator, spell
 
-    sr = args.samplerate
+    # Die Rate des STREAMS, nicht die der Kommandozeile. Beide sind fast immer
+    # dieselbe Zahl - ausser auf dem Windows-Mute-Weg: Dort gibt das Mixformat
+    # des Umwegs die Rate vor (engine.start), und --samplerate bleibt bei
+    # seiner Vorgabe 48000. Mit der falschen Rate gerechnet, liegt bei einem
+    # 44,1-kHz-Endpunkt jeder Akkord anderthalb Halbtoene zu hoch (aus C wird
+    # C#), und die Zeitachse der Analyse laeuft der des Streams um 9 % davon.
+    # Attrappen ohne eigene Rate (Tests) bekommen die der Argumente.
+    sr = getattr(loop, "samplerate", None) or args.samplerate
     window_frames = int(round(BTC_LIVE_WINDOW * sr))
     hop_frames = int(round(ANALYSIS_HOP * sr))
     # Ein stilles Protokoll, wenn keine Engine dahintersteht (analyze, Tests).
