@@ -498,6 +498,17 @@ def beenden_bei_signal(app) -> "QTimer":
        Zeitgeber, der nichts tut, gibt ihm alle 200ms die Gelegenheit. (Das
        Fenster hat ohnehin einen - aber sich darauf zu verlassen, hiesse, dass
        ein Aufraeumen dort hier still den Notausgang zumauert.)
+
+    3. app.quit() nicht IM Handler rufen, sondern einreihen. Qt 6 schliesst bei
+       quit() synchron die Fenster, closeEvent ruft engine.stop() - und der
+       Handler laeuft zwischen zwei beliebigen Bytecodes des Hauptthreads, also
+       auch mitten in engine.start(), das der Schalter oder der Autostart
+       gerade ausfuehrt. Dann wartet stop() auf das Engine-Lock, das derselbe
+       Thread in start() haelt: Der Prozess haengt, mit dem Null-Sink als
+       Standardausgang, und geht nur noch mit kill -9 (Review 2026-11,
+       nachgestellt mit einem SIGTERM waehrend des Aufbaus). Ueber die
+       Ereignisschlange kommt das Beenden erst dran, wenn start() zurueck
+       ist - und findet dann einen Zustand vor, den stop() abbauen kann.
     """
     import signal
 
@@ -511,7 +522,7 @@ def beenden_bei_signal(app) -> "QTimer":
     if hasattr(signal, "SIGHUP"):
         zeichen.append(signal.SIGHUP)
     for eines in zeichen:
-        signal.signal(eines, lambda *_: app.quit())
+        signal.signal(eines, lambda *_: QTimer.singleShot(0, app.quit))
 
     wecker = QTimer()
     wecker.timeout.connect(lambda: None)
