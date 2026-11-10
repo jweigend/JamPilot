@@ -80,7 +80,16 @@ leakage (correlation of the residual with the drum stem) drops from 0.59
 to 0.13. New module `stems.py`, model `data/umxhq_bass_int8.onnx`,
 reproduction in `tests/reference/export_umx_bass.py` and
 `messung_bass_stem.py`. Without onnxruntime or the model, the low band is
-used as before. Untested in the rehearsal room so far.
+used as before. The rehearsal tests of 2026-11-09/10 ran without the stem;
+the separated curve itself has not been on the rehearsal-room PC yet.
+
+Whether the same stem should also feed the bass *note* was measured and
+answered no (`docs/exploration/bass-stem-tonerkennung.md`): on 193
+Isophonics titles it finds more inversions and leaves fewer segments
+empty, but false slash chords rise three-and-a-half-fold (48 to 169, 94 of
+them fifths) and no blend recovers that — the stem hears the bass player,
+the annotation means the harmony, and the bass view wants the root, not
+the plucked note. The note detection stays on the mix.
 
 ## 1.4.2 — 2026-10-14
 
