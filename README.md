@@ -131,9 +131,10 @@ glance, while both your hands are busy:
   tick under it shows you where the bar does. The same beat grid pulls
   every chord change onto its nearest quarter note, which halves the timing
   error of the chips. Off in the gear menu if you hear the one yourself.
-- **The waveform under the lane** — the music's own attacks as two thin
-  blue lines: the whole mix, faint, and the low band (bass and chord root,
-  30–250 Hz) a little stronger; in bass view the low band alone. It decides
+- **The waveform under the lane** — the music's own attacks, drawn under
+  the chips: the whole mix as a pale blue area, hardly more than a hint,
+  and the low band (bass and chord root, 30–250 Hz) as a thin line on top —
+  blue, in bass view orange like the next note on the neck. It decides
   nothing. Where a chord is held for bars and the bass hits now and then,
   the chip cannot tell you which hits matter and which do not — the peaks
   show you where they are, and you take the ones you want. Because the

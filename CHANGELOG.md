@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## 1.5.0 — 2026-11-10
+
+The theme of this release: **what the chord name leaves out.** A chip says
+which chord; it does not say where the attacks fall while that chord is
+held, and it does not say in which octave the bass is playing. Both are
+now on screen, both read from the analysis that runs anyway, both judged
+in the rehearsal room. Around them, a read-through of the whole program
+that fixed faults at the edges — teardown, the Windows mute route, the page
+clock. Every number below is measured; the tables live in
+`tests/reference/README.md` and `docs/exploration/`.
 
 ### Waveform under the lane
 
@@ -31,6 +40,45 @@ back as a filled area, dark blue and almost transparent — a hint of
 context in every view, including bass view — with the bass as a thin line
 on top: orange in bass view (the fretboard's next-note colour), blue
 elsewhere. That is the form that stayed.
+
+### The bass neck shows the octave that is played
+
+Bass mode knew the pitch class only. Which position the neck showed — E on
+the open E string (`E1`), at the 7th fret of the A string (`E2`) or at the
+9th fret of the G string (`E3`) — was decided by the hand-path planner
+alone. That was often musically wrong: a bassist plays the verse high and
+the chorus low, or the other way round, and that change of register is a
+statement of the arrangement the planner cannot know.
+
+The octave is already in the analysis that runs anyway. The chord model's
+CQT starts at C1; its note bins C1–B3 are now kept unfolded, and one rule
+with one number reads them: the lowest octave whose bin reaches at least
+30 % of the strongest octave bin of that pitch class. Not the strongest
+bin — through amplifier and mix a bass fundamental is often weaker than
+its first overtone.
+
+Measured against pYIN on isolated bass tracks (*Echoes*, *Sailing to
+Philadelphia*; `tests/reference/messung_bass_oktave.py`): segment by
+segment through the whole chain the octave is right in 92 % and 98 % of
+the cases. The hand-path planner alone was at 72–73 % on the same events,
+and nearly always an octave too low. Live simulation on *Sailing*: 40 of
+40 events with a reference are right.
+
+An event now carries the pitch (`p`, MIDI, E1 = 28) next to the note `b`.
+Note and octave must be stable together before they are committed, and the
+same chord with the same note in another octave is an event of its own.
+The neck filters the string positions down to the measured pitch; the hand
+path only decides between positions of the *same* pitch (`E2` on the A
+string or on the D string), and the anchor in record mode still offers all
+four strings. `jampilot analyze` prints the octave too.
+
+In the rehearsal room (2026-10-14, *Sailing to Philadelphia*, bass): the
+neck makes clearly more sense with the measured register, and helps
+exactly where the line goes up. Deliberately not a goal: the same pitch
+often sits in two places (A1 as the open A string or at the 5th fret of
+the E string) — which one a bassist takes is their decision and is not in
+the signal. The weak spot is octave 3 (16 of 28 notes in *Echoes*), rare
+on a bass neck; details in `docs/exploration/lagenkorrekte-bassanzeige.md`.
 
 ### A review, and what it turned up
 
@@ -79,6 +127,15 @@ where the annotation means the harmony. Both are documented
 (`docs/exploration/bass-stem-huellkurve.md`, `bass-stem-tonerkennung.md`),
 the measurement scripts stay in `tests/reference/`, the code lives on in
 the branch `exploration-bass-stem`.
+
+### Smaller things
+
+- Two more explorations written up and dropped: detecting a re-strike of
+  the same chord from the chord's own energy
+  (`docs/exploration/anschlag-erkennung.md`), and porting the core to C or
+  Rust — the size of the bundle is librosa and Qt, not Python
+  (`docs/exploration/portierung-c-rust.md`).
+- 706 tests (1.4.2: 648).
 
 ## 1.4.2 — 2026-10-14
 
