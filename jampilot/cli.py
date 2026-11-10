@@ -614,12 +614,28 @@ def cmd_run(args):
     # Im Fenster reicht das NICHT: Dort entstuende die Ausnahme in einer
     # Qt-Verbindung, und PySide6 faengt sie ab und macht weiter. gui.py setzt die
     # Handler deshalb neu - siehe beenden_bei_signal().
+    #
+    # Und der Abbruch kommt genau EINMAL an. Wer sein Terminal schliesst,
+    # bekommt SIGHUP doppelt (von der Shell und vom Kernel, gemessen 0,3 ms
+    # auseinander), und wer ungeduldig ist, drueckt zweimal Strg+C. Das zweite
+    # Signal traf bisher den Abbau selbst: KeyboardInterrupt mitten in
+    # `finally: engine.stop()`, die Umleitung blieb halb stehen und der
+    # Null-Sink Standardausgang (Review 2026-11: 6 von 6 Laeufen). Deshalb
+    # stellt der erste Treffer alle drei Signale auf "ignorieren", BEVOR er
+    # wirft - und deshalb haengt auch SIGINT an diesem Handler: Pythons eigener
+    # wirft bei jedem Strg+C neu. Der Abbau ist das Eine, was zu Ende laufen
+    # muss; er ist durch Zeitlimits begrenzt (Thread 3 s, pactl 5 s je Aufruf).
+    abbruchsignale = [getattr(signal, name)
+                      for name in ("SIGINT", "SIGTERM", "SIGHUP")
+                      if hasattr(signal, name)]
+
     def _raise_interrupt(*_):
+        for zeichen in abbruchsignale:
+            signal.signal(zeichen, signal.SIG_IGN)
         raise KeyboardInterrupt
 
-    for zeichen in ("SIGTERM", "SIGHUP"):
-        if hasattr(signal, zeichen):
-            signal.signal(getattr(signal, zeichen), _raise_interrupt)
+    for zeichen in abbruchsignale:
+        signal.signal(zeichen, _raise_interrupt)
 
     # Die Waise eines abgestuerzten Laufs ZUERST, bevor irgendetwas unten
     # routing.backend() fragt: Die Antwort haengt am Zustand des Rechners, und

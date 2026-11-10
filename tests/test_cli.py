@@ -1292,3 +1292,17 @@ class TestStartOhneFenster:
         # _bericht_zur_quelle ist die erste Stelle, die routing.backend()
         # fragt. Die Antwort haengt am Zustand, den ein Absturz verbogen hat.
         assert anlauf == ["waisen", "bericht"]
+
+    def test_der_abbruch_kommt_genau_einmal_an(self, anlauf):
+        """Das zweite Signal traf den Abbau: KeyboardInterrupt mitten in
+        `finally: engine.stop()`, der Null-Sink blieb Standardausgang. Wer das
+        Terminal schliesst, bekommt SIGHUP doppelt."""
+        import signal
+
+        handler = signal.getsignal(signal.SIGTERM)
+        assert signal.getsignal(signal.SIGINT) is handler    # auch Strg+C
+        with pytest.raises(KeyboardInterrupt):
+            handler(signal.SIGTERM, None)
+        for name in ("SIGINT", "SIGTERM", "SIGHUP"):
+            if hasattr(signal, name):
+                assert signal.getsignal(getattr(signal, name)) is signal.SIG_IGN
