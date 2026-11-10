@@ -611,3 +611,29 @@ class TestAkkordspruenge:
         e._loop.recording = False
         e.seek_chord(-1)
         e._record.seek.assert_not_called()
+
+
+class TestSitzungswechselFuerDieAnzeige:
+    """An- und Abschalten muessen bei den Anzeigen ANKOMMEN. Die Webseite
+    bleibt offen, waehrend im Kontrollfenster geschaltet wird - und der neue
+    Stream zaehlt wieder ab null (Review 2026-11)."""
+
+    def test_start_meldet_die_neue_sitzung_als_frischen_zustand(self, args):
+        from jampilot.web import ChordBroadcaster
+
+        broadcaster = ChordBroadcaster()
+        # Der letzte Zustand der VORIGEN Sitzung: Akkorde, Position, gestoppt.
+        broadcaster.publish({"t": 3600.0, "committed": [{"at": 3599.0, "c": "G7"}],
+                             "running": False})
+        with patch("jampilot.delay_stream.DelayedLoopback") as Loop, \
+             patch("jampilot.cli._display_loop"):
+            Loop.return_value.muted = False
+            e = Engine(args, broadcaster=broadcaster)
+            e.start()
+            try:
+                # Frisch, nicht gemischt: nichts von vorher, und KEINE Position -
+                # die Seite stellt ihre Uhr erst mit dem ersten Analyse-Takt.
+                assert broadcaster._last_state == {"running": True}
+            finally:
+                e.stop()
+        assert broadcaster._last_state["running"] is False

@@ -486,6 +486,9 @@ function animate() {
   renderCurrent(now);
 }
 function apply(state) {
+  // Zustaende ohne Position (vor dem ersten Analyse-Takt, {running: true}
+  // beim Einschalten) stellen nur Schalter - diese Seite hat keine.
+  if (!Number.isFinite(state.t)) return;
   latestState = state;
   // Sprung im Mitschnitt: verwerfen und neu stellen, nicht sanft nachziehen.
   if ("epoch" in state && state.epoch !== epoch) {

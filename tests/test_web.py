@@ -661,3 +661,112 @@ class TestBassPlanerMitLage:
     def test_ohne_lage_wie_bisher(self):
         pfad = self._plan([{"pc": 2, "p": None}, {"pc": 7, "p": None}], {"s": 1, "f": 5})
         assert pfad[1] == {"s": 2, "f": 5}
+
+
+class TestSeiteAlsGanzes:
+    """Die Seite als Ganzes in Node (tests/seite_harness.js): das komplette
+    Skript in einer vm, mit DOM-Attrappe, stellbarer Uhr und einem
+    EventSource, dem der Test die Zustaende des Servers einzeln zustellt.
+
+    Die Fehler aus dem Review 2026-11 (docs/exploration/code-review-2026-11.md)
+    waren Zustandsfehler: Sie zeigen sich erst in einer FOLGE von Zustaenden.
+    Ohne Node wird uebersprungen.
+    """
+
+    VOLL = """
+      const voll = (t, extra = {}) => ({ t, frontier: t + 2, committed: [
+        { at: Math.floor(t) - 1, c: "C", b: "C", p: 36 },
+        { at: Math.floor(t) + 1, c: "F", b: "F", p: 41 }],
+        beats: [], envelope: null, key: null, muted: false,
+        control_guitar: false, recording: false, record_pending: false,
+        paused: false, epoch: 0, record_hint: null, ...extra });
+      const lauf = (p, t, n) => {
+        for (let i = 0; i < n; i++) { p.tick(250); t += 0.25; p.msg(voll(t)); p.frame(); }
+        return t; };
+    """
+
+    @classmethod
+    def _szenario(cls, js):
+        import json
+        import shutil
+        import subprocess
+        from pathlib import Path
+
+        if shutil.which("node") is None:
+            pytest.skip("kein node")
+        hier = Path(__file__).parent
+        seite = hier.parent / "jampilot" / "data" / "index.html"
+        kopf = (f"const {{ seite }} = require({json.dumps(str(hier / 'seite_harness.js'))});\n"
+                f"const p = seite({json.dumps(str(seite))});\n" + cls.VOLL)
+        out = subprocess.run(["node", "-e", kopf + js], capture_output=True,
+                             text=True, check=True)
+        return json.loads(out.stdout)
+
+    def test_ein_zustand_ohne_position_verstellt_die_uhr_nicht(self):
+        # Stummschalten zwischen Stream-Start und erstem Analyse-Takt: Der
+        # Server hat noch keinen Zustand, in den er mischen koennte, und
+        # schickt nur {muted: true}. Die Uhr wurde davon NaN - fuer immer.
+        s = self._szenario("""
+          p.open(); p.msg({ muted: true }); p.frame();
+          const davor = p.stand();
+          const t = lauf(p, 2.0, 8);
+          const s = p.stand();
+          console.log(JSON.stringify({ davor: [davor.offset, davor.idle],
+            fehler: s.now - t, hoerbar: s.hoerbar && s.hoerbar.c }));
+        """)
+        assert s["davor"] == [None, "Starting up"]
+        assert abs(s["fehler"]) < 0.05
+        assert s["hoerbar"] == "C"
+
+    def test_abgeschaltet_steht_stopped_da_und_kein_alter_akkord(self):
+        # engine.stop() mischt `running: false` in den letzten Zustand - samt
+        # den Akkorden von vorher. Die Seite zeigte den letzten unbegrenzt als
+        # laufend, mit gruenem Punkt.
+        s = self._szenario("""
+          p.open(); const t = lauf(p, 600.0, 20);
+          p.msg({ ...voll(t, { recording: true }), running: false });
+          p.tick(60000); p.frame();
+          const s = p.stand();
+          console.log(JSON.stringify({ idle: s.idle, sichtbar: s.idleSichtbar,
+            events: s.events.length, recording: s.recording, offset: s.offset }));
+        """)
+        assert s == {"idle": "Stopped", "sichtbar": True, "events": 0,
+                     "recording": False, "offset": None}
+
+    def test_wieder_einschalten_stellt_die_uhr_sofort_neu(self):
+        # Der neue Stream zaehlt wieder ab null, der Epoch steht wieder auf 0.
+        # Der Minimum-Filter hielt die alte Zeitrechnung 10-20 s lang fest.
+        s = self._szenario("""
+          p.open(); let t = lauf(p, 3600.0, 60);
+          p.msg({ ...voll(t), running: false }); p.frame();
+          p.tick(5000); p.msg({ running: true }); p.frame();
+          const start = p.stand().idle;
+          t = lauf(p, -3.0, 2);
+          console.log(JSON.stringify({ start, fehler: p.stand().now - t }));
+        """)
+        assert s["start"] == "Starting up"
+        assert abs(s["fehler"]) < 0.05
+
+    def test_neustart_des_programms_bei_offener_seite(self):
+        # Kein Stopp-Zustand, kein {running: true} gesehen (Verbindung war
+        # weg): Die Seite erkennt die neue Sitzung allein daran, dass die
+        # Position rueckwaerts laeuft, ohne dass ein Epoch es ansagt.
+        s = self._szenario("""
+          p.open(); let t = lauf(p, 3600.0, 60);
+          p.error(); p.tick(8000); p.open();
+          t = lauf(p, -3.0, 2);
+          console.log(JSON.stringify({ fehler: p.stand().now - t }));
+        """)
+        assert abs(s["fehler"]) < 0.05
+
+    def test_eine_pause_ist_kein_sitzungswechsel(self):
+        # Gegenprobe zur Rueckwaerts-Regel: Pausiert steht `t`, und ein
+        # nachgereichter Zustand mit der Position von einem Takt frueher
+        # (republish) darf die Uhr nicht verwerfen.
+        s = self._szenario("""
+          p.open(); let t = lauf(p, 100.0, 40);
+          const vorher = p.stand().offset;
+          p.msg(voll(t - 0.25)); p.frame();
+          console.log(JSON.stringify({ gleich: Math.abs(p.stand().offset - vorher) < 0.3 }));
+        """)
+        assert s["gleich"]

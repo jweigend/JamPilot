@@ -808,6 +808,7 @@ let laneW = 0;               // Laufbandbreite in px (fuer transform)
 let lastFrame = null;
 let chips = new Map();       // at-Schluessel -> {el, at, sig}
 let link = "connecting";     // connecting | live | lost
+let gestoppt = false;        // der Server meldet `running: false` (abgeschaltet)
 
 // TAKTSTRICHE. Der zweite Publish-once-Kanal: `beats` sind committete Beats
 // [{at, n}] in Stream-Sekunden, n die Schlagnummer im Takt (1 = Eins, 0 =
@@ -921,6 +922,11 @@ function schreibeGrundton(root, acc) {
 // positiv, also ist das MINIMUM der beobachteten Offsets der wahre Versatz.
 // Ohne diesen Filter wandert die Zeitleiste mit dem Netz- und Tick-Jitter.
 function syncClock(t) {
+  // Nur echte Zeiten. Ein einziger Messwert ohne Zahl (ein Zustand ohne `t`)
+  // machte `offset` zu NaN - und NaN heilt nicht: Jedes Nachziehen unten
+  // rechnet mit ihm weiter. Die Chips stapelten sich dann links am Rand, bis
+  // jemand die Seite neu lud.
+  if (!Number.isFinite(t)) return;
   offsetSamples.push(performance.now() / 1000 - t);
   if (offsetSamples.length > 40) offsetSamples.shift();
   const target = Math.min(...offsetSamples);
@@ -984,6 +990,13 @@ function idleText() {
   if (link === "lost")
     return ["Connection lost",
             "JamPilot stopped responding. Is it still running in the terminal?"];
+  // Abgeschaltet ist nicht "keine Musik": Die Verbindung steht, aber der Ton
+  // laeuft nicht durch JamPilot. Ohne diese Zeile stand hier der letzte Akkord
+  // vor dem Abschalten - unbegrenzt, mit gruenem Punkt.
+  if (gestoppt)
+    return ["Stopped",
+            "The sound is not running through JamPilot. "
+            + "Switch it back on in the control window."];
   if (offset === null) return ["Starting up", "The analysis is spinning up."];
   return ["No music",
           "Play something &ndash; the chord appears here "
@@ -998,7 +1011,9 @@ function showIdle() {
 
   const idle = $("idle");
   idle.style.display = "block";
-  idle.classList.toggle("waiting", link !== "live" || offset === null);
+  // Abgeschaltet wird auf nichts gewartet - keine pulsierenden Punkte.
+  idle.classList.toggle("waiting",
+                        link !== "live" || (offset === null && !gestoppt));
   if (idle.dataset.shown === titel) return;
   idle.dataset.shown = titel;
   $("idleTitle").textContent = titel;
@@ -2197,14 +2212,52 @@ function dialog(offen) {
   $("gear").classList.toggle("open", offen);
 }
 
+function uhrVerwerfen() {
+  offsetSamples = [];
+  offset = null;
+  shownOffset = null;
+}
+
 function apply(state) {
+  // ABGESCHALTET (`running: false`, engine.stop). Der Server mischt das Feld
+  // in seinen LETZTEN Zustand - der traegt noch die Akkorde und die Position
+  // von vor dem Abschalten, womoeglich auch "recording". Nichts davon gilt
+  // mehr: Die Seite zeigte sonst den letzten Akkord unbegrenzt als laufend.
+  // Also leeren, die Uhr verwerfen (die naechste Sitzung zaehlt neu ab null)
+  // und sagen, was los ist (idleText). Jeder Zustand OHNE dieses Feld - der
+  // normale der Analyse - hebt es wieder auf.
+  gestoppt = state.running === false;
+  if (gestoppt) {
+    events = []; beats = []; huellkurve = null;
+    uhrVerwerfen();
+    lastT = 0; frozenAt = null;
+    recording = recPending = paused = false;
+    fbPins.clear(); kbPins.clear(); bassPins.clear();
+    if ("muted" in state) zeigeStumm(state.muted);
+    if ("control_guitar" in state) zeigeKontrollgitarre(state.control_guitar);
+    zeigeAufnahme();
+    return;
+  }
+
+  // Ein Zustand OHNE Position gibt es wirklich: Vor dem ersten Analyse-Takt
+  // hat der Server nichts, in das er einen Tastendruck mischen koennte, und
+  // schickt dann nur das geaenderte Feld ({muted: true}); beim Einschalten
+  // kommt {running: true}. Solche Zustaende stellen Schalter - an Uhr,
+  // Position und Laufband aendern sie nichts. {running: true} sagt
+  // ausserdem: Hier beginnt eine neue Sitzung - eine Uhr aus der vorigen
+  // (die Seite blieb ueber einen Neustart offen) gilt nicht mehr, bis der
+  // erste Analyse-Takt sie neu stellt, steht "Starting up" da.
+  const hatZeit = Number.isFinite(state.t);
+  if (state.running === true && !hatZeit) uhrVerwerfen();
+
   events = state.committed || [];
   beats = state.beats || [];
   huellkurve = state.envelope || null;
   // Sichtbarer Vorlauf = Commit-Grenze; etwas Rand, damit ein frisch
   // committetes Event am rechten Rand einsteigt statt darauf.
-  horizon = Math.max(1.5, (state.frontier != null
-                           ? state.frontier - state.t : 2) + 0.8);
+  if (hatZeit)
+    horizon = Math.max(1.5, (state.frontier != null
+                             ? state.frontier - state.t : 2) + 0.8);
   serverTonart = state.key || null;
   tonart = keyPin ? pinAlsTonart(keyPin) : serverTonart;
   if ("muted" in state) zeigeStumm(state.muted);
@@ -2218,9 +2271,18 @@ function apply(state) {
   // sieht nie ein null.)
   if ("epoch" in state && state.epoch !== epoch) {
     epoch = state.epoch;
-    offsetSamples = [];
-    offset = null;
-    shownOffset = null;
+    uhrVerwerfen();
+  } else if (hatZeit && offset !== null && state.t < lastT - 0.5) {
+    // Die Position laeuft RUECKWAERTS, ohne dass ein Epoch es ansagt. Im
+    // Betrieb kommt das nicht vor (jeder Sprung im Mitschnitt zaehlt den
+    // Epoch hoch, eine Pause haelt `t` fest) - es ist eine NEUE SITZUNG:
+    // JamPilot wurde ab- und wieder eingeschaltet oder neu gestartet, die
+    // Seite blieb offen. Der Stream zaehlt dann wieder ab null, der Epoch
+    // steht wieder auf 0, und der Minimum-Filter hielte die alte Zeitrechnung
+    // zehn bis zwanzig Sekunden lang fuer die richtige. Dieselbe Regel faengt
+    // den Zustand, der einen Rueckwaertssprung mit neuem Epoch, aber noch
+    // alter Position meldet: Der folgende stellt die Uhr dann richtig.
+    uhrVerwerfen();
   }
   // R aus verwirft den Mitschnitt - und mit ihm die Lagen-Anker: Ihre
   // Schluessel sind Stream-Zeiten von Stellen, zu denen es kein Audio mehr
@@ -2232,13 +2294,15 @@ function apply(state) {
   recording = !!state.recording;
   recPending = !!state.record_pending;
   paused = recording && !!state.paused;
-  lastT = state.t;
-  frozenAt = paused ? state.t : null;
+  if (hatZeit) {
+    lastT = state.t;
+    frozenAt = paused ? state.t : null;
+  }
   zeigeAufnahme();
   if (state.record_hint) zeigeRecordHinweis(state.record_hint);
 
   neuSchreibenFallsNoetig();
-  syncClock(state.t);
+  if (hatZeit) syncClock(state.t);
 }
 
 // R hat nicht gegriffen - der Server sagt einmal warum (kein Speicher). Ein
