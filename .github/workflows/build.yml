@@ -37,7 +37,11 @@ jobs:
           - os: ubuntu-22.04
             name: jampilot-linux-x86_64
             artefakte: dist/jampilot
-          - os: macos-14
+          # macos-15, weil GitHub macos-14 am 2.11.2026 ausgemustert hat (der
+          # 1.5.0-Tag-Bau brach dort in null Sekunden ab: "configuration
+          # 'macos-14-arm64-us-default' is not supported"). Wie bei Ubuntu das
+          # aelteste Abbild, das noch angeboten wird - nicht macos-latest.
+          - os: macos-15
             name: jampilot-macos-arm64       # Apple Silicon
             # Unter macOS zusaetzlich das .app-Buendel: Nur das laesst sich im
             # Finder doppelklicken UND bekommt die Mikrofonfreigabe.
