@@ -1119,17 +1119,21 @@ function candidates(root, quality) {
   // Nicht jede Qualitaet hat beide Schablonen (sus2/dim/m7b5 nur als A-Form).
   if (pc === undefined || !(quality in SHAPES_E || quality in SHAPES_A)) return [];
   const out = [];
-  const push = (shape, base, tmpl) => {
+  const push = (shape, base, tmpl, auchHoch) => {
     // Barre oberhalb Bund 9 ist unpraktikabel - die jeweils andere Form (E/A
     // liegen 5 Buende auseinander) deckt denselben Akkord tiefer ab.
-    if (base > 9) return;
+    if (base > 9 && !auchHoch) return;
     out.push({ shape, base, anchor: base,
                frets: tmpl.map(o => o === null ? null : base + o) });
   };
   if (SHAPES_E[quality])
     push("E", (((pc - 4) % 12) + 12) % 12, SHAPES_E[quality]); // Grundton Saite 6
+  // Wo es KEINE E-Form gibt (sus2, dim, m7b5), deckt nichts den Akkord tiefer
+  // ab: G und G# laegen mit der A-Form am 10./11. Bund und haetten sonst gar
+  // kein Griffbild. Eine hohe Lage ist besser als ein leeres Feld.
   if (SHAPES_A[quality])
-    push("A", (((pc - 9) % 12) + 12) % 12, SHAPES_A[quality]); // Grundton Saite 5
+    push("A", (((pc - 9) % 12) + 12) % 12, SHAPES_A[quality],  // Grundton Saite 5
+         !SHAPES_E[quality]);
   const open = OPEN[root + quality];
   if (open) {
     const frets = open.map(f => f < 0 ? null : f);   // -1 = abgedaempft (X)
@@ -1153,8 +1157,11 @@ function transCost(a, b) {
 // Voicing fuer window[0] - der erste Knoten des bewegungsaermsten Pfads. Nur
 // dieser wird festgeschrieben; der Lookahead bewahrt ihn nur vor Sackgassen.
 function planVoicing(window, last) {
-  const cand = window.map(c => candidates(c.root, c.q)).filter(a => a.length);
-  if (!cand.length) return null;
+  const alle = window.map(c => candidates(c.root, c.q));
+  // Hat der Akkord, fuer den entschieden wird, selbst keine Lage, gibt es
+  // keine Antwort - nicht die des naechsten, der nach dem Filtern vorn stuende.
+  if (!alle.length || !alle[0].length) return null;
+  const cand = alle.filter(a => a.length);
   const dp = [cand[0].map(v => (last ? transCost(last, v) : 0) + nodeCost(v))];
   const bp = [cand[0].map(() => -1)];
   for (let i = 1; i < cand.length; i++) {
@@ -1264,8 +1271,13 @@ function decideVoicing(seg) {
   if (anker) { voicings.set(key, anker); lastVoicing = anker; return anker; }
   let v = voicings.get(key);
   if (v) { lastVoicing = v; return v; }      // schon entschieden -> Start furs naechste
-  const win = futureWindow(seg, q => q in SHAPES_E);
-  if (!win.length) return null;
+  // Beide Kataloge fragen: sus2, dim und m7b5 gibt es NUR als A-Form. Mit
+  // SHAPES_E allein fiel der hoerbare Akkord aus dem Fenster, win[0] war der
+  // NAECHSTE - und dessen Griffbild stand dann unter dem Namen des laufenden
+  // (unter "Bdim" das offene C). Deshalb auch die zweite Bedingung: Das
+  // Fenster muss mit dem Akkord beginnen, fuer den entschieden wird.
+  const win = futureWindow(seg, q => q in SHAPES_E || q in SHAPES_A);
+  if (!win.length || win[0].name !== seg.c) return null;
   v = planVoicing(win, lastVoicing);
   if (!v) return null;
   voicings.set(key, v);

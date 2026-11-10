@@ -770,3 +770,27 @@ class TestSeiteAlsGanzes:
           console.log(JSON.stringify({ gleich: Math.abs(p.stand().offset - vorher) < 0.3 }));
         """)
         assert s["gleich"]
+
+    def test_griffbild_gehoert_zum_laufenden_akkord(self):
+        # sus2, dim und m7b5 gibt es nur als A-Form. Der Planer fragte nur den
+        # E-Katalog, liess den laufenden Akkord fallen und zeichnete den
+        # NAECHSTEN: unter "Bdim" stand das offene C.
+        s = self._szenario("""
+          p.open(); p.instrument("guitar");
+          p.msg({ ...voll(10.5), committed: [{ at: 10, c: "Bdim" },
+                  { at: 11, c: "C" }, { at: 11.8, c: "Am" }] });
+          const v = p.fn.decideVoicing({ at: 10, c: "Bdim" });
+          const hoch = ["Gdim", "G#m7b5", "Gsus2"].map(c => {
+            const m = c.match(/^([A-G]#?)(.*)$/);
+            return p.fn.candidates(m[1], m[2]).map(x => x.frets); });
+          console.log(JSON.stringify({ bdim: v && v.frets, hoch,
+            d: p.fn.candidates("D", "").map(x => [x.shape, x.base]) }));
+        """)
+        assert s["bdim"] == [None, 2, 3, 4, 3, None]          # B D F, A-Form
+        # G und G# haben in diesen Qualitaeten nur die hohe A-Form - besser
+        # als ein leeres Feld.
+        assert s["hoch"] == [[[None, 10, 11, 12, 11, None]],
+                             [[None, 11, 12, 11, 12, None]],
+                             [[None, 10, 12, 12, 10, 10]]]
+        # ... und wo es eine E-Form gibt, bleibt die Barre-Grenze bei Bund 9.
+        assert s["d"] == [["A", 5], ["open", 0]]
