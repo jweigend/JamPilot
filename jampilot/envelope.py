@@ -61,87 +61,53 @@ def block_rms(signal: np.ndarray, block_frames: int) -> np.ndarray:
 
 
 class Envelope:
-    """Zwei Kurven auf EINEM Blockraster ab `_start`: `full` (Mix) und `bass`.
-    Jede Kurve reicht so weit, wie sie Werte hat - Block i liegt bei
-    `_start + i * block_frames`, fuer beide. Die Bass-Kurve kommt entweder aus
-    dem Bandpass (in `add`, wie der Mix) oder, mit `separated=True`, aus
-    `add_bass()` mit dem getrennten Stem (stems.py) - der laeuft asynchron und
-    darf hinter dem Mix zurueckliegen, die Kurve ist dann einfach kuerzer.
-    Luecken (Audio schon aus dem Puffer, Hop ausgelassen) werden mit Nullen
-    gefuellt, nie durch Verschieben der Achse."""
-
     def __init__(self, samplerate: int, hop_frames: int,
-                 blocks_per_hop: int = BLOCKS_PER_HOP, separated: bool = False):
+                 blocks_per_hop: int = BLOCKS_PER_HOP):
         self.samplerate = int(samplerate)
         self.block_frames = max(1, int(hop_frames) // blocks_per_hop)
         self.block_seconds = self.block_frames / self.samplerate
-        self.separated = separated
         self._sos = bandpass_filter(self.samplerate)
         self._zi = None                  # Filterzustand ueber Hops hinweg
-        self._start: int | None = None   # Stream-Frame von Block 0 (beide Kurven)
+        self._start: int | None = None   # Stream-Frame des ersten gehaltenen Blocks
+        self._done: int | None = None    # Stream-Frame, bis zu dem die Kurve reicht
         self.full: list[float] = []
         self.bass: list[float] = []
 
     # -- Aufbau -------------------------------------------------------------
 
-    def _done(self, curve: list[float]) -> int:
-        return self._start + len(curve) * self.block_frames
-
-    def _place(self, curve: list[float], audio_len: int, end_frame: int):
-        """Neue Bloecke fuer `curve` aus Audio, das bei `end_frame` endet:
-        Luecke vor dem Audio mit Nullen fuellen; liefert (Offset im Audio,
-        Anzahl neuer Bloecke, Luecke gefuellt?) oder None, wenn nichts Neues
-        dazukommt."""
-        bf = self.block_frames
-        audio_start = end_frame - audio_len
-        if self._start is None:
-            # Block 0 auf die Blockraster-Linie legen.
-            self._start = -(-max(audio_start, 0) // bf) * bf
-        done = self._done(curve)
-        if end_frame - done < bf:
-            return None
-        luecke = False
-        if done < audio_start:
-            n = -(-(audio_start - done) // bf)
-            curve.extend([0.0] * n)
-            done += n * bf
-            luecke = True
-            if end_frame - done < bf:
-                return None
-        return done - audio_start, (end_frame - done) // bf, luecke
-
     def add(self, audio: np.ndarray, end_frame: int) -> None:
-        """`audio` (mono) endet exakt bei Stream-Frame `end_frame`: Mix-Kurve,
-        und ohne Stem-Trennung auch die Bass-Kurve aus dem Bandpass."""
+        """`audio` (mono) endet exakt bei Stream-Frame `end_frame`."""
         bf = self.block_frames
-        audio = np.asarray(audio, dtype=np.float64)
-        if audio.ndim > 1:
-            audio = audio.mean(axis=1)
-        placed = self._place(self.full, len(audio), end_frame)
-        if placed is not None:
-            lo, n_blocks, _ = placed
-            self.full.extend(float(v) for v in block_rms(audio[lo: lo + n_blocks * bf], bf))
-        if self.separated:
+        audio_start = end_frame - len(audio)
+        if self._done is None:
+            # Erster Block auf die Blockraster-Linie legen.
+            first = -(-max(audio_start, 0) // bf) * bf
+            self._start = self._done = first
+        if end_frame - self._done < bf:
             return
-        placed = self._place(self.bass, len(audio), end_frame)
-        if placed is None:
-            return
-        lo, n_blocks, luecke = placed
+        new_start = self._done
+        if new_start < audio_start:
+            # Luecke: Audio schon aus dem Puffer - Nullen, Achse bleibt.
+            luecke = -(-(audio_start - new_start) // bf)
+            self.full.extend([0.0] * luecke)
+            self.bass.extend([0.0] * luecke)
+            new_start += luecke * bf
+            self._zi = None              # Filter nach der Luecke frisch
+            self._done = new_start
+            if end_frame - new_start < bf:
+                return
+        n_blocks = (end_frame - new_start) // bf
+        lo = new_start - audio_start
+        chunk = np.asarray(audio[lo: lo + n_blocks * bf], dtype=np.float64)
+        if chunk.ndim > 1:
+            chunk = chunk.mean(axis=1)
         from scipy.signal import sosfilt, sosfilt_zi
-        if luecke or self._zi is None:
-            self._zi = sosfilt_zi(self._sos) * 0.0      # nach der Luecke frisch
-        tief, self._zi = sosfilt(self._sos, audio[lo: lo + n_blocks * bf], zi=self._zi)
+        if self._zi is None:
+            self._zi = sosfilt_zi(self._sos) * 0.0
+        tief, self._zi = sosfilt(self._sos, chunk, zi=self._zi)
+        self.full.extend(float(v) for v in block_rms(chunk, bf))
         self.bass.extend(float(v) for v in block_rms(tief, bf))
-
-    def add_bass(self, stem: np.ndarray, end_frame: int) -> None:
-        """Getrennter Bass-Stem (mono), endet bei Stream-Frame `end_frame`."""
-        bf = self.block_frames
-        stem = np.asarray(stem, dtype=np.float64)
-        placed = self._place(self.bass, len(stem), end_frame)
-        if placed is None:
-            return
-        lo, n_blocks, _ = placed
-        self.bass.extend(float(v) for v in block_rms(stem[lo: lo + n_blocks * bf], bf))
+        self._done = new_start + n_blocks * bf
 
     # -- Lesen --------------------------------------------------------------
 
@@ -151,12 +117,7 @@ class Envelope:
 
     @property
     def end_seconds(self) -> float | None:
-        """Ende der Mix-Kurve (die Bass-Kurve kann dahinter zurueckliegen)."""
-        return None if self._start is None else self._done(self.full) / self.samplerate
-
-    @property
-    def bass_end_seconds(self) -> float | None:
-        return None if self._start is None else self._done(self.bass) / self.samplerate
+        return None if self._done is None else self._done / self.samplerate
 
     def window(self, lo: float, hi: float) -> dict | None:
         """Bloecke, die [lo, hi] Sekunden beruehren, als kompakter Snapshot
@@ -185,9 +146,6 @@ class Envelope:
         drop = int((grenze - self._start / self.samplerate) / self.block_seconds)
         drop = max(0, min(drop, len(self.full)))
         if drop:
-            # Beide Kurven um dieselben Bloecke: ist die Bass-Kurve kuerzer,
-            # wird sie leer und setzt beim naechsten add_bass mit Nullen ab
-            # dem neuen Block 0 wieder auf - die Achse bleibt gemeinsam.
             del self.full[:drop]
             del self.bass[:drop]
             self._start += drop * self.block_frames

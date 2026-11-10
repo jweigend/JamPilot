@@ -62,35 +62,23 @@ Not verified on real hardware: the Windows fixes were run against the test
 doubles only, and the page fixes in Node, not in a browser. What the review
 found and did not fix is listed in the same document.
 
-### Bass stem instead of a low-pass
+### Tried and dropped: a bass stem for the curve
 
-The low band showed every kick drum hit as a bass attack — the kick sits at
-50–100 Hz, right inside the bass, and no filter can tell them apart. The bass
-curve now comes from a source separator: Open-Unmix UMX-HQ (Stöter et al.,
-JOSS 2019; weights MIT-licensed, Zenodo 3370489), target "bass", exported to
-ONNX with a dynamic frame axis and quantised to int8 (9 MB, same measured
-quality as the 36 MB float model). It runs in its own thread like the beat
-model, one analysis hop per run with 1.0 s of context before and 0.5 s
-after, about 90 ms per hop on one core of a 2013 Xeon; if it falls behind
-it merges the waiting hops into one run instead of leaving holes. Measured
-against real stems (`docs/exploration/bass-stem-huellkurve.md`): the
-envelope's correlation with the true bass stem rises from 0.30 to 0.74
-(Sailing to Philadelphia) and from 0.81 to 0.93 (Echoes), the kick
-leakage (correlation of the residual with the drum stem) drops from 0.59
-to 0.13. New module `stems.py`, model `data/umxhq_bass_int8.onnx`,
-reproduction in `tests/reference/export_umx_bass.py` and
-`messung_bass_stem.py`. Without onnxruntime or the model, the low band is
-used as before. Tried in the rehearsal room (2026-11-10) and kept: the
-separated curve runs alongside the chord and beat models on the
-rehearsal-room PC.
-
-Whether the same stem should also feed the bass *note* was measured and
-answered no (`docs/exploration/bass-stem-tonerkennung.md`): on 193
-Isophonics titles it finds more inversions and leaves fewer segments
-empty, but false slash chords rise three-and-a-half-fold (48 to 169, 94 of
-them fifths) and no blend recovers that — the stem hears the bass player,
-the annotation means the harmony, and the bass view wants the root, not
-the plucked note. The note detection stays on the mix.
+The low band shows every kick drum hit as a bass attack — the kick sits at
+50–100 Hz, inside the bass. A source separator (Open-Unmix UMX-HQ as an
+int8 ONNX model, in its own thread) took the kick out of the curve,
+measured against real stems: the envelope's correlation with the true bass
+rose from 0.30 to 0.74 (Sailing to Philadelphia), the kick leakage fell
+from 0.59 to 0.13. In the rehearsal room (2026-11-10) that was fine but
+worth little: the kick peaks in the curve do not get in the way, and a
+second model with its own thread is too much machinery for the
+difference. The same stem for the bass *note* was measured on 193
+Isophonics titles and rejected — more inversions found, but false slash
+chords rise three-and-a-half-fold, because the stem hears the bass player
+where the annotation means the harmony. Both are documented
+(`docs/exploration/bass-stem-huellkurve.md`, `bass-stem-tonerkennung.md`),
+the measurement scripts stay in `tests/reference/`, the code lives on in
+the branch `exploration-bass-stem`.
 
 ## 1.4.2 — 2026-10-14
 
