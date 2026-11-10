@@ -175,7 +175,10 @@ def create(args):
 
 def current_output() -> str:
     """Wie der Standard-Ausgang gerade heisst - fuer `jampilot cleanup`."""
-    if backend() in (WINMUTE, WINCABLE):
+    # Die Plattform zuerst, und backend() nur als Rueckfall: Unter Windows gibt
+    # es diese Auskunft auch dann, wenn heute KEIN Weg zur Verfuegung steht
+    # (siehe waisen_aufraeumen) - und pactl gibt es dort nie.
+    if sys.platform == "win32" or backend() in (WINMUTE, WINCABLE):
         from . import winaudio
 
         ziel = winaudio.standard(winaudio.RENDER)
@@ -762,6 +765,35 @@ def _kabel_zurueck(gemerkt: dict) -> int:
         return 0
     winaudio.setze_standard(ziel.kennung)
     return 1
+
+
+def waisen_aufraeumen() -> int:
+    """Windows: den Rest eines abgestuerzten Laufs zuruecknehmen, BEVOR
+    irgendjemand backend() fragt. Rueckgabe wie cleanup().
+
+    Warum vorher: backend() wird aus dem HEUTIGEN Zustand des Rechners
+    berechnet, und den hat der abgestuerzte Lauf verbogen. Nach einem Absturz
+    auf dem Mute-Weg ist der stumme Umweg der Standard-Ausgang; auf einem
+    Rechner mit genau zwei Ausgaengen (Lautsprecher + HDMI, der haeufigste
+    Fall) bleibt dann kein Kandidat fuer den Umweg uebrig - der eine ist der
+    Standard, der andere das Telefoniegeraet. backend() sagt None, cmd_run
+    faellt in den Direktmodus, und der Aufbau, der die Waise wegraeumen wuerde
+    (__enter__ ruft cleanup()), wird nie erreicht. Der Rechner blieb stumm, und
+    `jampilot cleanup --force` meldete "nothing to clean up" (Review 2026-11).
+
+    Angefasst wird nur, wozu es einen Vermerk gibt und dessen Besitzer nicht
+    mehr lebt - eine laufende zweite Instanz bleibt unberuehrt. Danach sind
+    die gemerkten Antworten von backend() verworfen: Sie galten fuer den
+    verbogenen Rechner.
+    """
+    global _stummweg_cache, _kabel_cache
+    if sys.platform != "win32" or not STATE_FILE.exists():
+        return 0
+    if owner_pid() is not None:
+        return 0
+    getan = _cleanup_windows()
+    _stummweg_cache = _kabel_cache = _UNSET
+    return getan
 
 
 def cleanup(force: bool = False) -> int:

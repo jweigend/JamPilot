@@ -808,6 +808,7 @@ let laneW = 0;               // Laufbandbreite in px (fuer transform)
 let lastFrame = null;
 let chips = new Map();       // at-Schluessel -> {el, at, sig}
 let link = "connecting";     // connecting | live | lost
+let gestoppt = false;        // der Server meldet `running: false` (abgeschaltet)
 
 // TAKTSTRICHE. Der zweite Publish-once-Kanal: `beats` sind committete Beats
 // [{at, n}] in Stream-Sekunden, n die Schlagnummer im Takt (1 = Eins, 0 =
@@ -921,6 +922,11 @@ function schreibeGrundton(root, acc) {
 // positiv, also ist das MINIMUM der beobachteten Offsets der wahre Versatz.
 // Ohne diesen Filter wandert die Zeitleiste mit dem Netz- und Tick-Jitter.
 function syncClock(t) {
+  // Nur echte Zeiten. Ein einziger Messwert ohne Zahl (ein Zustand ohne `t`)
+  // machte `offset` zu NaN - und NaN heilt nicht: Jedes Nachziehen unten
+  // rechnet mit ihm weiter. Die Chips stapelten sich dann links am Rand, bis
+  // jemand die Seite neu lud.
+  if (!Number.isFinite(t)) return;
   offsetSamples.push(performance.now() / 1000 - t);
   if (offsetSamples.length > 40) offsetSamples.shift();
   const target = Math.min(...offsetSamples);
@@ -984,6 +990,13 @@ function idleText() {
   if (link === "lost")
     return ["Connection lost",
             "JamPilot stopped responding. Is it still running in the terminal?"];
+  // Abgeschaltet ist nicht "keine Musik": Die Verbindung steht, aber der Ton
+  // laeuft nicht durch JamPilot. Ohne diese Zeile stand hier der letzte Akkord
+  // vor dem Abschalten - unbegrenzt, mit gruenem Punkt.
+  if (gestoppt)
+    return ["Stopped",
+            "The sound is not running through JamPilot. "
+            + "Switch it back on in the control window."];
   if (offset === null) return ["Starting up", "The analysis is spinning up."];
   return ["No music",
           "Play something &ndash; the chord appears here "
@@ -998,7 +1011,9 @@ function showIdle() {
 
   const idle = $("idle");
   idle.style.display = "block";
-  idle.classList.toggle("waiting", link !== "live" || offset === null);
+  // Abgeschaltet wird auf nichts gewartet - keine pulsierenden Punkte.
+  idle.classList.toggle("waiting",
+                        link !== "live" || (offset === null && !gestoppt));
   if (idle.dataset.shown === titel) return;
   idle.dataset.shown = titel;
   $("idleTitle").textContent = titel;
@@ -1104,17 +1119,21 @@ function candidates(root, quality) {
   // Nicht jede Qualitaet hat beide Schablonen (sus2/dim/m7b5 nur als A-Form).
   if (pc === undefined || !(quality in SHAPES_E || quality in SHAPES_A)) return [];
   const out = [];
-  const push = (shape, base, tmpl) => {
+  const push = (shape, base, tmpl, auchHoch) => {
     // Barre oberhalb Bund 9 ist unpraktikabel - die jeweils andere Form (E/A
     // liegen 5 Buende auseinander) deckt denselben Akkord tiefer ab.
-    if (base > 9) return;
+    if (base > 9 && !auchHoch) return;
     out.push({ shape, base, anchor: base,
                frets: tmpl.map(o => o === null ? null : base + o) });
   };
   if (SHAPES_E[quality])
     push("E", (((pc - 4) % 12) + 12) % 12, SHAPES_E[quality]); // Grundton Saite 6
+  // Wo es KEINE E-Form gibt (sus2, dim, m7b5), deckt nichts den Akkord tiefer
+  // ab: G und G# laegen mit der A-Form am 10./11. Bund und haetten sonst gar
+  // kein Griffbild. Eine hohe Lage ist besser als ein leeres Feld.
   if (SHAPES_A[quality])
-    push("A", (((pc - 9) % 12) + 12) % 12, SHAPES_A[quality]); // Grundton Saite 5
+    push("A", (((pc - 9) % 12) + 12) % 12, SHAPES_A[quality],  // Grundton Saite 5
+         !SHAPES_E[quality]);
   const open = OPEN[root + quality];
   if (open) {
     const frets = open.map(f => f < 0 ? null : f);   // -1 = abgedaempft (X)
@@ -1138,8 +1157,11 @@ function transCost(a, b) {
 // Voicing fuer window[0] - der erste Knoten des bewegungsaermsten Pfads. Nur
 // dieser wird festgeschrieben; der Lookahead bewahrt ihn nur vor Sackgassen.
 function planVoicing(window, last) {
-  const cand = window.map(c => candidates(c.root, c.q)).filter(a => a.length);
-  if (!cand.length) return null;
+  const alle = window.map(c => candidates(c.root, c.q));
+  // Hat der Akkord, fuer den entschieden wird, selbst keine Lage, gibt es
+  // keine Antwort - nicht die des naechsten, der nach dem Filtern vorn stuende.
+  if (!alle.length || !alle[0].length) return null;
+  const cand = alle.filter(a => a.length);
   const dp = [cand[0].map(v => (last ? transCost(last, v) : 0) + nodeCost(v))];
   const bp = [cand[0].map(() => -1)];
   for (let i = 1; i < cand.length; i++) {
@@ -1249,8 +1271,13 @@ function decideVoicing(seg) {
   if (anker) { voicings.set(key, anker); lastVoicing = anker; return anker; }
   let v = voicings.get(key);
   if (v) { lastVoicing = v; return v; }      // schon entschieden -> Start furs naechste
-  const win = futureWindow(seg, q => q in SHAPES_E);
-  if (!win.length) return null;
+  // Beide Kataloge fragen: sus2, dim und m7b5 gibt es NUR als A-Form. Mit
+  // SHAPES_E allein fiel der hoerbare Akkord aus dem Fenster, win[0] war der
+  // NAECHSTE - und dessen Griffbild stand dann unter dem Namen des laufenden
+  // (unter "Bdim" das offene C). Deshalb auch die zweite Bedingung: Das
+  // Fenster muss mit dem Akkord beginnen, fuer den entschieden wird.
+  const win = futureWindow(seg, q => q in SHAPES_E || q in SHAPES_A);
+  if (!win.length || win[0].name !== seg.c) return null;
   v = planVoicing(win, lastVoicing);
   if (!v) return null;
   voicings.set(key, v);
@@ -1517,8 +1544,12 @@ function keyTransCost(a, b) {
 // Viterbi ueber [aktuell, ...kommende] - dieselbe Struktur wie planVoicing bei
 // der Gitarre, nur mit Umkehrungen statt Griff-Schablonen als Knoten.
 function planKeyVoicing(window, last) {
-  const cand = window.map(c => keyCandidates(c.root, c.q)).filter(a => a.length);
-  if (!cand.length) return null;
+  const alle = window.map(c => keyCandidates(c.root, c.q));
+  // Dieselbe Sicherung wie bei planVoicing: Hat der Akkord, fuer den
+  // entschieden wird, keine Umkehrung, gibt es keine Antwort - nicht die des
+  // naechsten, der nach dem Filtern vorn stuende.
+  if (!alle.length || !alle[0].length) return null;
+  const cand = alle.filter(a => a.length);
   const dp = [cand[0].map(v => (last ? keyTransCost(last, v) : 0) + keyNodeCost(v))];
   const bp = [cand[0].map(() => -1)];
   for (let i = 1; i < cand.length; i++) {
@@ -1594,7 +1625,7 @@ function decideKeyVoicing(seg) {
   let v = kbVoicings.get(key);
   if (v) { lastKeyVoicing = v; return v; }
   const win = futureWindow(seg, q => q in KEY_INTERVALS);
-  if (!win.length) return null;
+  if (!win.length || win[0].name !== seg.c) return null;   // wie decideVoicing
   v = planKeyVoicing(win, lastKeyVoicing);
   if (!v) return null;
   kbVoicings.set(key, v);
@@ -2197,14 +2228,52 @@ function dialog(offen) {
   $("gear").classList.toggle("open", offen);
 }
 
+function uhrVerwerfen() {
+  offsetSamples = [];
+  offset = null;
+  shownOffset = null;
+}
+
 function apply(state) {
+  // ABGESCHALTET (`running: false`, engine.stop). Der Server mischt das Feld
+  // in seinen LETZTEN Zustand - der traegt noch die Akkorde und die Position
+  // von vor dem Abschalten, womoeglich auch "recording". Nichts davon gilt
+  // mehr: Die Seite zeigte sonst den letzten Akkord unbegrenzt als laufend.
+  // Also leeren, die Uhr verwerfen (die naechste Sitzung zaehlt neu ab null)
+  // und sagen, was los ist (idleText). Jeder Zustand OHNE dieses Feld - der
+  // normale der Analyse - hebt es wieder auf.
+  gestoppt = state.running === false;
+  if (gestoppt) {
+    events = []; beats = []; huellkurve = null;
+    uhrVerwerfen();
+    lastT = 0; frozenAt = null;
+    recording = recPending = paused = false;
+    fbPins.clear(); kbPins.clear(); bassPins.clear();
+    if ("muted" in state) zeigeStumm(state.muted);
+    if ("control_guitar" in state) zeigeKontrollgitarre(state.control_guitar);
+    zeigeAufnahme();
+    return;
+  }
+
+  // Ein Zustand OHNE Position gibt es wirklich: Vor dem ersten Analyse-Takt
+  // hat der Server nichts, in das er einen Tastendruck mischen koennte, und
+  // schickt dann nur das geaenderte Feld ({muted: true}); beim Einschalten
+  // kommt {running: true}. Solche Zustaende stellen Schalter - an Uhr,
+  // Position und Laufband aendern sie nichts. {running: true} sagt
+  // ausserdem: Hier beginnt eine neue Sitzung - eine Uhr aus der vorigen
+  // (die Seite blieb ueber einen Neustart offen) gilt nicht mehr, bis der
+  // erste Analyse-Takt sie neu stellt, steht "Starting up" da.
+  const hatZeit = Number.isFinite(state.t);
+  if (state.running === true && !hatZeit) uhrVerwerfen();
+
   events = state.committed || [];
   beats = state.beats || [];
   huellkurve = state.envelope || null;
   // Sichtbarer Vorlauf = Commit-Grenze; etwas Rand, damit ein frisch
   // committetes Event am rechten Rand einsteigt statt darauf.
-  horizon = Math.max(1.5, (state.frontier != null
-                           ? state.frontier - state.t : 2) + 0.8);
+  if (hatZeit)
+    horizon = Math.max(1.5, (state.frontier != null
+                             ? state.frontier - state.t : 2) + 0.8);
   serverTonart = state.key || null;
   tonart = keyPin ? pinAlsTonart(keyPin) : serverTonart;
   if ("muted" in state) zeigeStumm(state.muted);
@@ -2218,9 +2287,18 @@ function apply(state) {
   // sieht nie ein null.)
   if ("epoch" in state && state.epoch !== epoch) {
     epoch = state.epoch;
-    offsetSamples = [];
-    offset = null;
-    shownOffset = null;
+    uhrVerwerfen();
+  } else if (hatZeit && offset !== null && state.t < lastT - 0.5) {
+    // Die Position laeuft RUECKWAERTS, ohne dass ein Epoch es ansagt. Im
+    // Betrieb kommt das nicht vor (jeder Sprung im Mitschnitt zaehlt den
+    // Epoch hoch, eine Pause haelt `t` fest) - es ist eine NEUE SITZUNG:
+    // JamPilot wurde ab- und wieder eingeschaltet oder neu gestartet, die
+    // Seite blieb offen. Der Stream zaehlt dann wieder ab null, der Epoch
+    // steht wieder auf 0, und der Minimum-Filter hielte die alte Zeitrechnung
+    // zehn bis zwanzig Sekunden lang fuer die richtige. Dieselbe Regel faengt
+    // den Zustand, der einen Rueckwaertssprung mit neuem Epoch, aber noch
+    // alter Position meldet: Der folgende stellt die Uhr dann richtig.
+    uhrVerwerfen();
   }
   // R aus verwirft den Mitschnitt - und mit ihm die Lagen-Anker: Ihre
   // Schluessel sind Stream-Zeiten von Stellen, zu denen es kein Audio mehr
@@ -2232,13 +2310,15 @@ function apply(state) {
   recording = !!state.recording;
   recPending = !!state.record_pending;
   paused = recording && !!state.paused;
-  lastT = state.t;
-  frozenAt = paused ? state.t : null;
+  if (hatZeit) {
+    lastT = state.t;
+    frozenAt = paused ? state.t : null;
+  }
   zeigeAufnahme();
   if (state.record_hint) zeigeRecordHinweis(state.record_hint);
 
   neuSchreibenFallsNoetig();
-  syncClock(state.t);
+  if (hatZeit) syncClock(state.t);
 }
 
 // R hat nicht gegriffen - der Server sagt einmal warum (kein Speicher). Ein

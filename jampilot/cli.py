@@ -486,7 +486,14 @@ def _bericht_zur_quelle(args):
 def cmd_cleanup(args):
     from . import routing
 
-    if not routing.available():
+    # Unter Windows NICHT nach available() fragen: Die Antwort wird aus dem
+    # heutigen Zustand berechnet, und genau den hat ein abgestuerzter Lauf
+    # verbogen. Steht der Standard-Ausgang noch auf dem stummen Umweg, findet
+    # ein Rechner mit zwei Ausgaengen keinen Kandidaten mehr und haelt sich
+    # fuer einen ohne Umleitung - dieser Befehl meldete dann "nothing to clean
+    # up" auf dem einen Rechner, der ihn braucht. routing.cleanup() raeumt
+    # unter Windows nach dem VERMERK, nicht nach backend().
+    if sys.platform != "win32" and not routing.available():
         print("No audio routing on this machine (Linux needs pactl, Windows "
               "needs a second playback device or VB-CABLE) - nothing to clean "
               "up here.")
@@ -607,12 +614,41 @@ def cmd_run(args):
     # Im Fenster reicht das NICHT: Dort entstuende die Ausnahme in einer
     # Qt-Verbindung, und PySide6 faengt sie ab und macht weiter. gui.py setzt die
     # Handler deshalb neu - siehe beenden_bei_signal().
+    #
+    # Und der Abbruch kommt genau EINMAL an. Wer sein Terminal schliesst,
+    # bekommt SIGHUP doppelt (von der Shell und vom Kernel, gemessen 0,3 ms
+    # auseinander), und wer ungeduldig ist, drueckt zweimal Strg+C. Das zweite
+    # Signal traf bisher den Abbau selbst: KeyboardInterrupt mitten in
+    # `finally: engine.stop()`, die Umleitung blieb halb stehen und der
+    # Null-Sink Standardausgang (Review 2026-11: 6 von 6 Laeufen). Deshalb
+    # stellt der erste Treffer alle drei Signale auf "ignorieren", BEVOR er
+    # wirft - und deshalb haengt auch SIGINT an diesem Handler: Pythons eigener
+    # wirft bei jedem Strg+C neu. Der Abbau ist das Eine, was zu Ende laufen
+    # muss; er ist durch Zeitlimits begrenzt (Thread 3 s, pactl 5 s je Aufruf).
+    abbruchsignale = [getattr(signal, name)
+                      for name in ("SIGINT", "SIGTERM", "SIGHUP")
+                      if hasattr(signal, name)]
+
     def _raise_interrupt(*_):
+        for zeichen in abbruchsignale:
+            signal.signal(zeichen, signal.SIG_IGN)
         raise KeyboardInterrupt
 
-    for zeichen in ("SIGTERM", "SIGHUP"):
-        if hasattr(signal, zeichen):
-            signal.signal(getattr(signal, zeichen), _raise_interrupt)
+    for zeichen in abbruchsignale:
+        signal.signal(zeichen, _raise_interrupt)
+
+    # Die Waise eines abgestuerzten Laufs ZUERST, bevor irgendetwas unten
+    # routing.backend() fragt: Die Antwort haengt am Zustand des Rechners, und
+    # den hat der Absturz verbogen (routing.waisen_aufraeumen). Scheitert das
+    # Zuruecknehmen, geht der Start trotzdem weiter - `jampilot cleanup` bleibt
+    # der Weg, und eine Warnung ist besser als ein Programm, das nicht startet.
+    try:
+        if routing.waisen_aufraeumen():
+            print("Undid what a crashed run left behind (muted endpoint or "
+                  "redirected system output).")
+    except Exception as exc:
+        print(f"Warning: could not undo a crashed run's audio routing ({exc}). "
+              f"'jampilot cleanup --force' resets it.")
 
     # Die URSACHE vor der Absage. Unter Windows OHNE virtuelles Kabel bricht
     # _check_devices am Mikrofon ab ("hat 1 Kanal") - und das ist zwar wahr,
@@ -625,7 +661,10 @@ def cmd_run(args):
     # Erst pruefen, dann teuer werden: Geraete- und Instanzfehler sollen sofort
     # kommen, nicht als Traceback nach drei Sekunden numba-Warmup.
     _check_devices(args)
-    if routing.available():
+    # Unter Windows unabhaengig von available(): Haelt eine laufende Instanz
+    # den Mute-Weg, sieht die zweite auf einem Rechner mit zwei Ausgaengen
+    # keinen Kandidaten mehr und hielte sich sonst fuer allein.
+    if sys.platform == "win32" or routing.available():
         pid = routing.owner_pid()
         if pid is not None and pid != os.getpid():
             raise SystemExit(str(routing.InstanceRunning(pid)))
@@ -779,7 +818,14 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
     from .chords import SILENCE_RMS
     from .tonality import TwoScaleKeyEstimator, spell
 
-    sr = args.samplerate
+    # Die Rate des STREAMS, nicht die der Kommandozeile. Beide sind fast immer
+    # dieselbe Zahl - ausser auf dem Windows-Mute-Weg: Dort gibt das Mixformat
+    # des Umwegs die Rate vor (engine.start), und --samplerate bleibt bei
+    # seiner Vorgabe 48000. Mit der falschen Rate gerechnet, liegt bei einem
+    # 44,1-kHz-Endpunkt jeder Akkord anderthalb Halbtoene zu hoch (aus C wird
+    # C#), und die Zeitachse der Analyse laeuft der des Streams um 9 % davon.
+    # Attrappen ohne eigene Rate (Tests) bekommen die der Argumente.
+    sr = getattr(loop, "samplerate", None) or args.samplerate
     window_frames = int(round(BTC_LIVE_WINDOW * sr))
     hop_frames = int(round(ANALYSIS_HOP * sr))
     # Ein stilles Protokoll, wenn keine Engine dahintersteht (analyze, Tests).

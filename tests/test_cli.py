@@ -934,6 +934,52 @@ class TestBeatsImAnzeigepfad:
         assert len(verfeinert) == 2                    # Verfeinerung wie in 1.3.1
 
 
+class TestAbtastrateDesStreams:
+    """Die Analyse rechnet mit der Rate des STREAMS, nicht mit --samplerate.
+
+    Auf dem Windows-Mute-Weg gibt das Mixformat des Umwegs die Rate vor
+    (engine.start nimmt `route.samplerate`), --samplerate bleibt bei 48000.
+    Rechnete die Anzeigeschleife mit der Zahl von der Kommandozeile, laege bei
+    einem 44,1-kHz-Endpunkt jeder Akkord anderthalb Halbtoene zu hoch - aus
+    C/G wurde C#/G# (Review 2026-11, docs/exploration/code-review-2026-11.md).
+    """
+
+    def test_merkmale_und_zeitachse_nehmen_die_rate_des_streams(self, monkeypatch):
+        from jampilot import beats, btc
+
+        raten = set()
+
+        class Modell:
+            def predict(self, features):
+                return np.zeros(len(features), dtype=int)
+
+        def merkmale(audio, sr):
+            raten.add(sr)
+            return np.zeros((108, 144), dtype=np.float32)
+
+        monkeypatch.setattr(btc, "BTCModel", Modell)
+        monkeypatch.setattr(btc, "features_from_audio", merkmale)
+        monkeypatch.setattr(btc, "live_segments_from_labels",
+                            lambda labels, audio, sr, offset=0.0, **kw: [(offset, "C")])
+        monkeypatch.setattr(btc, "refine_boundary", lambda *a: a[2])
+        monkeypatch.setattr(beats.BeatTracker, "create", classmethod(lambda cls: None))
+        stop = threading.Event()
+        loop = TestBeatsImAnzeigepfad.Loop(44100, 8.0, stop)
+        loop.samplerate = 44100          # das Mixformat des Umwegs
+        zustaende = []
+
+        class Broadcaster:
+            def publish(self, s):
+                zustaende.append(s)
+
+        args = argparse.Namespace(samplerate=48000, delay=5.0, record_buffer=0)
+        cli._display_loop(loop, args, Broadcaster(), stop=stop)
+        assert raten == {44100}
+        # Die Hops liegen auf dem Raster des Streams: je Viertelsekunde einer.
+        zeiten = [s["t"] for s in zustaende]
+        assert all(abs((b - a) - 0.25) < 1e-6 for a, b in zip(zeiten, zeiten[1:]))
+
+
 class TestDurchgangsbass:
     """Durchgangsbass (G - F# - Em): zweites Event mit gleichem Akkord und
     gemessenem Basston hinter dem Segment, genau einmal, nie hinter dem
@@ -1210,3 +1256,53 @@ class TestLageImLedger:
         track.add(frames, 0.0, pitches=pitches)
         noten, lagen = cli._bass_per_segment([(0.0, "C"), (2.0, "C")], track, front=4.0)
         assert noten == ["E", "E"] and lagen == [40, 28]
+
+
+class TestStartOhneFenster:
+    """cmd_run bis kurz vor den Geraeten: was passiert, BEVOR irgendetwas
+    umgeleitet wird - und was ein Abbruch danach nicht mehr anrichten darf."""
+
+    @pytest.fixture
+    def anlauf(self, monkeypatch):
+        """cmd_run laufen lassen, bis es den Bericht zur Quelle druckt - dort
+        bricht die Attrappe ab. Die Signalhandler, die cmd_run setzt, werden
+        danach zurueckgestellt: Sie gehoeren dem Testlauf, nicht dem Test."""
+        import signal
+
+        from jampilot import routing
+
+        namen = [n for n in ("SIGINT", "SIGTERM", "SIGHUP") if hasattr(signal, n)]
+        vorher = {n: signal.getsignal(getattr(signal, n)) for n in namen}
+        schritte = []
+
+        def bericht(_args):
+            schritte.append("bericht")
+            raise SystemExit("genug gesehen")
+
+        monkeypatch.setattr(routing, "waisen_aufraeumen",
+                            lambda: schritte.append("waisen") or 0)
+        monkeypatch.setattr(cli, "_bericht_zur_quelle", bericht)
+        with pytest.raises(SystemExit, match="genug gesehen"):
+            cli.cmd_run(argparse.Namespace())
+        yield schritte
+        for name, handler in vorher.items():
+            signal.signal(getattr(signal, name), handler)
+
+    def test_die_waise_wird_geraeumt_bevor_nach_dem_weg_gefragt_wird(self, anlauf):
+        # _bericht_zur_quelle ist die erste Stelle, die routing.backend()
+        # fragt. Die Antwort haengt am Zustand, den ein Absturz verbogen hat.
+        assert anlauf == ["waisen", "bericht"]
+
+    def test_der_abbruch_kommt_genau_einmal_an(self, anlauf):
+        """Das zweite Signal traf den Abbau: KeyboardInterrupt mitten in
+        `finally: engine.stop()`, der Null-Sink blieb Standardausgang. Wer das
+        Terminal schliesst, bekommt SIGHUP doppelt."""
+        import signal
+
+        handler = signal.getsignal(signal.SIGTERM)
+        assert signal.getsignal(signal.SIGINT) is handler    # auch Strg+C
+        with pytest.raises(KeyboardInterrupt):
+            handler(signal.SIGTERM, None)
+        for name in ("SIGINT", "SIGTERM", "SIGHUP"):
+            if hasattr(signal, name):
+                assert signal.getsignal(getattr(signal, name)) is signal.SIG_IGN

@@ -30,6 +30,36 @@ the bass curve is shown. That form — a thin blue line — is the one that
 stayed: the least distracting of the variants tried, and it still helps
 to place an entry on the right hit.
 
+### A review, and what it turned up
+
+A read-through of the whole program in November, written up in
+`docs/exploration/code-review-2026-11.md`. The recognition chain held; the
+faults sat at the edges. Fixed here, each with a test:
+
+- **Teardown could leave the machine silent.** In the window, a signal
+  arriving while the audio was being set up deadlocked the process with the
+  null sink still the default output. Without the window, a second signal
+  (closing a terminal delivers `SIGHUP` twice) aborted the teardown halfway.
+  On Windows, after a crash of the mute route on a PC with exactly two
+  outputs, neither `jampilot cleanup` nor a restart undid the muted detour.
+- **Windows mute route, mix format other than 48 kHz:** the analysis ran with
+  `--samplerate` instead of the stream's rate. At 44.1 kHz every chord came
+  out a semitone and a half sharp (C/G read as C♯/G♯).
+- **Web display:** a state without a position (mute pressed before the first
+  analysis pass) turned the page clock into NaN until reload. After switching
+  JamPilot off and on with the page left open, the old clock stuck for 10–20
+  seconds. And after switching off, the last chord stayed on screen as if
+  live — the page now says `Stopped`.
+- **Guitar view:** for dim, sus2 and m7b5 chords the diagram of the *next*
+  chord appeared under the current chord's name. G and G♯ in these qualities
+  now show the A shape at the 10th/11th fret instead of nothing.
+- **`jampilot selftest` now loads the chord model.** It only exercised the
+  old template path; a bundle without the model weights passed.
+
+Not verified on real hardware: the Windows fixes were run against the test
+doubles only, and the page fixes in Node, not in a browser. What the review
+found and did not fix is listed in the same document.
+
 ## 1.4.2 — 2026-10-14
 
 The theme of this release: **the root.** Two fixes for the same symptom

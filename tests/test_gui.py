@@ -183,7 +183,31 @@ class TestSignale:
                 handler = signal.getsignal(zeichen)
                 assert callable(handler)
                 handler(zeichen, None)          # so kaeme das Signal an
+            app.processEvents()                 # das Beenden ist eingereiht
             assert len(gerufen) == 2            # ... und beide Male wird beendet
+        finally:
+            wecker.stop()
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+    def test_das_beenden_laeuft_nicht_im_signalhandler(self, app):
+        """Der Handler kommt zwischen zwei beliebigen Bytecodes dran - auch
+        mitten in engine.start(), das das Engine-Lock haelt. app.quit()
+        schliesst in Qt 6 synchron das Fenster, closeEvent ruft engine.stop(),
+        und das wartete dann auf das Lock des eigenen Threads: Der Prozess
+        hing mit stehender Umleitung. Deshalb wird das Beenden nur
+        eingereiht und laeuft erst aus der Ereignisschlange."""
+        import signal
+
+        gerufen = []
+        app.quit = lambda: gerufen.append(True)
+
+        wecker = gui.beenden_bei_signal(app)
+        try:
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+            assert gerufen == []                # noch nicht - erst die Schlange
+            app.processEvents()
+            assert gerufen == [True]
         finally:
             wecker.stop()
             signal.signal(signal.SIGINT, signal.default_int_handler)

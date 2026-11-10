@@ -449,3 +449,27 @@ class TestNotenbins:
         out = btc.bass_pitches(feats)
         gefaltet = out.reshape(3, 12, -1).sum(axis=0)
         assert np.allclose(gefaltet, btc.fold_bass_chroma(feats), rtol=1e-5)
+
+
+class TestSelbsttestLaedtDasModell:
+    """`jampilot selftest` ist der einzige Test, den der Build gegen das
+    fertige Bundle faehrt. Er muss das Akkordmodell wirklich laden - sonst
+    besteht ihn ein Bundle, dem die Gewichte fehlen (Review 2026-11)."""
+
+    def test_die_grundstellungen_werden_erkannt(self):
+        from jampilot import selftest
+
+        ok, text = selftest._akkordmodell_pruefen()
+        assert ok, text
+        assert "8/8" in text
+
+    def test_fehlende_gewichte_lassen_den_selbsttest_scheitern(self, monkeypatch):
+        from jampilot import selftest
+
+        def fehlt(*_a, **_k):
+            raise FileNotFoundError("btc_large_voca.npz")
+
+        monkeypatch.setattr(btc, "BTCModel", fehlt)
+        ok, text = selftest._akkordmodell_pruefen()
+        assert not ok
+        assert "btc_large_voca.npz" in text

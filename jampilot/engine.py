@@ -543,6 +543,15 @@ class Engine:
                 self._on_change()
                 raise
 
+            # Den Anzeigen sagen, dass eine NEUE Sitzung beginnt - als frischer
+            # Zustand, nicht in den alten gemischt: Der traegt nach einem
+            # Stopp noch `running: false` samt den Akkorden und der Position
+            # von vorher. Ohne Position (`t`) stellt die Seite keine Uhr; sie
+            # zeigt "Starting up", bis der erste Analyse-Takt kommt, und haelt
+            # die neue Stream-Zeit (wieder ab null) nicht fuer die alte.
+            if self.broadcaster:
+                self.broadcaster.publish({"running": True})
+
             self._stop.clear()
             self._thread = threading.Thread(target=self._analyse, daemon=True)
             self._thread.start()

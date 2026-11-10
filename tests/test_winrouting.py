@@ -595,6 +595,82 @@ def _mit_wincapture(monkeypatch, traegt=True):
 _ECHTES_BACKEND = routing.backend
 
 
+class TestWaiseAufZweiEndpunkten:
+    """Nach einem Absturz auf dem Mute-Weg haelt sich ein Rechner mit genau
+    zwei Ausgaengen fuer einen OHNE Umleitung - und darf trotzdem nicht stumm
+    bleiben.
+
+    Der Mechanismus: backend() wird aus dem heutigen Zustand berechnet. Nach
+    dem Absturz ist der stumme Monitor der Standard-Ausgang, die Lautsprecher
+    sind das Telefoniegeraet - beide scheiden als Umweg aus, ein dritter
+    Endpunkt fehlt. `jampilot cleanup --force` meldete dann "nothing to clean
+    up", und ein Neustart fiel in den Direktmodus, ohne je bei cleanup()
+    anzukommen (Review 2026-11).
+    """
+
+    @pytest.fixture
+    def abgestuerzt(self, winaudio, monkeypatch):
+        """Laptop mit Lautsprechern (Standard UND Telefonie) und einem
+        HDMI-Monitor, kein Kabel - und ein Lauf, der hart beendet wurde."""
+        winaudio.wiedergabe = [e for e in winaudio.wiedergabe
+                               if e.kennung in ("id-boxen", "id-monitor")]
+        winaudio.standardgeraet = {0: "id-boxen", 1: "id-boxen", 2: "id-boxen"}
+        _mit_wincapture(monkeypatch)          # echtes backend(), win32, kein pactl
+        assert routing.backend() == routing.WINMUTE
+        routing.WindowsMuteRouting(_args()).__enter__()     # ... und kein __exit__
+        assert winaudio.ausgang == MONITOR
+        assert winaudio.stummgeschaltet == {"id-monitor"}
+        # Der naechste Prozess: der Besitzer ist tot, nichts ist gemerkt.
+        monkeypatch.setattr(routing, "_alive", lambda pid: False)
+        monkeypatch.setattr(routing, "_stummweg_cache", routing._UNSET)
+        monkeypatch.setattr(routing, "_kabel_cache", routing._UNSET)
+        return winaudio
+
+    def test_der_rechner_haelt_sich_fuer_einen_ohne_umleitung(self, abgestuerzt):
+        # Das ist die Falle, nicht der Fehler: Die Antwort ist fuer den
+        # verbogenen Zustand richtig. Deshalb darf an ihr nichts haengen.
+        assert not routing.available()
+
+    def test_der_cleanup_befehl_raeumt_trotzdem(self, abgestuerzt, capsys):
+        import argparse
+
+        from jampilot import cli
+
+        cli.cmd_cleanup(argparse.Namespace(force=False))
+        assert abgestuerzt.ausgang == BOXEN
+        assert abgestuerzt.stummgeschaltet == set()
+        ausgabe = capsys.readouterr().out
+        assert "Undid" in ausgabe and "nothing to clean up" not in ausgabe
+        assert BOXEN in ausgabe               # "Default output: ..." ohne pactl
+
+    def test_der_naechste_start_raeumt_bevor_er_nach_dem_weg_fragt(self, abgestuerzt):
+        assert not routing.available()        # die verbogene Antwort ist gemerkt
+        assert routing.waisen_aufraeumen() == 1
+        assert abgestuerzt.ausgang == BOXEN
+        assert abgestuerzt.stummgeschaltet == set()
+        assert not routing.STATE_FILE.exists()
+        # ... und die gemerkte Antwort ist verworfen: Der Weg ist wieder da.
+        assert routing.backend() == routing.WINMUTE
+
+    def test_eine_laufende_instanz_bleibt_unberuehrt(self, abgestuerzt, monkeypatch):
+        monkeypatch.setattr(routing, "_alive", lambda pid: True)
+        assert routing.waisen_aufraeumen() == 0
+        assert abgestuerzt.ausgang == MONITOR
+        assert routing.STATE_FILE.exists()
+
+    def test_ohne_vermerk_wird_nichts_angefasst(self, winaudio, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "win32")
+        winaudio.standardgeraet[0] = "id-kabel"       # sieht aus wie eine Waise
+        assert routing.waisen_aufraeumen() == 0       # ... aber niemand hat es vermerkt
+        assert winaudio.ausgang == KABEL_EIN
+
+    def test_ausserhalb_von_windows_passiert_nichts(self, winaudio):
+        routing.STATE_FILE.write_text('{"previous": "id-boxen"}')
+        winaudio.standardgeraet[0] = "id-kabel"
+        assert routing.waisen_aufraeumen() == 0
+        assert routing.STATE_FILE.exists()
+
+
 class TestWasDerNutzerLiest:
     """Der erste Start entscheidet sich an einer Zeile Text."""
 
