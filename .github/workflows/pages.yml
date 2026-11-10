@@ -1,0 +1,60 @@
+name: Pages
+
+# Veroeffentlicht die Projektseite (site/) auf GitHub Pages.
+#
+# Warum ein eigener Workflow und nicht "Pages aus /docs"? docs/ ist die
+# Werkstatt - Explorationen, Messberichte, Entwuerfe, auf Deutsch. Die Seite
+# ist das Schaufenster und liegt darum in site/. Bilder hat sie keine eigenen:
+# site/img ist ein Symlink auf docs/bilder, damit Seite und README dieselben
+# Screenshots zeigen und nicht auseinanderlaufen. `cp -rL` loest ihn hier auf.
+#
+# Lokal ansehen:  python3 -m http.server -d site   ->  http://localhost:8000
+#
+# Einmalig noetig (Repository-Einstellungen, nicht in dieser Datei):
+#   Settings -> Pages -> Source: "GitHub Actions". Die eigene Domain wird
+#   ebenfalls dort eingetragen - bei Actions-Deployments liest GitHub keine
+#   CNAME-Datei aus dem Repository.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/bilder/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Nie zwei Veroeffentlichungen gleichzeitig; eine laufende wird nicht
+# abgebrochen, sonst bleibt die Seite im schlimmsten Fall halb ausgerollt.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Seite zusammenstellen
+        run: |
+          cp -rL site _site
+          # Aus docs/bilder nur, was ein Browser anzeigt - kein Skript, kein Cache.
+          find _site/img -type f ! -name '*.png' ! -name '*.svg' -delete
+          find _site -type d -empty -delete
+          du -sh _site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
