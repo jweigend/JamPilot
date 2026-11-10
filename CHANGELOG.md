@@ -26,9 +26,11 @@ one off, now via `clip-path`), the curve is drawn as a line, blue, scaled
 so that a loud bass note reaches exactly the baseline of the chord letters,
 and its height normalisation hardly ever lets go (1 %/s) — a quiet passage
 no longer rescales it; a pause between songs resets it. In bass view only
-the bass curve is shown. That form — a thin blue line — is the one that
-stayed: the least distracting of the variants tried, and it still helps
-to place an entry on the right hit.
+the bass curve is shown. Second rehearsal (2026-11-10): the mix came
+back as a filled area, dark blue and almost transparent — a hint of
+context in every view, including bass view — with the bass as a thin line
+on top: orange in bass view (the fretboard's next-note colour), blue
+elsewhere. That is the form that stayed.
 
 ### A review, and what it turned up
 

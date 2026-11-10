@@ -2024,24 +2024,40 @@ function drawWave(now, dt) {
     } else if (!waveTop.px) waveTop.px = 0.45 * h;
   }
   const top = waveTop.px;
-  // Linie statt gefuellter Flaeche (verworfen: Flaechen #9aa3ad14/#9aa3ad2e).
-  const line = (werte, peak, farbe, breite) => {
-    if (!(peak > 0)) return;
+  // Zwei Zeichenarten: der Mix als Flaeche vom Boden der Spur, der Bass als
+  // Linie darueber.
+  const pfad = (werte, peak, schliessen) => {
     ctx.beginPath();
+    if (schliessen) ctx.moveTo(xOf(t0), h);
     for (let i = 0; i < werte.length; i++) {
       const x = xOf(t0 + i * step);
       const y = h - Math.min(werte[i] / peak, 1) * top;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      if (i === 0 && !schliessen) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
+    if (schliessen) { ctx.lineTo(xOf(t0 + werte.length * step), h); ctx.closePath(); }
+  };
+  const flaeche = (werte, peak, farbe) => {
+    if (!(peak > 0)) return;
+    pfad(werte, peak, true);
+    ctx.fillStyle = farbe;
+    ctx.fill();
+  };
+  const line = (werte, peak, farbe, breite) => {
+    if (!(peak > 0)) return;
+    pfad(werte, peak, false);
     ctx.strokeStyle = farbe;
     ctx.lineWidth = breite * dpr;
     ctx.lineJoin = "round";
     ctx.stroke();
   };
-  // Blau (Akzent der Seite) statt Grau (verworfen: #9aa3ad40 / #9aa3ad80);
-  // im Bass-Modus nur das Tiefband, der Mix entfaellt.
-  if (instrument !== "bass") line(full, wavePeak.full, "#6ea8ff40", 1);
-  line(bass, wavePeak.bass, "#6ea8ff90", 1.5);
+  // Der Mix als Flaeche, dunkelblau und fast durchsichtig - nur ein Hauch
+  // Kontext, in jedem Modus (Proberaum 10.11.; vorher Linie #6ea8ff40, im
+  // Bass-Modus ganz weg). Der Bass als Linie darueber: im Bass-Modus duenn
+  // und im Orange des Griffbretts (Folgeton, #e8934a), sonst im Blau der
+  // Seite.
+  flaeche(full, wavePeak.full, "#2b5fb820");
+  line(bass, wavePeak.bass, instrument === "bass" ? "#e8934a" : "#6ea8ff90",
+       instrument === "bass" ? 1 : 1.5);
 }
 
 // Aendert sich die Schreibweise, muss ALLES neu geschrieben werden, was schon
