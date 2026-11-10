@@ -1256,3 +1256,39 @@ class TestLageImLedger:
         track.add(frames, 0.0, pitches=pitches)
         noten, lagen = cli._bass_per_segment([(0.0, "C"), (2.0, "C")], track, front=4.0)
         assert noten == ["E", "E"] and lagen == [40, 28]
+
+
+class TestStartOhneFenster:
+    """cmd_run bis kurz vor den Geraeten: was passiert, BEVOR irgendetwas
+    umgeleitet wird - und was ein Abbruch danach nicht mehr anrichten darf."""
+
+    @pytest.fixture
+    def anlauf(self, monkeypatch):
+        """cmd_run laufen lassen, bis es den Bericht zur Quelle druckt - dort
+        bricht die Attrappe ab. Die Signalhandler, die cmd_run setzt, werden
+        danach zurueckgestellt: Sie gehoeren dem Testlauf, nicht dem Test."""
+        import signal
+
+        from jampilot import routing
+
+        namen = [n for n in ("SIGINT", "SIGTERM", "SIGHUP") if hasattr(signal, n)]
+        vorher = {n: signal.getsignal(getattr(signal, n)) for n in namen}
+        schritte = []
+
+        def bericht(_args):
+            schritte.append("bericht")
+            raise SystemExit("genug gesehen")
+
+        monkeypatch.setattr(routing, "waisen_aufraeumen",
+                            lambda: schritte.append("waisen") or 0)
+        monkeypatch.setattr(cli, "_bericht_zur_quelle", bericht)
+        with pytest.raises(SystemExit, match="genug gesehen"):
+            cli.cmd_run(argparse.Namespace())
+        yield schritte
+        for name, handler in vorher.items():
+            signal.signal(getattr(signal, name), handler)
+
+    def test_die_waise_wird_geraeumt_bevor_nach_dem_weg_gefragt_wird(self, anlauf):
+        # _bericht_zur_quelle ist die erste Stelle, die routing.backend()
+        # fragt. Die Antwort haengt am Zustand, den ein Absturz verbogen hat.
+        assert anlauf == ["waisen", "bericht"]

@@ -486,7 +486,14 @@ def _bericht_zur_quelle(args):
 def cmd_cleanup(args):
     from . import routing
 
-    if not routing.available():
+    # Unter Windows NICHT nach available() fragen: Die Antwort wird aus dem
+    # heutigen Zustand berechnet, und genau den hat ein abgestuerzter Lauf
+    # verbogen. Steht der Standard-Ausgang noch auf dem stummen Umweg, findet
+    # ein Rechner mit zwei Ausgaengen keinen Kandidaten mehr und haelt sich
+    # fuer einen ohne Umleitung - dieser Befehl meldete dann "nothing to clean
+    # up" auf dem einen Rechner, der ihn braucht. routing.cleanup() raeumt
+    # unter Windows nach dem VERMERK, nicht nach backend().
+    if sys.platform != "win32" and not routing.available():
         print("No audio routing on this machine (Linux needs pactl, Windows "
               "needs a second playback device or VB-CABLE) - nothing to clean "
               "up here.")
@@ -614,6 +621,19 @@ def cmd_run(args):
         if hasattr(signal, zeichen):
             signal.signal(getattr(signal, zeichen), _raise_interrupt)
 
+    # Die Waise eines abgestuerzten Laufs ZUERST, bevor irgendetwas unten
+    # routing.backend() fragt: Die Antwort haengt am Zustand des Rechners, und
+    # den hat der Absturz verbogen (routing.waisen_aufraeumen). Scheitert das
+    # Zuruecknehmen, geht der Start trotzdem weiter - `jampilot cleanup` bleibt
+    # der Weg, und eine Warnung ist besser als ein Programm, das nicht startet.
+    try:
+        if routing.waisen_aufraeumen():
+            print("Undid what a crashed run left behind (muted endpoint or "
+                  "redirected system output).")
+    except Exception as exc:
+        print(f"Warning: could not undo a crashed run's audio routing ({exc}). "
+              f"'jampilot cleanup --force' resets it.")
+
     # Die URSACHE vor der Absage. Unter Windows OHNE virtuelles Kabel bricht
     # _check_devices am Mikrofon ab ("hat 1 Kanal") - und das ist zwar wahr,
     # aber nicht das Problem: Das Problem ist der fehlende Treiber, und wer
@@ -625,7 +645,10 @@ def cmd_run(args):
     # Erst pruefen, dann teuer werden: Geraete- und Instanzfehler sollen sofort
     # kommen, nicht als Traceback nach drei Sekunden numba-Warmup.
     _check_devices(args)
-    if routing.available():
+    # Unter Windows unabhaengig von available(): Haelt eine laufende Instanz
+    # den Mute-Weg, sieht die zweite auf einem Rechner mit zwei Ausgaengen
+    # keinen Kandidaten mehr und hielte sich sonst fuer allein.
+    if sys.platform == "win32" or routing.available():
         pid = routing.owner_pid()
         if pid is not None and pid != os.getpid():
             raise SystemExit(str(routing.InstanceRunning(pid)))
