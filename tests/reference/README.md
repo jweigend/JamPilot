@@ -230,6 +230,18 @@ filtert die Saitenlagen auf die gemessene Tonhoehe, der Handweg
 entscheidet nur noch dazwischen (E2: A 7 oder D 2); der Anker im
 Record-Modus bietet weiter alle vier.
 
+### Nachtrag 2026-11-09: Bass-Stem fuer den Slash - breit gemessen, verworfen
+
+`messung_bass_stem_isophonics.py` misst `slash_note` auf dem Open-Unmix-
+Bass-Stem gegen den Mix ueber 193 Isophonics-Titel (Beatles, Queen, Carole
+King; Zuordnung und Versatz in `isophonics_matching.csv`, aus dem ML-Repo).
+Stem: leer 37 -> 30 %, Umkehrungen 33 -> 40 %, aber falsche Slashes
+48 -> 169 (0,4 -> 1,5 %), 94 davon Quinten - der Stem hoert den Bassisten,
+die Annotation meint die Harmonie. Keine Mischform holt das zurueck. Fuer den
+Slash bleibt der Mix die Quelle. Nebenbefund: Pooling 1 s statt 2 s auf dem
+Mix senkt leer auf 31 % bei 53 falschen Slashes (nicht eingebaut). Details
+und alle Varianten: `docs/exploration/bass-stem-tonerkennung.md` §6.
+
 ## Publish-once-Messungen (2026-08-27, eingecheckt)
 
 Fuer das Zeitleisten-Redesign (docs/exploration/zeitleiste-redesign.md)

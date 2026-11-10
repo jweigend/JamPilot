@@ -592,7 +592,9 @@ run.cmd            the shell around run.ps1 - gets past the execution policy
 jampilot/
   btc.py           the chord recogniser: BTC transformer (NumPy port) + boundary refinement
   beats.py         the beat tracker: Beat This! (ONNX), beat grid, bar phase, quarter snap
-  data/            model weights (btc_large_voca.npz, beat_this_small0.onnx) and the web page (index.html)
+  envelope.py      the envelope under the lane: RMS per 12.5 ms of the mix and the bass
+  stems.py         the bass stem for that curve: Open-Unmix UMX-HQ (ONNX), own thread, one hop per run
+  data/            model weights (btc_large_voca.npz, beat_this_small0.onnx, umxhq_bass_int8.onnx) and the web page (index.html)
   chroma.py        FFT → chroma vector (12 pitch classes), CQT frame chroma
   chords.py        chord templates + matching (kept for the self-test)
   bass.py          the measured bass note → inversions / slash chords

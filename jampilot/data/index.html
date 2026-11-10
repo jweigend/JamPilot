@@ -589,19 +589,19 @@
       </button>
 
       <h2 class="second">Waveform</h2>
-      <p class="sub">The music's own attacks under the timeline as thin blue
-         lines: the whole mix, faint, and the low band (bass and chord root)
-         a little stronger &ndash; in bass view the low band alone. It
-         decides nothing: where a chord is held and the bass hits now and
-         then, the peaks show you where, and you take the ones you want to
-         place your entry. Because the sound is delayed, you see a hit
-         before you hear it. A loud bass note reaches the baseline of the
-         chord letters, never higher.</p>
+      <p class="sub">The music's own attacks under the timeline: the whole
+         mix as a faint dark-blue area, and the bass as a thin line on top
+         &ndash; separated from the mix by a small model, so the kick drum
+         stays out of it; orange in bass view. It decides nothing: where a
+         chord is held and the bass hits now and then, the peaks show you
+         where, and you take the ones you want to place your entry. Because
+         the sound is delayed, you see a hit before you hear it. A loud bass
+         note reaches the baseline of the chord letters, never higher.</p>
       <button class="opt" data-wave="on" role="radio">
         <span class="glyph">&#8767;</span>
         <span class="text">
           <span class="label">Shown</span>
-          <span class="desc">Thin blue lines: the mix faint, the low band stronger.</span>
+          <span class="desc">The mix as a faint area, the bass as a line.</span>
         </span>
       </button>
       <button class="opt" data-wave="off" role="radio">
@@ -824,8 +824,11 @@ let ticks = new Map();       // at-Schluessel -> {el, at}
 
 // HUELLKURVE. Kein Publish-once-Kanal, sondern ein Ausschnitt: der Server
 // schickt mit jedem Snapshot {t0, dt, full, bass} - RMS je 12,5 ms fuer den
-// Mix und fuer das Tiefband (30..250 Hz), von knapp hinter JETZT bis zum
-// rechten Rand. Gezeichnet wird auf einem Canvas mit derselben Uhr und
+// Mix und fuer den Bass (getrennter Stem, stems.py; ohne Modell das Tiefband
+// 30..250 Hz), von knapp hinter JETZT bis zum rechten Rand. `bass` darf
+// KUERZER sein als `full`: die Trennung laeuft asynchron und hinkt der
+// Analysefront um gut eine halbe Sekunde nach - jede Kurve wird so weit
+// gezeichnet, wie sie Werte hat. Gezeichnet wird auf einem Canvas mit derselben Uhr und
 // derselben x-Formel wie die Chips. Die Hoehe normiert ein Spitzenwert-
 // Folger je Kurve: sofort hoch, praktisch nie runter - leise Stellen bleiben
 // leise, neu justiert wird erst beim naechsten Song (s. drawWave).

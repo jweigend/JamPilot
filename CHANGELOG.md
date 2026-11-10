@@ -62,6 +62,26 @@ Not verified on real hardware: the Windows fixes were run against the test
 doubles only, and the page fixes in Node, not in a browser. What the review
 found and did not fix is listed in the same document.
 
+### Bass stem instead of a low-pass (prototype)
+
+The low band showed every kick drum hit as a bass attack — the kick sits at
+50–100 Hz, right inside the bass, and no filter can tell them apart. The bass
+curve now comes from a source separator: Open-Unmix UMX-HQ (Stöter et al.,
+JOSS 2019; weights MIT-licensed, Zenodo 3370489), target "bass", exported to
+ONNX with a dynamic frame axis and quantised to int8 (9 MB, same measured
+quality as the 36 MB float model). It runs in its own thread like the beat
+model, one analysis hop per run with 1.0 s of context before and 0.5 s
+after, about 90 ms per hop on one core of a 2013 Xeon; if it falls behind
+it merges the waiting hops into one run instead of leaving holes. Measured
+against real stems (`docs/exploration/bass-stem-huellkurve.md`): the
+envelope's correlation with the true bass stem rises from 0.30 to 0.74
+(Sailing to Philadelphia) and from 0.81 to 0.93 (Echoes), the kick
+leakage (correlation of the residual with the drum stem) drops from 0.59
+to 0.13. New module `stems.py`, model `data/umxhq_bass_int8.onnx`,
+reproduction in `tests/reference/export_umx_bass.py` and
+`messung_bass_stem.py`. Without onnxruntime or the model, the low band is
+used as before. Untested in the rehearsal room so far.
+
 ## 1.4.2 — 2026-10-14
 
 The theme of this release: **the root.** Two fixes for the same symptom
