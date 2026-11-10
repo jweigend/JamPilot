@@ -20,7 +20,7 @@ standgehalten. Die Fehler liegen an den Rändern:
 
 Acht Befunde sind behoben und mit Tests belegt (Abschnitt 2). Der Rest ist
 dokumentiert und offen (Abschnitt 3). Die Testsuite stand vor dem Review bei
-686 bestandenen Tests, danach bei 705.
+686 bestandenen Tests, danach bei 706.
 
 ## 1. Vorgehen und Grenzen
 
@@ -175,6 +175,20 @@ importiert. Ein Bundle ohne `btc_large_voca.npz` bestand also.
 Geändert: Die acht Grundstellungen laufen zusätzlich durch Log-CQT und Modell.
 Verlangt sind Grundton und Geschlecht, nicht die Vierklang-Erweiterung: Den
 obertonreinen Sinus-C7 ohne Schlagzeug nennt das Modell C.
+
+### Nachtrag nach der Bewertung des Branches
+
+Drei Kleinigkeiten, die beim zweiten Lesen des Diffs auffielen und im selben
+Branch nachgezogen sind: Der Klaviatur-Planer hat dieselbe Sicherung wie der
+Gitarren-Planer bekommen (er hätte sonst, wie der vor Befund 8, die Lage des
+Nachfolgers liefern können – mit dem vollen Katalog tritt der Fall nicht ein,
+aber die Symmetrie fehlte). Der Vertrag der Rückwärts-Regel aus Befund 7
+steht jetzt bei `record_epoch` in `delay_stream.py`, damit ihn der nächste
+Pfad nicht unwissentlich bricht. Und `seite_harness.js` sagt im Kopf, dass
+ein `ReferenceError` aus Node meist die Attrappe meint, nicht die Seite.
+Bewusst nicht angefasst: `timeline_poc.html` kennt `running: false` weiter
+nicht (Debug-Seite), und die Lagen-Anker werden beim Abschalten gelöscht
+(der Mitschnitt, auf den sie zeigen, ist dann weg).
 
 ## 3. Offen
 

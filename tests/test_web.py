@@ -794,3 +794,24 @@ class TestSeiteAlsGanzes:
                              [[None, 10, 12, 12, 10, 10]]]
         # ... und wo es eine E-Form gibt, bleibt die Barre-Grenze bei Bund 9.
         assert s["d"] == [["A", 5], ["open", 0]]
+
+    def test_klaviatur_antwortet_nicht_mit_dem_nachfolger(self):
+        # Dieselbe Sicherung wie beim Griffbild: Hat der laufende Akkord keine
+        # Umkehrung, zeigt die Klaviatur nichts - nicht den naechsten Akkord.
+        # Mit dem vollen Katalog tritt der Fall nicht ein; der Test stellt
+        # ihn mit einem Fenster, dessen erster Eintrag keine Kandidaten hat.
+        s = self._szenario("""
+          p.open(); p.instrument("keys");
+          const ohne = { root: "C", q: "unbekannt", name: "Cunbekannt" };
+          const c = { root: "C", q: "", name: "C" };
+          const leer = p.fn.planKeyVoicing([ohne, c], null);
+          const mitC = p.fn.planKeyVoicing([c, ohne], null);
+          p.msg({ ...voll(10.5), committed: [{ at: 10, c: "Bdim" },
+                  { at: 11, c: "C" }] });
+          const v = p.fn.decideKeyVoicing({ at: 10, c: "Bdim" });
+          console.log(JSON.stringify({ leer, vollNotes: mitC && mitC.notes,
+            bdim: v && v.notes.map(n => n % 12).sort((a, b) => a - b) }));
+        """)
+        assert s["leer"] is None
+        assert s["vollNotes"]                                  # C selbst geht
+        assert s["bdim"] == [2, 5, 11]                         # B D F, nicht C E G

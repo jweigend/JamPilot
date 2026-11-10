@@ -1544,8 +1544,12 @@ function keyTransCost(a, b) {
 // Viterbi ueber [aktuell, ...kommende] - dieselbe Struktur wie planVoicing bei
 // der Gitarre, nur mit Umkehrungen statt Griff-Schablonen als Knoten.
 function planKeyVoicing(window, last) {
-  const cand = window.map(c => keyCandidates(c.root, c.q)).filter(a => a.length);
-  if (!cand.length) return null;
+  const alle = window.map(c => keyCandidates(c.root, c.q));
+  // Dieselbe Sicherung wie bei planVoicing: Hat der Akkord, fuer den
+  // entschieden wird, keine Umkehrung, gibt es keine Antwort - nicht die des
+  // naechsten, der nach dem Filtern vorn stuende.
+  if (!alle.length || !alle[0].length) return null;
+  const cand = alle.filter(a => a.length);
   const dp = [cand[0].map(v => (last ? keyTransCost(last, v) : 0) + keyNodeCost(v))];
   const bp = [cand[0].map(() => -1)];
   for (let i = 1; i < cand.length; i++) {
@@ -1621,7 +1625,7 @@ function decideKeyVoicing(seg) {
   let v = kbVoicings.get(key);
   if (v) { lastKeyVoicing = v; return v; }
   const win = futureWindow(seg, q => q in KEY_INTERVALS);
-  if (!win.length) return null;
+  if (!win.length || win[0].name !== seg.c) return null;   // wie decideVoicing
   v = planKeyVoicing(win, lastKeyVoicing);
   if (!v) return null;
   kbVoicings.set(key, v);

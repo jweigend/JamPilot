@@ -7,6 +7,10 @@
 // String-Assertions schon gar nicht. Benutzt von tests/test_web.py
 // (TestSeiteAlsGanzes); ohne Node werden diese Tests uebersprungen.
 //
+// Faellt ein Test hier mit `ReferenceError` oder `... is not a function` aus
+// Node, fehlt meist eine DOM-Methode in der Attrappe unten - nicht etwas in
+// der Seite. Die Attrappe kennt nur, was die Seite bisher benutzt.
+//
 //   const { seite } = require("./seite_harness.js");
 //   const p = seite("/pfad/zu/index.html");
 //   p.open(); p.msg({t: 2.0, committed: [...]}); p.tick(250); p.frame();
@@ -77,7 +81,8 @@ function seite(pfad, opts = {}) {
       recording, paused, link, events, now: streamNow(),
       gestoppt: typeof gestoppt === "undefined" ? null : gestoppt,
       hoerbar: hoerbaresSegment(streamNow()) });
-    globalThis.__fn = { candidates, decideVoicing, renderFretboard, idleText };
+    globalThis.__fn = { candidates, decideVoicing, renderFretboard, idleText,
+                        keyCandidates, decideKeyVoicing, planKeyVoicing };
     globalThis.__instrument = setzeInstrument;
   `, ctx);
 

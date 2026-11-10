@@ -388,7 +388,15 @@ class DelayedLoopback:
 
     @property
     def record_epoch(self) -> int:
-        """Zaehlt die Zeitspruenge des Mitschnitts (Modus, Pause, Sprung)."""
+        """Zaehlt die Zeitspruenge des Mitschnitts (Modus, Pause, Sprung).
+
+        VERTRAG mit der Webanzeige (index.html, apply): Jeder Sprung der
+        hoerbaren Position RUECKWAERTS traegt einen neuen Epoch. Die Seite
+        liest ein `t`, das ohne neuen Epoch um mehr als eine halbe Sekunde
+        zurueckgeht, als NEUE SITZUNG (Stream neu ab null, Epoch wieder 0)
+        und verwirft ihre Uhr. Wer einen Pfad baut, auf dem die Position
+        ohne Epoch zurueckspringt, bricht diesen Vertrag.
+        """
         return self._record.epoch if self._record is not None else 0
 
     @property
