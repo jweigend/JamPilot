@@ -99,12 +99,13 @@ h1 .accent { color: var(--blue); display: block; }
            border-top: 1px solid #16181c; }
 .st-lane canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .st-chips { position: absolute; inset: 0; }
-.chip { position: absolute; left: 0; top: 9%; will-change: transform, opacity;
+/* Der Chip haengt an seiner Unterkante: darunter steht kein Text, dort laeuft
+   die Huellkurve bis an die Grundlinie der Namen (site.js: top). */
+.chip { position: absolute; left: 0; bottom: 44%; will-change: transform, opacity;
         padding-left: 2.2cqw; white-space: nowrap; }
-.chip .deg { display: block; color: #565e66; font-size: 1.5cqw; line-height: 1; }
+.chip .deg { display: block; color: #6b7480; font-size: 1.5cqw; line-height: 1; }
 .chip .name { display: block; color: #9aa3ad; font-weight: 700; font-size: 5.4cqw;
               line-height: 1.1; }
-.chip .in { display: block; color: #565e66; font-size: 1.35cqw; }
 .st-line { position: absolute; top: 0; bottom: 0; left: 14%; width: 2px;
            background: var(--blue); opacity: .75; }
 .st-nowlabel { position: absolute; left: 14%; bottom: 3%; transform: translateX(-50%);
@@ -223,7 +224,7 @@ footer p { margin: 0 0 6px; max-width: 760px; }
   .st-lane { height: 32%; }
   .st-top { font-size: 2.4cqw; } .st-key { font-size: 2.2cqw; }
   .st-dot { width: 1.3cqw; height: 1.3cqw; }
-  .chip .deg { font-size: 2.6cqw; } .chip .name { font-size: 8cqw; } .chip .in { font-size: 2.4cqw; }
+  .chip .deg { font-size: 2.6cqw; } .chip .name { font-size: 8cqw; }
   .st-nowlabel { font-size: 2cqw; }
   .flow { padding: 18px 12px; }
   .node { font-size: 12.5px; padding: 10px 4px; } .node small { font-size: 11px; }
