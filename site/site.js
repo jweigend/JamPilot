@@ -72,8 +72,10 @@
         const c = PROG[k % PROG.length];
         el = document.createElement("div");
         el.className = "chip";
+        // Wie in der Anzeige: oben klein die Stufe, darunter gross der Name -
+        // unter dem Namen steht nichts, dort laeuft die Huellkurve.
         el.innerHTML = '<span class="deg">' + c[2] + '</span><span class="name">'
-                     + name(c) + '</span><span class="in"></span>';
+                     + name(c) + '</span>';
         chipsEl.appendChild(el);
         chips.set(k, el);
       }
@@ -81,8 +83,7 @@
       const x = nowX + dt * pps;
       el.style.transform = "translateX(" + x.toFixed(1) + "px)";
       // Hinter der Linie blasst der Chip aus - er ist jetzt der grosse Akkord.
-      el.style.opacity = dt >= 0 ? 1 : Math.max(0, 1 + dt / 0.6).toFixed(2);
-      el.lastChild.textContent = dt > 0.05 ? "in " + dt.toFixed(1) + "s" : " ";
+      el.style.opacity = dt >= 0 ? 1 : Math.max(0, 1 + dt / 0.35).toFixed(2);
     }
     for (const [k, el] of chips) if (k < k0) { el.remove(); chips.delete(k); }
 
@@ -94,7 +95,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const zeit = (x) => t + (x - nowX) / pps;
-    const top = h * 0.3;       // bis knapp unter die Grundlinie der Akkordnamen
+    const top = h * 0.49;      // bis an die Grundlinie der Akkordnamen (CSS .chip: bottom 44%)
 
     ctx.beginPath(); ctx.moveTo(0, h);
     for (let x = 0; x <= w; x += 2) ctx.lineTo(x, h - huelle(MIX, zeit(x), 0.1) * top * 0.8);

@@ -113,9 +113,9 @@ glance, while both your hands are busy:
 - **The big chord in the centre** is what is sounding **right now**, in sync with
   what your speakers are putting out — not what the analysis is chewing on.
 - **The lane at the bottom** is the future, moving right to left towards the
-  `NOW` line. Each chord carries its countdown (`in 1.3s`). A chord flips to the
-  centre in exactly the frame in which its chip touches the line — big chord and
-  lane run off the same clock, so they cannot drift apart.
+  `NOW` line. A chord flips to the centre in exactly the frame in which its
+  chip touches the line — big chord and lane run off the same clock, so they
+  cannot drift apart.
 - **Bar lines under the lane** — a faint tick per beat, the downbeat a little
   taller. The chip says *what* comes, the ticks say *where in the bar*: is
   that `G` the start of the next bar, or a change on the three? A learned
@@ -142,9 +142,11 @@ glance, while both your hands are busy:
   show you where they are, and you take the ones you want. Because the
   sound reaches you delayed, the curve shows the hits *before* you hear
   them, running towards the `NOW` line like the chips. A loud bass note
-  reaches exactly the baseline of the chord letters, never higher. Tested
-  in the rehearsal room: the least distracting form that still helps you
-  place your entries. Off in the gear menu.
+  reaches exactly the baseline of the chord letters, never higher — and
+  nothing is printed below them, so the curve never runs through a label.
+  The decay of each hit is smoothed, the attack is not. Tested in the rehearsal room: the least
+  distracting form that still helps you place your entries. Off in the
+  gear menu.
 - **The key badge**, top left, once there is enough music to be sure of it.
 - **The QR code** — scan it with a phone on the same Wi-Fi and you get the same
   display on your music stand. The computer does the listening; every other

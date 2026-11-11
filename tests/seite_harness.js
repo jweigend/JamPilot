@@ -82,7 +82,10 @@ function seite(pfad, opts = {}) {
       gestoppt: typeof gestoppt === "undefined" ? null : gestoppt,
       hoerbar: hoerbaresSegment(streamNow()) });
     globalThis.__fn = { candidates, decideVoicing, renderFretboard, idleText,
-                        keyCandidates, decideKeyVoicing, planKeyVoicing };
+                        keyCandidates, decideKeyVoicing, planKeyVoicing,
+                        glaetteHuellkurve };
+    globalThis.__chips = () => [...chips.values()].sort((a, b) => a.at - b.at)
+      .map(c => ({ at: c.at, x: c.x, deckung: Number(c.el.style.opacity) }));
     globalThis.__instrument = setzeInstrument;
   `, ctx);
 
@@ -96,6 +99,7 @@ function seite(pfad, opts = {}) {
     stand: () => ({ ...ctx.__stand(), idle: $("idleTitle").textContent,
                     idleSichtbar: $("idle").style.display === "block" }),
     fn: ctx.__fn,
+    chips: () => ctx.__chips(),
     instrument: ctx.__instrument,
   };
 }

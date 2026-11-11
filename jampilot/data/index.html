@@ -9,6 +9,14 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; }
+  /* Die Hoehe der Zeitleiste, an EINER Stelle: die Buehne darueber und der
+     Tastenhinweis haengen daran. 23,6vh (bis 11.11.2026: 22vh) ist der
+     kleinere Teil des kleineren Teils im goldenen Schnitt. Worauf es
+     ankommt, ist die Rangfolge: Die Buchstaben des grossen Akkords (50vh
+     Schrift, rund 34 % der Bildhoehe) sind gut 1,4-mal so hoch wie die
+     Leiste. Ein Zwischenstand mit 26,5vh Leiste und 47vh Akkord kam auf
+     1,18 - zwei fast gleich schwere Bloecke, keine klare Hauptsache. */
+  :root { --lane: 23.6vh; }
   body {
     background: #000; color: #fff; user-select: none; cursor: default;
     /* "Segoe UI Variable Display" vor "Segoe UI": Windows 11 bringt einen
@@ -205,7 +213,7 @@
   @media (max-width: 640px) { #qrbox { display: none; } }
 
   #stage {
-    position: absolute; inset: 0; bottom: 24vh;
+    position: absolute; inset: 0; bottom: calc(var(--lane) + 2vh);
     display: flex; align-items: center; justify-content: center;
   }
   #current {
@@ -213,11 +221,11 @@
        stufenlose Gewichtsachse hat - unter macOS tut SF Pro Display das, unter
        Windows tut Segoe UI es nicht. Dort sucht CSS bei Werten ueber 500 nach
        OBEN: 750 findet keine 800, greift zur 900 und landet bei "Segoe UI
-       Black". In dieser Groesse (52vh) sah der Hauptakkord damit blockig und
+       Black". In dieser Groesse (damals 52vh) sah der Hauptakkord damit blockig und
        viel zu fett aus - als einziges Element der Seite, weil nur hier ein
        Gewicht ueber 700 stand. 700 ist ueberall ein echter Schnitt. */
     font-weight: 700; line-height: .9; white-space: nowrap;
-    font-size: min(42vw, 52vh);
+    font-size: min(40vw, 50vh);
     transition: opacity .25s;
     /* Spalte statt Fliesstext: darueber steht die Nashville-Stufe (bzw. im
        Invert-Modus der kleine Name). JS schaltet display auf flex/none. */
@@ -254,7 +262,7 @@
   #context .over { font-size: 46%; font-weight: 400; color: #444b52;
                    letter-spacing: .12em; text-transform: uppercase;
                    margin-right: .5em; }
-  body.bass #current { font-size: min(30vw, 40vh); }
+  body.bass #current { font-size: min(29vw, 38.5vh); }
 
   /* Gitarren-Modus: das Griffbild zum Akkord, links oben. Nur sichtbar, wenn das
      Instrument "guitar" ist - sonst naehme es dem grossen Akkord den Platz weg.
@@ -264,7 +272,7 @@
     display: none; flex-direction: column; align-items: center; gap: 1.1vh;
   }
   body.guitar #fretboard { display: flex; }
-  body.guitar #current { font-size: min(30vw, 40vh); }
+  body.guitar #current { font-size: min(29vw, 38.5vh); }
   #fretboard svg { width: 30vmin; height: auto;
                    min-width: 148px; max-width: 44vw; display: block; }
 
@@ -276,7 +284,7 @@
      Sie ist QUER statt hochkant - darum bekommt sie mehr Breite als die 30vmin
      der Griffbrett-SVGs, sonst waeren die Tasten Streichhoelzer. */
   body.keys #fretboard { display: flex; }
-  body.keys #current { font-size: min(30vw, 40vh); }
+  body.keys #current { font-size: min(29vw, 38.5vh); }
   body.keys #fretboard svg { width: 46vmin; min-width: 230px; max-width: 56vw; }
 
   /* In der schmalen Mobilansicht (z.B. Handy hochkant) ist neben dem grossen
@@ -287,7 +295,7 @@
     body.guitar #fretboard, body.bass #fretboard,
     body.keys #fretboard { display: none; }
     body.guitar #current, body.bass #current,
-    body.keys #current { font-size: min(42vw, 52vh); }
+    body.keys #current { font-size: min(40vw, 50vh); }
   }
 
   /* Griffbrett per Einstellung abgeschaltet (gilt fuer Gitarre, Bass UND
@@ -297,7 +305,7 @@
   body.nofretboard #fretboard { display: none; }
   body.nofretboard.guitar #current,
   body.nofretboard.bass #current,
-  body.nofretboard.keys #current { font-size: min(42vw, 52vh); }
+  body.nofretboard.keys #current { font-size: min(40vw, 50vh); }
   #fbname { color: #c8cdd4; font-size: max(2.5vmin, 15px); font-weight: 650;
             letter-spacing: .03em; white-space: nowrap; }
   #fbname .suffix { color: #6ea8ff; font-size: 72%; }
@@ -344,7 +352,7 @@
   @keyframes blink { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
 
   #lane {
-    position: absolute; left: 0; right: 0; bottom: 0; height: 22vh;
+    position: absolute; left: 0; right: 0; bottom: 0; height: var(--lane);
     border-top: 1px solid #1c1c1c;
   }
   #nowline {
@@ -362,11 +370,15 @@
               transform: translateX(-50%);
               color: #444; font-size: 1.7vmin; letter-spacing: .25em; }
   .chip {
-    /* Nur vertikal zentrieren: die LINKE Textkante markiert den Zeitpunkt,
-       nicht die Label-Mitte. Sie trifft die JETZT-Linie in genau dem Frame,
-       in dem der Akkord erklingt - sonst laege der Wechsel im Wortinneren. */
-    position: absolute; top: 42%; left: 0; transform: translateY(-50%);
-    font-size: 7.5vh; font-weight: 650; color: #9aa3ad;
+    /* Die LINKE Textkante markiert den Zeitpunkt, nicht die Label-Mitte. Sie
+       trifft die JETZT-Linie in genau dem Frame, in dem der Akkord erklingt -
+       sonst laege der Wechsel im Wortinneren. Senkrecht haengt der Chip an
+       seiner UNTERKANTE, und die unterste Zeile ist die grosse Schrift:
+       darunter steht kein Text mehr, dort beginnt der Streifen der
+       Huellkurve (WAVE_TOP in drawWave). Er ist in jedem Stufen-Modus gleich
+       hoch - der Chip waechst nach oben, nicht in die Kurve. */
+    position: absolute; bottom: 43%; left: 0;
+    font-size: 8vh; font-weight: 650; color: #9aa3ad; line-height: 1.05;
     /* Bewegung per transform (Compositor), nicht per `left` (Layout): sonst
        ruckelt das Laufband, sobald der Browser pro Frame layouten muss. */
     white-space: nowrap; will-change: transform, opacity;
@@ -378,34 +390,37 @@
        der letzte bleibt frei. clip-path kostet kein Layout, anders als
        width - und kann auf exakt null, wo bei width das Padding stuende. */
     background: transparent;
-    /* Spalte (Stufe / Name / Countdown) als Flex: so kann der Invert-Modus
-       Stufe und Name rein per CSS-`order` tauschen, ohne Chip-Neuaufbau. */
-    display: flex; flex-direction: column; align-items: flex-start;
+    /* Zwei Zeilen als Grid: oben klein die Stufe, unten gross der Name.
+       Mehr steht im Chip nicht: der Countdown ("in 1.3s"), der bis
+       11.11.2026 dazugehoerte, brachte beim Spielen nichts (Nutzer) - WANN
+       der Akkord kommt, zeigt sein Abstand zur JETZT-Linie. Grid statt
+       Verschachtelung, damit der Invert-Modus Stufe und Name rein per CSS
+       tauscht (grid-row), ohne Chip-Neuaufbau. */
+    display: grid; justify-items: start;
   }
-  .chip .suffix { font-size: 55%; color: #567da3; }
+  .chip .suffix { font-size: 55%; color: #6ea8ff; }   /* wie am grossen Akkord */
   .chip .bassnote { color: #6ea8ff; }   /* das /E in C/E - die eigentliche Info */
-  .chip .eta { display: block; text-align: left; font-size: 2vmin;
-               color: #4a5158; font-weight: 400; margin-top: .4vh; }
-  /* Die Nashville-Stufe ueber dem Akkordnamen: leise wie der Countdown, damit
-     die Hierarchie stimmt - Akkordname laut, Stufe und Countdown leise. Die
-     Mindesthoehe reserviert die Zeile auch ohne Tonart, sonst spraengen die
-     Chips nach unten, wenn die Tonart nach ein paar Sekunden eintrifft. */
-  .chip .degree { display: block; text-align: left; font-size: 2.4vmin;
-                  color: #6b7480; font-weight: 500; min-height: 3vmin; }
+  .chip .cname { grid-row: 2; }
+  /* Die Nashville-Stufe ueber dem Akkordnamen: leise, damit die Hierarchie
+     stimmt - Akkordname laut, Stufe leise. Die Mindesthoehe haelt die Zeile
+     auch ohne Tonart. */
+  .chip .degree { grid-row: 1; font-size: 2.6vmin;
+                  color: #6b7480; font-weight: 500; min-height: 3.2vmin; }
   body.nodegrees .chip .degree { display: none; }
   /* Invert: die Stufe gross, wo sonst der Name steht, der Name klein
      darueber - die gespiegelte Hierarchie fuer Spieler, die in Funktionen
      denken. Nur wo eine Stufe STEHT (:not(:empty)): ohne Tonart und bei
      N/-/? bleibt der Name gross, sonst truege der Chip eine grosse
      Leerzeile. */
-  body.invdegrees .chip .degree:not(:empty) { order: 2; font-size: 1em;
-                  color: #9aa3ad; font-weight: 650; min-height: 0; }
-  body.invdegrees .chip .degree:not(:empty) + .cname { order: 1;
-                  font-size: 2.4vmin; color: #6b7480; font-weight: 500; }
-  body.invdegrees .chip .eta { order: 3; }
+  body.invdegrees .chip .degree:not(:empty) { grid-row: 2;
+                  font-size: 1em; color: #9aa3ad; font-weight: 650;
+                  min-height: 0; }
+  body.invdegrees .chip .degree:not(:empty) + .cname { grid-row: 1;
+                  font-size: 2.6vmin; color: #6b7480; font-weight: 500;
+                  min-height: 3.2vmin; }
 
   /* Taktstriche: kurze Ticks am Boden der Spur (ueber dem NOW-Label, unter
-     dem Countdown der Chips), die Eins doppelt so hoch und etwas heller,
+     den Chips), die Eins doppelt so hoch und etwas heller,
      alles HINTER den Chips. Mehr nicht - Linien ueber die ganze Spur (vor
      wie hinter den Chips) und eine Kante am Chip der Eins waren im
      Playtest zu unruhig (10.09.); die Ticks stoeren kaum und geben die
@@ -414,29 +429,33 @@
   /* Der Akzent der Seite (JETZT-Linie, Bassnote: #6ea8ff), stark
      abgedunkelt - ein Hauch Blau statt Grau, damit die Ticks zur Linie
      gehoeren, auf die sie zulaufen. */
-  .beat { position: absolute; bottom: 3.6vh; left: 0; width: 1px; height: 1.4vh;
+  .beat { position: absolute; bottom: 3.7vh; left: 0; width: 1px; height: 1.5vh;
           background: #6ea8ff3a; z-index: 0; will-change: transform;
           pointer-events: none; }
-  .beat.bar { height: 2.8vh; background: #6ea8ff70; }
+  .beat.bar { height: 3vh; background: #6ea8ff70; }
   body.nobeats .beat { display: none; }
 
   /* Huellkurve: die Anschlaege der Musik als duenne blaue Linien, Mix blass
-     und Tiefband etwas kraeftiger, vom Boden der Spur, HINTER Ticks und
-     Chips (die Chips sind durchsichtig). Zeigt nichts an, was die Pipeline
-     entschieden hat - nur, wo das Audio anschlaegt. Dieselbe Uhr und
-     dieselbe Formel wie die Chips; links von JETZT laeuft sie als
-     Vergangenheit aus. Proberaum-validiert (09.11.2026): die am wenigsten
-     stoerende Form, die beim Setzen der Einsaetze noch hilft. Abschaltbar. */
+     und Tiefband etwas kraeftiger, vom Boden der Spur bis an die
+     Grundlinie der Akkordnamen - darunter steht kein Text, sie kreuzt also
+     keinen. Zeigt nichts an, was die Pipeline entschieden hat - nur, wo das
+     Audio anschlaegt. Dieselbe Uhr und dieselbe Formel wie die Chips; links
+     von JETZT laeuft sie als Vergangenheit aus. Proberaum-validiert
+     (09.11.2026) als die am wenigsten stoerende Form, die beim Setzen der
+     Einsaetze noch hilft - damals lief sie auf dem Weg zur Grundlinie durch
+     den Countdown, der unter dem Namen stand. Seit 11.11. gibt es ihn nicht
+     mehr, und die Kurve ist geglaettet; diese Fassung ist im Proberaum noch
+     ungespielt. Abschaltbar. */
   #wave { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
           z-index: 0; pointer-events: none; }
   body.nowave #wave { display: none; }
 
-  #hint { position: fixed; bottom: 24.5vh; right: 2.6vmin; color: #333;
+  #hint { position: fixed; bottom: calc(var(--lane) + 2.5vh); right: 2.6vmin; color: #333;
           font-size: 1.7vmin; z-index: 5; }
 
   /* Die Credits. Sie stehen in der RECHTEN unteren Ecke der Zeitleiste - links
      sitzt bei 14% das NOW-Label, dort stiessen sie dagegen. Die Chips ziehen
-     weiter oben durch (42% der Spur), unter ihnen ist frei. Dunkler als jeder
+     weiter oben durch (ab 43% der Spurhoehe), unter ihnen ist frei. Dunkler als jeder
      andere Text der Seite: wer auf die Akkorde schaut, soll sie nicht sehen;
      wer danach sucht, findet sie. Beim Ueberfahren hellen sie auf. */
   #credits {
@@ -773,6 +792,8 @@
 const $ = id => document.getElementById(id);
 const NOW_PCT = 14;          // Position der JETZT-Linie in %
 const RIGHT_PCT = 97;        // Einstiegsposition rechts
+const CHIP_FADE = 0.35;      // Sekunden, in denen ein Chip hinter JETZT ausblasst
+                             // (bis 11.11.2026: 0,7 - dem Nutzer zu traege)
 
 // Der Server schickt den PUBLISH-ONCE-KANAL: `committed` sind einmal
 // committete Events [{at, c, b}] mit Onset-Position in Stream-Sekunden -
@@ -835,7 +856,6 @@ let wellenform = localStorage.getItem(WAVE_KEY) !== "off";
 let huellkurve = null;       // {t0, dt, full, bass} oder null
 let wavePeak = { full: 0, bass: 0 };
 let waveSize = { w: 0, h: 0, dpr: 1 };
-let waveTop = { px: 0, key: "" };   // hoechster Ausschlag (Canvas-px), gecacht
 
 // SCHREIBWEISE. Der Server schickt die Akkorde kanonisch, immer mit Kreuz
 // ("A#m7") - das ist eine ID, keine Anzeige. Wie sie GESCHRIEBEN werden,
@@ -1772,8 +1792,8 @@ function chipHtml(seg) {
   if (html === null) return null;
   const kopf = '<span class="degree">' + (stufeVon(seg.c) || "") + "</span>";
   const bass = instrument === "bass" ? umkehrung(seg) : null;
-  // Der Name in einem eigenen Span: als Flex-Zeile der Chip-Spalte, damit der
-  // Invert-Modus Stufe und Name per CSS-`order` tauschen kann.
+  // Der Name in einem eigenen Span: als Grid-Zeile des Chips, damit der
+  // Invert-Modus Stufe und Name per CSS (`grid-row`) tauschen kann.
   return kopf + '<span class="cname">' + (bass
     ? html + '<span class="bassnote">/' + schreibeGrundton(bass, schreibweise)
              + "</span>"
@@ -1784,7 +1804,7 @@ function syncChips(now) {
   const wanted = new Map();
   for (const c of events) {
     if (c.c === "-") continue;             // Stille traegt keinen Chip
-    if (c.at < now - 0.7) continue;        // schon durchgelaufen
+    if (c.at < now - CHIP_FADE) continue;  // durchgelaufen und ausgeblasst
     // Publish-once: Das Event ist seine eigene stabile Identitaet - der
     // Onset genuegt als Schluessel. Ein Chip wird nie geloescht und neu
     // erzeugt; nur wenn der Bass einmalig nachrueckt (b_up), wird sein
@@ -1797,9 +1817,7 @@ function syncChips(now) {
     if (bekannt) {
       if (bekannt.sig !== sig) {
         bekannt.sig = sig;
-        bekannt.el.innerHTML = chipHtml(c) + '<span class="eta"></span>';
-        bekannt.eta = bekannt.el.querySelector(".eta");
-        bekannt.etaText = "";
+        bekannt.el.innerHTML = chipHtml(c);
       }
       continue;
     }
@@ -1807,10 +1825,9 @@ function syncChips(now) {
     if (!html) continue;
     const el = document.createElement("div");
     el.className = "chip";
-    el.innerHTML = html + '<span class="eta"></span>';
+    el.innerHTML = html;
     $("lane").appendChild(el);
-    chips.set(key, { el, at: c.at, sig, x: 0, next: null, clipText: "",
-                     eta: el.querySelector(".eta"), etaText: "" });
+    chips.set(key, { el, at: c.at, sig, x: 0, next: null, clipText: "" });
   }
   for (const [key, chip] of chips) {
     if (wanted.has(key)) continue;         // durchgelaufen (Server raeumt auf)
@@ -1903,24 +1920,26 @@ function animate() {
   syncChips(now);
   for (const chip of chips.values()) {
     const remaining = chip.at - now;       // dieselbe Uhr wie oben
-    const frac = Math.max(remaining, 0) / horizon;
+    // Der Chip haelt an der JETZT-Linie NICHT an: er laeuft im selben Tempo
+    // durch sie hindurch und blasst dahinter aus (CHIP_FADE s) - er ist jetzt
+    // der grosse Akkord. Davor steht er in voller Farbe, vom rechten Rand an:
+    // ein Chip, der erst auf dem Weg heller wird, ist aus drei Metern genau
+    // dort schlecht lesbar, wo man ihn zuerst sieht.
+    const frac = remaining / horizon;
     const x = (NOW_PCT + Math.min(frac, 1.15) * (RIGHT_PCT - NOW_PCT)) / 100 * laneW;
     chip.x = x;
-    chip.el.style.transform = "translate(" + x.toFixed(1) + "px, -50%)";
-    chip.el.style.opacity = remaining < 0 ? String(1 + remaining / 0.7)
-                          : String(0.45 + 0.55 * (1 - Math.min(frac, 1)));
-    // Nur schreiben, wenn sich der Text aendert - 60 identische
-    // textContent-Zuweisungen pro Sekunde sind unnoetige Style-Arbeit.
-    const eta = remaining > 0.05 ? "in " + remaining.toFixed(1) + "s" : "";
-    if (eta !== chip.etaText) { chip.etaText = eta; chip.eta.textContent = eta; }
+    chip.el.style.transform = "translateX(" + x.toFixed(1) + "px)";
+    const deckung = remaining < 0
+      ? Math.max(0, 1 + remaining / CHIP_FADE).toFixed(2) : "1";
+    if (deckung !== chip.deckung) { chip.deckung = deckung; chip.el.style.opacity = deckung; }
   }
   // Beschnitt bis zur linken Kante des Nachfolgers: so schneidet der
   // spaetere Chip den frueheren ab, ohne deckenden Hintergrund (die
   // Huellkurve scheint durch). Rechts weggeschnitten wird alles jenseits
   // des Abstands, min. 0 (max() in CSS, denn die Chipbreite kennt nur der
   // Browser). Zwischen zwei laufenden Chips ist der Abstand konstant, also
-  // aendert sich der Wert nur an den Raendern (Klemmung bei JETZT und
-  // rechts) - und nur dann wird geschrieben.
+  // aendert sich der Wert nur am rechten Rand (dort wird geklemmt) - und
+  // nur dann wird geschrieben.
   for (const chip of chips.values()) {
     const clip = chip.next
       ? "inset(0 max(0px, 100% - " + Math.max(0, chip.next.x - chip.x).toFixed(0)
@@ -1939,6 +1958,28 @@ function animate() {
   }
 
   drawWave(now, dt);
+}
+
+// Die Huellkurve vom Server ist RMS je 12,5 ms, roh. Ein tiefer Basston
+// schwingt langsamer als ein Block lang ist (tiefes E: 24 ms je Periode),
+// also zittert die Kurve im Ausklang von Block zu Block - ein Saegezahn, der
+// nach Anschlaegen aussieht und keine sind. Dagegen ein Abkling-Folger:
+// HOCH folgt er dem Messwert sofort (die Anschlagkante bleibt auf den Block
+// genau, wo sie ist, und so hoch, wie sie ist), RUNTER hoechstens
+// exponentiell mit WAVE_SMOOTH s. Ein Mittelwert-Filter haette dieselbe Ruhe
+// nur um den Preis verschmierter Kanten. Einmal je Snapshot, nicht je Frame;
+// der Einschwingrest am linken Fensterrand liegt 1 s hinter JETZT und damit
+// ausserhalb des Bildes.
+const WAVE_SMOOTH = 0.06;        // Zeitkonstante des Abklingens in Sekunden
+function glaetteHuellkurve(env) {
+  const halten = Math.exp(-env.dt / WAVE_SMOOTH);
+  const folge = werte => {
+    const aus = new Array(werte.length);
+    let v = 0;
+    for (let i = 0; i < werte.length; i++) aus[i] = v = Math.max(werte[i], v * halten);
+    return aus;
+  };
+  return { t0: env.t0, dt: env.dt, full: folge(env.full), bass: folge(env.bass) };
 }
 
 window.addEventListener("resize", () => { laneW = 0; waveSize.w = 0; });
@@ -1960,6 +2001,10 @@ if (window.ResizeObserver)
 // Spitzenwert sofort, und ist er leiser, loest die Pause davor den Reset aus -
 // ist das ganze sichtbare Fenster (~4 s) laenger als WAVE_QUIET_RESET s
 // praktisch still, faengt der Folger bei null an.
+// Geglaettet wird zweimal, beides nur fuers Auge: glaetteHuellkurve() haelt
+// den Ausklang eines Anschlags (s. dort), und gezeichnet wird in Boegen
+// statt in Geraden (pfad).
+const WAVE_TOP = 0.47;           // hoechster Ausschlag, Anteil der Spurhoehe
 const WAVE_RELEASE = 0.01;       // Anteil des Spitzenwerts, der je Sekunde abklingt
 const WAVE_QUIET_FRAC = 0.03;    // "still": Fenstermaximum unter 3 % des Spitzenwerts
 const WAVE_QUIET_RESET = 2.0;    // Sekunden Stille im Fenster bis zum Reset
@@ -1999,42 +2044,34 @@ function drawWave(now, dt) {
   if (waveQuiet >= WAVE_QUIET_RESET) {
     wavePeak.full = maxima.full; wavePeak.bass = maxima.bass; waveQuiet = 0;
   }
-  // Hoechster Ausschlag: GENAU bis an die Grundlinie der grossen Buchstaben
-  // des Chips - ein lauter Basston reicht bis an den Akkordnamen, nicht nur
-  // bis unter den Countdown. Gemessen wird die Zeile mit der grossen Schrift
-  // (normal der Name, invertiert die Stufe): die untere der beiden Zeilen,
-  // minus den Unterlaengen-Raum der Zeilenbox (~0,2 em). Einmal messen,
-  // gecacht je Spurhoehe und body-Klassen (Stufen an/aus/invertiert
-  // aendern die Chiphoehe). Ohne Chip bleibt der alte Wert bzw. ein
-  // Schaetzwert.
-  const topKey = h + "|" + document.body.className;
-  if (waveTop.key !== topKey) {
-    const chip = chips.values().next().value;
-    if (chip) {
-      const laneTop = lane.getBoundingClientRect().top;
-      let baseline = 0;
-      for (const el of chip.el.querySelectorAll(".cname, .degree")) {
-        if (!el.textContent) continue;
-        const r = el.getBoundingClientRect();
-        const b = r.bottom - laneTop - 0.2 * parseFloat(getComputedStyle(el).fontSize);
-        if (b > baseline) baseline = b;
-      }
-      if (baseline > 0)
-        waveTop = { px: Math.max(0.15 * h, h - baseline * dpr), key: topKey };
-    } else if (!waveTop.px) waveTop.px = 0.45 * h;
-  }
-  const top = waveTop.px;
+  // Hoechster Ausschlag: bis an die Grundlinie der grossen Buchstaben des
+  // Chips - ein lauter Basston reicht bis an den Akkordnamen. Die Unterkante
+  // des Chips haengt fest bei 43 % der Spurhoehe (CSS .chip), in jedem
+  // Stufen-Modus; die Grundlinie liegt je nach Schrift 0,11..0,18 em darueber
+  // (Segoe UI .. Arial/SF bei line-height 1,05), also bei 47..49 %. Unter dem
+  // Namen steht kein Text mehr - die Kurve kreuzt keinen.
+  const top = WAVE_TOP * h;
   // Zwei Zeichenarten: der Mix als Flaeche vom Boden der Spur, der Bass als
   // Linie darueber.
+  // Gezogen wird nicht von Messwert zu Messwert (das gibt bei ~6 px je
+  // Block einen Zickzack), sondern als Bogen von Mitte zu Mitte mit dem
+  // Messwert als Stuetzpunkt: die Kurve wird rund, eine Anschlagkante
+  // bleibt, wo sie ist.
   const pfad = (werte, peak, schliessen) => {
+    const n = werte.length;
+    const xi = i => xOf(t0 + i * step);
+    const yi = i => h - Math.min(werte[i] / peak, 1) * top;
     ctx.beginPath();
-    if (schliessen) ctx.moveTo(xOf(t0), h);
-    for (let i = 0; i < werte.length; i++) {
-      const x = xOf(t0 + i * step);
-      const y = h - Math.min(werte[i] / peak, 1) * top;
-      if (i === 0 && !schliessen) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    if (schliessen) { ctx.moveTo(xi(0), h); ctx.lineTo(xi(0), yi(0)); }
+    else ctx.moveTo(xi(0), yi(0));
+    let x = xi(0), y = yi(0);
+    for (let i = 1; i < n; i++) {
+      const xn = xi(i), yn = yi(i);
+      if (i > 1) ctx.quadraticCurveTo(x, y, (x + xn) / 2, (y + yn) / 2);
+      x = xn; y = yn;
     }
-    if (schliessen) { ctx.lineTo(xOf(t0 + werte.length * step), h); ctx.closePath(); }
+    ctx.lineTo(x, y);
+    if (schliessen) { ctx.lineTo(x, h); ctx.closePath(); }
   };
   const flaeche = (werte, peak, farbe) => {
     if (!(peak > 0)) return;
@@ -2284,7 +2321,7 @@ function apply(state) {
 
   events = state.committed || [];
   beats = state.beats || [];
-  huellkurve = state.envelope || null;
+  huellkurve = state.envelope ? glaetteHuellkurve(state.envelope) : null;
   // Sichtbarer Vorlauf = Commit-Grenze; etwas Rand, damit ein frisch
   // committetes Event am rechten Rand einsteigt statt darauf.
   if (hatZeit)

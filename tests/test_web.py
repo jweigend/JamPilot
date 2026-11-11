@@ -815,3 +815,63 @@ class TestSeiteAlsGanzes:
         assert s["leer"] is None
         assert s["vollNotes"]                                  # C selbst geht
         assert s["bdim"] == [2, 5, 11]                         # B D F, nicht C E G
+
+    def test_chip_laeuft_durch_die_jetzt_linie_und_blasst_aus(self):
+        # Der Chip haelt an der JETZT-Linie nicht an (bis 11.11.2026 staute
+        # er sich dort und blasste im Stand aus): er laeuft im selben Tempo
+        # weiter nach links. Davor steht er in voller Farbe - auch am
+        # rechten Rand, nicht erst kurz vor der Linie.
+        s = self._szenario("""
+          p.open();
+          const z = t => ({ ...voll(t), committed: [
+            { at: 12.5, c: "C", b: "C", p: 36 }, { at: 14, c: "F", b: "F", p: 41 }] });
+          let t = 10; const bilder = [];
+          for (let i = 0; i < 28; i++) {
+            p.tick(125); t += 0.125; p.msg(z(t)); p.frame();
+            bilder.push({ now: p.stand().now, chips: p.chips() });
+          }
+          console.log(JSON.stringify(bilder));
+        """)
+        jetzt_x = 140.0                    # 14 % von 1000 px (Attrappe)
+        pps = 830.0 / 2.8                  # 83 % der Breite fuer 2,8 s Vorlauf
+        davor = [b for b in s if b["now"] < 12.4 and len(b["chips"]) == 2]
+        dahinter = [b for b in s if 12.55 < b["now"] < 12.8]
+        assert davor and dahinter
+        for b in davor:                    # Zukunft: volle Farbe, beide
+            assert [c["deckung"] for c in b["chips"]] == [1, 1]
+        for b in dahinter:
+            c, f = b["chips"]
+            vorbei = b["now"] - 12.5
+            assert c["x"] == pytest.approx(jetzt_x - vorbei * pps, abs=0.5)
+            assert c["deckung"] == pytest.approx(1 - vorbei / 0.35, abs=0.01)
+            assert f["deckung"] == 1
+            assert f["x"] - c["x"] == pytest.approx(1.5 * pps, abs=0.5)  # ein Tempo
+        # ... und nach 0,35 s ist er weg.
+        assert s[-1]["now"] > 12.9
+        assert [c["at"] for c in s[-1]["chips"]] == [14]
+
+    def test_huellkurve_wird_nur_im_ausklang_geglaettet(self):
+        # Der Abkling-Folger: hoch sofort und in voller Hoehe (die
+        # Anschlagkante ist die Information), runter hoechstens exponentiell
+        # - der Saegezahn eines tiefen Basstons im Ausklang verschwindet.
+        s = self._szenario("""
+          const roh = { t0: 5, dt: 0.0125,
+            bass: [0, 0, 1, 0.2, 0.9, 0.1, 0.8, 0, 0, 0, 0, 0, 0.5, 0],
+            full: [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3] };
+          const glatt = p.fn.glaetteHuellkurve(roh);
+          console.log(JSON.stringify({ roh, glatt }));
+        """)
+        roh, glatt = s["roh"], s["glatt"]
+        assert (glatt["t0"], glatt["dt"]) == (roh["t0"], roh["dt"])   # Zeitachse bleibt
+        assert glatt["full"] == pytest.approx(roh["full"])            # Flaches bleibt flach
+        b = glatt["bass"]
+        assert len(b) == len(roh["bass"])
+        assert b[:3] == [0, 0, 1]                    # Kante: derselbe Block, volle Hoehe
+        assert b[12] == pytest.approx(0.5)           # der zweite Anschlag ebenso
+        assert all(g >= r for g, r in zip(b, roh["bass"]))
+        # Der Saegezahn im Ausklang: roh faellt die Kurve von Block zu Block
+        # auf ein Fuenftel und springt zurueck - geglaettet gibt sie je Block
+        # hoechstens 19 % nach (exp(-12,5 ms / 60 ms) = 0,81).
+        assert min(y / x for x, y in zip(roh["bass"][2:7], roh["bass"][3:8])) < 0.2
+        assert all(y >= 0.81 * x for x, y in zip(b[2:12], b[3:12]))
+        assert b[11] < 0.5                           # ... aber er klingt wirklich ab
