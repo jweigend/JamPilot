@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.5.1 — 2026-11-11
+
+The theme of this release: **the lane, as calm as its own picture.** The
+animation on the project page turned out nicer than the real display. The
+display now follows it. Nothing in the analysis changed — chords, timing
+and bass are those of 1.5.0; this is the browser page only. Judged in the
+rehearsal room on 2026-11-11.
+
+### Chips run through `NOW`
+
+- A chip no longer stops at the `NOW` line. It used to pile up there and
+  fade while standing; now it keeps its speed, runs through and fades
+  behind the line within 0.35 s.
+- Chips stand in full colour from the right edge on (they used to brighten
+  only on the way to the line). The chord suffix carries the blue of the
+  big chord.
+- The countdown (`in 1.3s`) is gone. While playing it told nothing the
+  lane does not already show: *when* a chord comes is its distance to the
+  line. A chip is now scale degree and name, sitting on its lower edge;
+  nothing is printed below it.
+
+### A calmer curve
+
+- The envelope reaches down to the baseline of the chord names and no
+  longer crosses a label.
+- The decay of each hit is smoothed, in the browser only: a decay follower
+  (0.15 s) holds the tail of an attack, and the curve is drawn in arcs
+  instead of straight segments. The attack edge stays exact to the block —
+  it is the information. The price, named: a quieter hit can disappear in
+  the tail of the one before; a sixteenth later at 120 bpm the curve still
+  stands at 43 %. The data the server sends is unchanged.
+- Proportions: the lane is a little taller (23.6 vh instead of 22 vh), the
+  big chord a little smaller (50 vh instead of 52 vh).
+
+### Smaller things
+
+- JamPilot has a project page: [jampilot.org](https://jampilot.org). It is
+  built from `site/` and linked in the head of the README.
+- macOS builds run on `macos-15`; GitHub retired `macos-14` on
+  2 November 2026.
+- 708 tests (1.5.0: 706).
+
 ## 1.5.0 — 2026-11-10
 
 The theme of this release: **what the chord name leaves out.** A chip says
