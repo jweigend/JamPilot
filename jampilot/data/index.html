@@ -1970,7 +1970,14 @@ function animate() {
 // nur um den Preis verschmierter Kanten. Einmal je Snapshot, nicht je Frame;
 // der Einschwingrest am linken Fensterrand liegt 1 s hinter JETZT und damit
 // ausserhalb des Bildes.
-const WAVE_SMOOTH = 0.06;        // Zeitkonstante des Abklingens in Sekunden
+// Die Zeitkonstante ist ein Abwaegen: Je laenger, desto ruhiger die Kurve
+// (jeder Anschlag eine Flosse mit glattem Ausklang, wie auf der
+// Projektseite - dort 0,2 s), aber desto eher verschwindet ein LEISERER
+// Anschlag im Ausklang des vorigen. Bei 0,15 s steht die Kurve eine
+// Sechzehntel nach einem Anschlag (125 ms bei 120 bpm) noch auf 43 %: was
+// lauter ist, bleibt sichtbar. 0,06 s (erste Fassung) liess mehr durch, war
+// dem Nutzer aber zu unruhig (11.11.2026).
+const WAVE_SMOOTH = 0.15;        // Zeitkonstante des Abklingens in Sekunden
 function glaetteHuellkurve(env) {
   const halten = Math.exp(-env.dt / WAVE_SMOOTH);
   const folge = werte => {

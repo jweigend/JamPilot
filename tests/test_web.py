@@ -856,7 +856,7 @@ class TestSeiteAlsGanzes:
         # - der Saegezahn eines tiefen Basstons im Ausklang verschwindet.
         s = self._szenario("""
           const roh = { t0: 5, dt: 0.0125,
-            bass: [0, 0, 1, 0.2, 0.9, 0.1, 0.8, 0, 0, 0, 0, 0, 0.5, 0],
+            bass: [0, 0, 1, 0.2, 0.9, 0.1, 0.8, 0, 0, 0, 0, 0, 0.7, 0],
             full: [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3] };
           const glatt = p.fn.glaetteHuellkurve(roh);
           console.log(JSON.stringify({ roh, glatt }));
@@ -867,11 +867,11 @@ class TestSeiteAlsGanzes:
         b = glatt["bass"]
         assert len(b) == len(roh["bass"])
         assert b[:3] == [0, 0, 1]                    # Kante: derselbe Block, volle Hoehe
-        assert b[12] == pytest.approx(0.5)           # der zweite Anschlag ebenso
+        assert b[12] == pytest.approx(0.7)           # der zweite Anschlag ebenso
         assert all(g >= r for g, r in zip(b, roh["bass"]))
         # Der Saegezahn im Ausklang: roh faellt die Kurve von Block zu Block
         # auf ein Fuenftel und springt zurueck - geglaettet gibt sie je Block
-        # hoechstens 19 % nach (exp(-12,5 ms / 60 ms) = 0,81).
+        # hoechstens 8 % nach (exp(-12,5 ms / 150 ms) = 0,92).
         assert min(y / x for x, y in zip(roh["bass"][2:7], roh["bass"][3:8])) < 0.2
-        assert all(y >= 0.81 * x for x, y in zip(b[2:12], b[3:12]))
-        assert b[11] < 0.5                           # ... aber er klingt wirklich ab
+        assert all(y >= 0.92 * x for x, y in zip(b[2:12], b[3:12]))
+        assert b[11] < 0.6                           # ... aber er klingt wirklich ab
