@@ -318,6 +318,41 @@ def _webseite_pruefen() -> bool:
     return bool(web.PAGE)
 
 
+def _update_pruefen() -> tuple[bool, str]:
+    """Koennte die Update-Abfrage aus DIESEM Bau heraus GitHub erreichen?
+
+    Gefragt wird niemand - der Selbsttest geht nicht ins Netz, und ein Runner
+    ohne Internet duerfte den Bau nicht kippen. Geprueft wird das Einzige, was
+    beim Buendeln verloren gehen kann: die Wurzelzertifikate. Pythons ssl
+    sucht sie im Bundle unter dem Pfad des Baurechners; auf einem Ubuntu-Ziel
+    stimmt der zufaellig, auf Fedora oder macOS nicht. Dort traegt allein die
+    Datei aus certifi (updates.tls_kontext) - und fehlte sie, schluege jede
+    Abfrage still fehl: Die Schaltflaeche erschiene nie, und niemand wuerde
+    je erfahren, warum. Genau die Sorte Fehler, die hier auffallen muss.
+
+    Aus dem Quelltext heraus reichen die Wurzeln des Systems; verlangt wird
+    die mitgebrachte Datei deshalb nur im Bundle.
+    """
+    import sys
+
+    try:
+        from . import updates
+
+        updates.tls_kontext()
+    except Exception as exc:
+        return False, f"FAILED - {exc}"
+    try:
+        import certifi
+
+        eigene = os.path.isfile(certifi.where())
+    except ImportError:
+        eigene = False
+    if getattr(sys, "frozen", False) and not eigene:
+        return False, "FAILED - this build carries no root certificates (certifi)"
+    return True, (f"ready, {'certifi' if eigene else 'system'} root "
+                  f"certificates (GitHub not contacted)")
+
+
 def run() -> bool:
     rng = np.random.default_rng(42)
     print(f"Selftest: {len(TEST_CASES)} root-position chords, "
@@ -412,7 +447,11 @@ def run() -> bool:
     takt, takt_text = _beats_pruefen(rng)
     print(f"  Beat model: {takt_text}")
 
+    # Die Update-Abfrage: ohne Netz, nur ob sie Zertifikate pruefen KOENNTE.
+    update, update_text = _update_pruefen()
+    print(f"  Update check: {update_text}")
+
     return (scores["cqt_clean"] == total and scores["cqt_real"] >= total - 1
             and inv["clean"] == inv_total and inv["noisy"] >= inv_total - 1
             and fenster is not False and seite and modell
-            and takt is not False)
+            and takt is not False and update)

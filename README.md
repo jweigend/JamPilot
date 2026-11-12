@@ -311,7 +311,8 @@ record mode can go back, default 30, `0` disables — about 22 MB of RAM per
 minute, reserved on the first `R`), `--output` (target sink/device),
 `--input` + `--no-route` (direct mode without automatic routing), `--route
 auto|mute|cable` (Windows: how the source is silenced), `--samplerate` (default
-48000), `--port` (web display, default 8765), `--no-web`, `--no-window`.
+48000), `--port` (web display, default 8765), `--no-web`, `--no-window`,
+`--no-update-check` (see [Staying up to date](#staying-up-to-date)).
 
 Then just play something — a YouTube video, Spotify, anything that makes sound —
 and watch the chords arrive before it does.
@@ -426,6 +427,20 @@ Honesty section — the things JamPilot does *not* do (yet):
   count-in and no tempo number on screen.
 - **macOS routing is still manual** (BlackHole + two flags), and macOS/Windows
   have not had long musical sessions yet — see the platform table.
+
+### Staying up to date
+
+When a newer release is on GitHub, the control window shows a small green
+**Update to x.y.z** button next to *Quit*. It opens the download page in your
+browser — nothing is downloaded or replaced behind your back, and the music
+keeps playing. Download it when it suits you and put the new file (Windows:
+the new folder) in place of the old one.
+
+For this, JamPilot asks GitHub once per start which release is the latest.
+It is the only time the program goes online, and it sends nothing but that
+request (with its own version number in the `User-Agent`). No network, a
+firewall, GitHub unreachable: then there is simply no button.
+`--no-update-check` turns the question off.
 
 ## How it works
 

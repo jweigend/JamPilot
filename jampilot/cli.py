@@ -771,7 +771,8 @@ def cmd_run(args):
             #
             # Qt MUSS im Hauptthread laufen (unter macOS zwingend), die Analyse
             # laeuft daher im Hintergrund - siehe engine.py.
-            sys.exit(gui.run(engine, url, autostart=True, vorbereiten=vorheizen))
+            sys.exit(gui.run(engine, url, autostart=True, vorbereiten=vorheizen,
+                             update_pruefen=not args.no_update_check))
         vorheizen()                # die Etappen stehen im Terminal (protokoll)
         engine.start()
         try:
@@ -1884,6 +1885,9 @@ def main():
                        help="Start without the web display")
     p_run.add_argument("--no-window", action="store_true",
                        help="No control window - terminal only (Ctrl+C quits)")
+    p_run.add_argument("--no-update-check", action="store_true",
+                       help="Do not ask GitHub for a newer release at startup "
+                            "(the only time JamPilot goes online)")
     p_run.add_argument("--port", type=_bounded(int, 1024, 65535), default=8765,
                        help="Port of the web display (1024..65535, default 8765)")
     p_run.add_argument("--samplerate", type=_bounded(int, 8000, 192000, " Hz"),

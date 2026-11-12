@@ -32,6 +32,8 @@ from PySide6.QtGui import (QColor, QIcon, QKeySequence, QPainter, QPalette,
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QFrame, QHBoxLayout,
                                QLabel, QPushButton, QVBoxLayout, QWidget)
 
+from . import updates
+
 # Das Programmsymbol (Bildmarke: Plektrum mit Note und Balken) liegt bei den
 # Paketdaten, neben der Webseite - dieselbe Datei liefert web.py als Favicon aus.
 ICON_DATEI = Path(__file__).with_name("data") / "icon.png"
@@ -154,6 +156,10 @@ class Fenster(QWidget):
     # Oberflaeche zu kommen: Qt stellt es in die Ereignisschlange des
     # Hauptthreads, statt das Widget von aussen anzufassen.
     vorbereitet = Signal()
+    # Dasselbe fuer die Update-Abfrage (updates.py): Sie laeuft in einem
+    # eigenen Thread, weil sie aufs Netz wartet, und meldet die neuere
+    # Versionsnummer hierueber.
+    update_gefunden = Signal(str)
 
     def __init__(self, engine, url: str | None):
         super().__init__()
@@ -250,6 +256,29 @@ class Fenster(QWidget):
         self.anzeige_knopf.setEnabled(bool(url))
         knoepfe.addWidget(self.anzeige_knopf)
         knoepfe.addStretch(1)
+
+        # Die Update-Schaltflaeche: unsichtbar, bis updates.py ein neueres
+        # Release meldet - dann steht sie hier, bis das Fenster zugeht. Kein
+        # Dialog, kein Hinweis, der sich vor die Schalter schiebt: Wer gerade
+        # spielt, wird nicht unterbrochen, und wer sie sieht, klickt, wann es
+        # passt.
+        #
+        # Sie steht in der KNOPFZEILE und nirgends sonst, weil das Fenster nach
+        # show() nicht nachwaechst (siehe self.etappe weiter unten): Eine
+        # eigene Zeile, die spaeter auftaucht, drueckte die Karten zusammen. Die
+        # Knopfzeile hat ihre Hoehe schon, und der Platz zwischen den beiden
+        # Knoepfen ist ohnehin leer.
+        self.update_knopf = QPushButton("")
+        self.update_knopf.setCursor(Qt.PointingHandCursor)
+        self.update_knopf.setStyleSheet(
+            f"QPushButton {{ background:transparent; color:{GRUEN};"
+            f"  border:1px solid #2b3037; border-radius:7px; padding:8px 14px;"
+            f"  font-size:12px; font-weight:600; }}"
+            f"QPushButton:hover {{ border-color:{GRUEN}; }}")
+        self.update_knopf.clicked.connect(self._update_oeffnen)
+        self.update_knopf.hide()
+        self.update_gefunden.connect(self.update_anbieten)
+        knoepfe.addWidget(self.update_knopf)
 
         beenden = QPushButton("Quit")
         beenden.setCursor(Qt.PointingHandCursor)
@@ -353,6 +382,22 @@ class Fenster(QWidget):
     def _anzeige_oeffnen(self):
         if self.url:
             webbrowser.open(self.url)
+
+    def update_anbieten(self, version: str):
+        """Die Schaltflaeche zeigen: Auf GitHub liegt `version`, neuer als wir.
+
+        Der Klick oeffnet die Release-Seite im Browser - mehr nicht. Der Ton
+        laeuft weiter, und ersetzt wird nichts: Das Herunterladen und
+        Auspacken bleibt beim Nutzer (Begruendung in updates.py).
+        """
+        self.update_knopf.setText(f"Update to {version}")
+        self.update_knopf.setToolTip(
+            f"JamPilot {version} is available - you have {updates.__version__}.\n"
+            f"Opens the download page in your browser.")
+        self.update_knopf.show()
+
+    def _update_oeffnen(self):
+        webbrowser.open(updates.RELEASES_SEITE)
 
     def nachziehen(self):
         """Oberflaeche an den Zustand der Engine angleichen."""
@@ -530,7 +575,8 @@ def beenden_bei_signal(app) -> "QTimer":
     return wecker            # der Aufrufer muss ihn halten, sonst raeumt Qt ihn ab
 
 
-def run(engine, url: str | None, autostart: bool = False, vorbereiten=None) -> int:
+def run(engine, url: str | None, autostart: bool = False, vorbereiten=None,
+        update_pruefen: bool = False) -> int:
     """Fenster oeffnen und die Qt-Schleife im Hauptthread fahren.
 
     `autostart` startet den Betrieb ERST, wenn das Fenster schon steht (per
@@ -548,6 +594,10 @@ def run(engine, url: str | None, autostart: bool = False, vorbereiten=None) -> i
 
     Der Warmup laeuft VOR dem Audio, nicht daneben: Der Stream soll nicht schon
     Toene in den Puffer schieben, waehrend die halbe CPU im JIT-Compiler steckt.
+
+    `update_pruefen` fragt GitHub einmal nach einem neueren Release und zeigt
+    dann die Update-Schaltflaeche (updates.py). Aus ist der Standard, damit
+    Tests und der Selbsttest nie ins Netz gehen; cli.py schaltet es ein.
     """
     # Unter Wayland nimmt die Fensterleiste das Symbol nicht vom Fenster, sondern
     # vom Starter: Der Name hier muss zur .desktop-Datei passen (desktop.py).
@@ -583,6 +633,23 @@ def run(engine, url: str | None, autostart: bool = False, vorbereiten=None) -> i
     protokoll = getattr(engine, "protokoll", None)
     if protokoll is not None:
         protokoll.melden("Window open")
+
+    if update_pruefen:
+        def nachsehen():
+            version = updates.neuere_version()
+            if version:
+                try:
+                    fenster.update_gefunden.emit(version)
+                except RuntimeError:
+                    pass     # Fenster schon abgebaut - dann eben nicht
+
+        # Gleich beim Oeffnen, nicht irgendwann spaeter: Jetzt laeuft der
+        # Warmup, der Stream steht noch. Die Abfrage ist eine Handvoll
+        # Kilobyte und wartet fast nur - aber was vor dem ersten Ton erledigt
+        # ist, kann dem Audio-Callback sicher nichts wegnehmen. daemon: Ein
+        # haengender Verbindungsaufbau darf das Beenden nicht aufhalten.
+        threading.Thread(target=nachsehen, daemon=True,
+                         name="update-check").start()
 
     if autostart:
         def anwerfen():

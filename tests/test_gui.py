@@ -427,3 +427,95 @@ class TestAussetzerImFenster:
         del e.dropouts
         f.nachziehen()
         assert "Lead" in f.info.text()
+
+
+class TestUpdateSchaltflaeche:
+    def test_ohne_neueres_release_ist_sie_unsichtbar(self, fenster):
+        f, _ = fenster
+        f.show()
+        assert not f.update_knopf.isVisible()
+
+    def test_ein_neueres_release_zeigt_sie(self, fenster):
+        f, _ = fenster
+        f.show()
+        f.update_gefunden.emit("9.9.9")
+        assert f.update_knopf.isVisible()
+        assert f.update_knopf.text() == "Update to 9.9.9"
+        assert gui.updates.__version__ in f.update_knopf.toolTip()
+
+    def test_sie_laesst_das_fenster_nicht_wachsen(self, fenster, app):
+        # Das Fenster waechst nach show() nicht nach. Die Schaltflaeche darf
+        # also weder Hoehe noch Breite verlangen, die vorher nicht da war -
+        # sonst druecken sich die Karten zusammen.
+        f, _ = fenster
+        f.show()
+        app.processEvents()
+        vorher = (f.minimumSizeHint().height(), f.size())
+        f.update_gefunden.emit("10.10.10")      # der laengste denkbare Text
+        app.processEvents()
+        assert f.minimumSizeHint().height() == vorher[0]
+        assert f.size() == vorher[1]
+        assert f.minimumSizeHint().width() <= f.width()
+
+    def test_klick_oeffnet_die_release_seite_und_schaltet_nichts(
+            self, fenster, monkeypatch):
+        f, e = fenster
+        e.start()
+        geoeffnet = []
+        monkeypatch.setattr(gui.webbrowser, "open", geoeffnet.append)
+        f.update_gefunden.emit("9.9.9")
+        f.update_knopf.click()
+        assert geoeffnet == [gui.updates.RELEASES_SEITE]
+        assert e.running and e.stops == 0        # der Ton laeuft weiter
+
+
+class TestUpdateAbfrage:
+    """gui.run() fragt nur, wenn es soll - und nie von sich aus."""
+
+    def _lauf(self, app, monkeypatch, **argumente):
+        import signal
+
+        from PySide6.QtCore import QTimer
+
+        gefragt, fenster = [], []
+        monkeypatch.setattr(gui.updates, "neuere_version",
+                            lambda: gefragt.append(1) or "9.9.9")
+        original = gui.Fenster
+
+        def merken(*a, **kw):
+            fenster.append(original(*a, **kw))
+            return fenster[-1]
+
+        monkeypatch.setattr(gui, "Fenster", merken)
+        zustand = {}
+
+        def pruefen():
+            # try/finally: Ohne das Beenden liefe die Schleife ewig - und
+            # gui.run() faengt SIGTERM ab, der Testlauf waere nur noch mit
+            # kill -9 zu stoppen. exit() statt app.quit(): TestSignale
+            # ersetzt app.quit an der gemeinsamen Instanz durch eine Attrappe.
+            try:
+                zustand["sichtbar"] = fenster[0].update_knopf.isVisible()
+            finally:
+                gui.QApplication.exit(0)
+
+        QTimer.singleShot(300, pruefen)
+        try:
+            gui.run(FakeEngine(), None, **argumente)
+        finally:
+            for f in fenster:
+                f.close()
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            if hasattr(signal, "SIGHUP"):
+                signal.signal(signal.SIGHUP, signal.SIG_DFL)
+        return gefragt, zustand.get("sichtbar")
+
+    def test_standard_fragt_nicht(self, app, monkeypatch):
+        gefragt, sichtbar = self._lauf(app, monkeypatch)
+        assert not gefragt and not sichtbar
+
+    def test_eingeschaltet_fragt_einmal_und_zeigt_die_schaltflaeche(
+            self, app, monkeypatch):
+        gefragt, sichtbar = self._lauf(app, monkeypatch, update_pruefen=True)
+        assert gefragt == [1] and sichtbar
