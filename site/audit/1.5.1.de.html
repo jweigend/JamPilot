@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sicherheitsprüfung von JamPilot 1.5.1 — JamPilot</title>
+<meta name="description" content="Kann ich JamPilot gefahrlos auf meinem Rechner starten? Die Sicherheitsprüfung von Release 1.5.1 in einfachen Worten: was das Programm tut, was es nicht tut und was nicht geprüft wurde.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Sicherheitsprüfung von JamPilot 1.5.1">
+<meta property="og:description" content="Was das Programm auf deinem Rechner tut, was es nicht tut und was nicht geprüft wurde. In einfachen Worten.">
+<meta property="og:image" content="https://jampilot.org/img/teaser.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="alternate" hreflang="en" href="https://jampilot.org/audit/1.5.1.html">
+<link rel="alternate" hreflang="de" href="https://jampilot.org/audit/1.5.1.de.html">
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<header class="nav">
+  <a class="brand" href="../index.html">
+    <img src="../mark.png" width="28" height="31" alt="">
+    <span>JamPilot</span>
+  </a>
+  <nav aria-label="Seiten">
+    <a href="../index.html#download">Download</a>
+    <a href="1.5.1.html" hreflang="en" lang="en">English</a>
+  </nav>
+</header>
+
+<main>
+<article class="letter audit">
+  <p class="eyebrow">Sicherheitsprüfung · Release 1.5.1</p>
+  <h1>Kann ich JamPilot gefahrlos auf meinem Rechner starten?</h1>
+
+  <div class="verdict">
+    <p class="head">Nichts gefunden, was gegen die Benutzung spricht.</p>
+    <p>Kein schweres Problem, kein mittleres, vier kleine Hinweise. Geprüft
+      am 12. November 2026 von Claude, einer KI. Wer das ist und was die
+      Prüfung wert ist, steht weiter unten.</p>
+  </div>
+
+  <div class="letter-body">
+    <p class="opening">Du startest ein Programm aus dem Internet auf dem
+      Rechner, auf dem deine Musik, deine Fotos und deine Passwörter liegen.
+      Die Frage, was es dort tut, ist berechtigt. Diese Seite beantwortet sie
+      für Release 1.5.1, ohne Fachsprache.</p>
+
+    <h2>Die kurzen Antworten</h2>
+
+    <h3>Schickt es meine Musik oder etwas über mich ins Internet?</h3>
+    <p>Nein. Release 1.5.1 verbindet sich nie mit dem Internet; es enthält
+      keinen Code, der das könnte. Ich habe außerdem den Linux-Download
+      gestartet und ihm bei seinem eingebauten Selbsttest zugesehen: Er hat
+      nicht eine einzige Verbindung aufzubauen versucht.</p>
+
+    <h3>Hört es mir zu?</h3>
+    <p>Es hört, was dein Rechner abspielt, also das Stück, das du aufgelegt
+      hast. Daraus liest es die Akkorde. Dein Mikrofon hört es nur, wenn die
+      automatische Umleitung des Tons auf deinem Rechner nicht möglich ist
+      oder wenn du das Mikrofon selbst als Eingang wählst; JamPilot sagt
+      das in seinen Meldungen beim Start. Unter macOS fragt das System in jedem Fall
+      nach der „Mikrofon“-Freigabe: So nennt Apple jede Art von
+      Toneingang.</p>
+
+    <h3>Speichert es Aufnahmen?</h3>
+    <p>Es schreibt nie Ton in eine Datei. Der Ton liegt für ein paar
+      Sekunden im Arbeitsspeicher; diese Verzögerung ist es, die den Akkord
+      zeigen kann, bevor du ihn hörst. Schaltest du den Record-Modus ein,
+      bleiben bis zu 30 Minuten im Arbeitsspeicher, damit du zurückspringen
+      kannst. Nach dem Ausschalten lassen sie sich nicht mehr abspielen, und beim
+      Beenden wird der Speicher freigegeben.</p>
+
+    <h3>Was verändert es an meinem Rechner?</h3>
+    <p>Solange es läuft, leitet es den Ton deines Rechners durch sich
+      hindurch, und beim Beenden stellt es alles zurück. Es legt drei
+      winzige Notizen für sich ab: den Kopplungscode für dein Handy, einen
+      Vermerk, dass es läuft, und unter Windows, welcher Lautsprecher vorher
+      eingestellt war, damit es ihn auch nach einem Absturz wiederherstellen
+      kann. Unter Linux legt <span class="mono">./jampilot install</span>
+      einen Menüeintrag an, und nur, wenn du es aufrufst. JamPilot verlangt
+      kein Administrator-Passwort, hat kein Installationsprogramm, startet
+      nicht von selbst und lässt nichts im Hintergrund laufen.</p>
+
+    <h3>Wer kann die Akkordanzeige noch sehen?</h3>
+    <p>Jeder im selben WLAN kann die Anzeige öffnen und die Akkorde
+      mitlesen. So kommt sie auch auf dein Handy am Notenständer. Um
+      JamPilot zu <em>steuern</em> (stumm schalten, aufnehmen,
+      zurückspringen), braucht ein Gerät den geheimen Code, der im QR-Code
+      steckt. Siehe Hinweis 1.</p>
+
+    <h3>Ist der Download wirklich aus dem öffentlichen Code gebaut?</h3>
+    <p>Ja. Ich habe alle drei Dateien heruntergeladen und ihre
+      Fingerabdrücke verglichen: Sie sind Byte für Byte das, was die
+      Build-Server von GitHub aus dem öffentlichen Quellcode von 1.5.1
+      erzeugt haben.</p>
+
+    <h2>Vier kleine Hinweise</h2>
+    <ol>
+      <li><strong>Netze, die du mit Fremden teilst.</strong> Die Anzeige ist
+        nicht verschlüsselt und für jeden im selben Netz offen. Im WLAN
+        eines Cafés oder Hotels könnten Fremde deine Akkorde mitlesen, und
+        jemand mit technischem Können könnte den Kopplungscode aus der Luft
+        mitschneiden und dann deine Wiedergabe stumm schalten oder anhalten.
+        Mehr geht damit nicht; diese Steuerung reicht an nichts anderes auf
+        deinem Rechner heran. Zu Hause und im Proberaum ist das in Ordnung.
+        In einem Netz, dem du nicht traust, startest du JamPilot mit
+        <span class="mono">--no-web</span>.</li>
+      <li><strong>Bausteine, die gealtert sind.</strong> JamPilot ist aus
+        quelloffenen Bibliotheken anderer gebaut. Zu vier davon sind seit
+        dem Zusammenpacken sechs Schwachstellen öffentlich bekannt geworden.
+        Keine davon ist in 1.5.1 erreichbar: Sie betreffen
+        Internetverbindungen und das Einlesen fremder Daten, und 1.5.1 tut
+        beides nicht. Meine Empfehlung an den Entwickler: vor dem nächsten
+        Release aktualisieren.</li>
+      <li><strong>Rechner mit mehreren Benutzerkonten (Linux).</strong>
+        JamPilot legt seinen Vermerk „ich laufe“ in einem Ordner ab, den
+        sich alle Benutzer eines Rechners teilen. Eine andere Person mit
+        einem Konto auf demselben Linux-Rechner könnte damit verhindern,
+        dass JamPilot startet. An deine Daten kommt sie auf diesem Weg
+        nicht. Auf einem Rechner, den nur du benutzt, spielt das keine
+        Rolle.</li>
+      <li><strong>Die Downloads sind nicht signiert.</strong> Windows und
+        macOS warnen dich vor einem „unbekannten Entwickler“. Der Grund ist,
+        dass die Signatur-Zertifikate von Microsoft und Apple nicht gekauft
+        wurden, nicht, dass etwas gefunden wurde. Es heißt aber: Dein
+        Rechner kann dir nicht bestätigen, woher die Datei stammt. Mit den
+        Fingerabdrücken am Ende dieser Seite kannst du das selbst
+        prüfen.</li>
+    </ol>
+
+    <h2>Wer hat das geprüft, und was ist das wert?</h2>
+    <p>Ich bin Claude, ein KI-Modell von Anthropic (Version Fable 5.2). Der
+      Entwickler von JamPilot hat mich gebeten, jedes Release vor der
+      Veröffentlichung zu prüfen und aufzuschreiben, was ich finde, so dass
+      ein Musiker es versteht. Um diese Seite einzuordnen, solltest du vier
+      Dinge wissen.</p>
+    <ul>
+      <li><strong>Niemand hat mir gesagt, was ich finden soll.</strong> Der
+        Auftrag war, das Release zu prüfen und zu berichten. Mir wurde kein
+        Ergebnis vorgegeben und kein Thema ausgeklammert, und jede Datei
+        stand mir offen. Der Text auf dieser Seite ist von mir.</li>
+      <li><strong>Ich bin kein neutraler Außenstehender.</strong> Der
+        Entwickler hat die Prüfung beauftragt, und sie lief auf dem Rechner
+        des Entwicklers. Frühere Versionen von Claude haben außerdem einen
+        guten Teil des JamPilot-Codes mitgeschrieben; die öffentliche
+        Projektgeschichte zeigt das. Wer prüft, was er mitgebaut hat, kann
+        dieselben blinden Flecken haben.</li>
+      <li><strong>Ich arbeite unter allgemeinen Regeln von Anthropic, wie
+        jeder KI-Assistent.</strong> Keine davon betrifft JamPilot, und
+        keine hat mich hier etwas zurückhalten oder abschwächen lassen. Von
+        außen kannst du das nicht nachprüfen. Deshalb ist jede Aussage auf
+        dieser Seite eine, die du oder jemand aus deinem Bekanntenkreis, der
+        sich mit Computern auskennt, mit dem öffentlichen Code und den
+        Fingerabdrücken unten nachprüfen kann.</li>
+      <li><strong>Das ist kein Zertifikat.</strong> Keine Sicherheitsfirma
+        hat es unterschrieben, und eine KI kann etwas übersehen, genau wie
+        ein Mensch.</li>
+    </ul>
+
+    <h2>Was ich nicht geprüft habe</h2>
+    <ul>
+      <li>Das Innere der Bibliotheken, aus denen JamPilot gebaut ist (Ton,
+        Mathematik, das Fenster). Sie machen den größten Teil des Downloads
+        aus. Ich habe ihre Versionen mit der öffentlichen Liste bekannter
+        Schwachstellen verglichen, ihren Code aber nicht gelesen.</li>
+      <li>Die Downloads für Windows und macOS habe ich nicht gestartet,
+        sondern nur ihre Fingerabdrücke verglichen. Der Linux-Download lief
+        im Selbsttest, nicht in einer echten Session mit Musik. Was beim
+        Spielen passiert, habe ich aus dem Code beurteilt.</li>
+      <li>Ich habe keinen Virenscanner über die Dateien laufen lassen.</li>
+      <li>Die Tontreiber, die manche Rechner zusätzlich brauchen (BlackHole
+        unter macOS, VB‑CABLE unter Windows), stammen von anderen
+        Herstellern und sind nicht Teil von JamPilot.</li>
+    </ul>
+  </div>
+
+  <details>
+    <summary>Für technisch Neugierige: Fingerabdrücke und Vorgehen</summary>
+    <div class="letter-body">
+      <p>Geprüft: Tag <a href="https://github.com/jweigend/JamPilot/tree/v1.5.1" rel="noopener">v1.5.1</a>
+        (Commit <span class="mono">4b0a236</span>), gebaut im
+        <a href="https://github.com/jweigend/JamPilot/actions/runs/43101442242" rel="noopener">GitHub-Actions-Lauf 43101442242</a>.</p>
+
+      <p><strong>SHA-256 der drei Downloads</strong>, wie ich sie gemessen
+        habe (sie stimmen mit den Release-Notizen überein):</p>
+      <ul class="sums">
+        <li>JamPilot-1.5.1-windows-x86_64.zip
+          <span class="mono">963dc8e7b7508a1d1ec4876219b0393a5e1c16f0fa4d2080114dea249b9d7c30</span></li>
+        <li>jampilot-1.5.1-linux-x86_64.tar.gz
+          <span class="mono">7255984e475cf83c31acbe675e0933dc3a54a1c5875c325fdfbcf609ad83565f</span></li>
+        <li>jampilot-1.5.1-macos-arm64.tar.gz
+          <span class="mono">aa10f7dd4d64f849926c465129438629e4cce76653fdda375df13e5d2d68379a</span></li>
+      </ul>
+      <p>So prüfst du deinen eigenen Download: <span class="mono">Get-FileHash &lt;Datei&gt;</span>
+        in der Windows PowerShell, <span class="mono">shasum -a 256 &lt;Datei&gt;</span>
+        unter macOS, <span class="mono">sha256sum &lt;Datei&gt;</span> unter Linux.</p>
+
+      <p><strong>Download = Build.</strong> Das Windows-ZIP hat die SHA-256,
+        die das Build-Protokoll ausgibt. Das Programm im Linux-Archiv
+        (<span class="mono">a3e9d3ed…19995c72</span>) und das Programm im
+        macOS-Archiv (<span class="mono">ebb1f8de…12e53d56</span>) haben die
+        Werte aus ihren Build-Protokollen. Die Kopie in
+        <span class="mono">JamPilot.app</span> ist mit diesem Programm
+        identisch bis auf den Code-Signatur-Block am Ende (die letzten
+        1,2 MB); der weicht ab. Jede Plattform wird im selben Lauf zweimal
+        gebaut, und beide Builds waren identisch.</p>
+
+      <p><strong>Gelesener Code.</strong> Jede Stelle, an der das Programm
+        nach außen greift: Netzwerk (<span class="mono">web.py</span>),
+        Dateien und fremde Programme (<span class="mono">routing.py</span>,
+        <span class="mono">desktop.py</span>, <span class="mono">cli.py</span>,
+        <span class="mono">record_buffer.py</span>), das Laden der beiden
+        Modelle (<span class="mono">btc.py</span>, <span class="mono">beats.py</span>),
+        die Seite im Browser, die Start- und Build-Skripte und der
+        Build-Workflow. Fremde Programme werden nur mit festen Argumenten
+        aufgerufen, nie über eine Shell. Die Modellgewichte werden ohne
+        pickle geladen. Die Seite lädt nichts von Dritten.</p>
+
+      <p><strong>Beim Laufen beobachtet.</strong> <span class="mono">strace -f -e trace=network</span>
+        um <span class="mono">jampilot selftest</span> des veröffentlichten
+        Linux-Programms: null Netzwerk-Systemaufrufe. In einer echten
+        Session öffnet das Programm genau einen lauschenden Port (8765,
+        alle Schnittstellen, HTTP) für die Anzeige; Lesen ist offen, jede
+        Steueranfrage braucht das 64-Bit-Token aus dem QR-Code.</p>
+
+      <p><strong>Bibliotheken.</strong> <span class="mono">pip-audit</span> 2.10.1
+        gegen <span class="mono">requirements.lock</span>: certifi 2026.6.17
+        (PYSEC-2026-4320), urllib3 2.7.0 (PYSEC-2026-4175, -4176, -4177),
+        msgpack 1.2.1 (CVE-2026-114613), setuptools 83.0.0
+        (GHSA-xmj3-9gf7-h52w). 1.5.1 baut keine ausgehende Verbindung auf
+        und packt weder fremde msgpack-Daten noch Wheels aus.</p>
+
+      <p><strong>Vorschläge zur Härtung</strong>, keiner davon dringend:
+        die Sperrdatei im Laufzeitordner des Benutzers ablegen statt in
+        <span class="mono">/tmp</span>; die Abhängigkeiten per Hash und die
+        Build-Actions per Commit festnageln; die vier Bibliotheken oben
+        aktualisieren.</p>
+
+      <p>Die Checkliste, nach der diese Prüfung abläuft, ist öffentlich:
+        <a href="https://github.com/jweigend/JamPilot/blob/main/docs/sicherheitsaudit.md" rel="noopener">docs/sicherheitsaudit.md</a>.
+        Spätere Änderungen an dieser Seite stehen in der
+        <a href="https://github.com/jweigend/JamPilot/commits/main/site/audit" rel="noopener">Projektgeschichte</a>.</p>
+    </div>
+  </details>
+
+  <div class="cta">
+    <a class="btn primary" href="../index.html#download">JamPilot herunterladen</a>
+    <a class="btn ghost" href="../index.html">Zurück zur Startseite</a>
+  </div>
+</article>
+</main>
+
+<footer>
+  <p>JamPilot steht unter der MIT-Lizenz.</p>
+  <p><a href="https://github.com/jweigend/JamPilot" rel="noopener">github.com/jweigend/JamPilot</a></p>
+</footer>
+
+</body>
+</html>
