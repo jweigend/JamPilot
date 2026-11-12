@@ -12,3 +12,7 @@ dist/
 # Urheberrecht) - nur die Vergleichs-Reports (REPORT_*.md) gehoeren ins Repo.
 tests/realaudio/*.mp3
 tests/realaudio/*.wav
+
+# Der gerenderte Teaser (videos/teaser/make-teaser.py). Die veroeffentlichte
+# Fassung liegt als site/teaser.mp4 im Repo - dieselbe Datei nicht zweimal.
+videos/JamPilot-teaser-40s.mp4

@@ -165,6 +165,13 @@ h3 { font-size: 18px; font-weight: 650; margin-bottom: 8px; }
 .grid article p { color: var(--muted); font-size: 15.5px; }
 .grid em { color: var(--text); }
 
+/* ---------- Film ---------- */
+/* aspect-ratio haelt den Platz frei, bevor Standbild oder Film geladen sind. */
+.watch video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9;
+               margin-top: 32px; background: #000; border: 1px solid var(--border);
+               border-radius: var(--radius); }
+.watch .more { color: var(--dim); font-size: 15.5px; margin: 16px 0 0; }
+
 /* ---------- Instrumente ---------- */
 .tabs { display: inline-flex; gap: 4px; margin-top: 32px; padding: 4px;
         background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }

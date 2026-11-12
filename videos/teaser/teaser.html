@@ -1,0 +1,315 @@
+<!doctype html>
+<!-- Die Bildkomposition des Teasers: EINE Seite, 1920x1080, die fuer jeden
+     Zeitpunkt T (Sekunden) genau ein Bild stellt - seek(T). Kein CSS-Uebergang,
+     kein Timer: Alles hier ist eine reine Funktion von T, sonst waere der Film
+     nicht Bild fuer Bild wiederholbar.
+
+     Die vier Anzeigen sind die ECHTE JamPilot-Seite, je einmal als iframe
+     (Akkorde, Bass, Gitarre, Tasten). make-teaser.py fuettert sie ueber
+     feed() mit den Zustaenden der Analyse und laesst ihre Uhr im Gleichschritt
+     mit T laufen.
+
+     __ZEITPLAN__ ersetzt make-teaser.py durch die Szenenzeiten. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --blue:#6ea8ff; --green:#3ddc7f; --orange:#f5912f; --text:#e8eaed;
+          --muted:#9aa3ad; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; width:1920px; height:1080px; overflow:hidden;
+               background:#000; color:var(--text);
+               font-family: Inter, "Noto Sans", Arial, sans-serif;
+               -webkit-font-smoothing: antialiased; }
+  #bg { position:absolute; inset:0;
+        background:
+          radial-gradient(ellipse 1300px 700px at 50% -8%, #16233d 0%, transparent 70%),
+          radial-gradient(ellipse 900px 420px at 88% 108%, #2a1704 0%, transparent 70%),
+          #040507; }
+  .abs { position:absolute; left:0; top:0; will-change: transform, opacity; }
+
+  /* --- Bildschirme: die echte Seite, verkleinert ------------------------ */
+  .scr { position:absolute; left:0; top:0; width:1920px; height:1080px;
+         transform-origin:0 0; overflow:hidden; background:#000;
+         box-shadow: 0 0 0 2px #ffffff1c, 0 40px 120px #000c, 0 0 90px #6ea8ff14; }
+  .scr iframe { width:1920px; height:1080px; border:0; display:block;
+                pointer-events:none; }
+
+  .tag { position:absolute; left:0; top:0; white-space:nowrap;
+         font-weight:700; font-size:21px; letter-spacing:.16em;
+         text-transform:uppercase; padding:8px 16px 8px 18px; border-radius:999px;
+         background:#0b0d11f2; border:2px solid currentColor; }
+
+  /* --- Hinweisrahmen ---------------------------------------------------- */
+  .box { position:absolute; left:0; top:0; border:3px solid currentColor;
+         border-radius:16px; box-shadow: 0 0 34px -6px currentColor,
+                                         inset 0 0 30px -14px currentColor; }
+  .box .tag { background:#0b0d11; }
+
+  /* --- Der Spieler ------------------------------------------------------ */
+  #pip { position:absolute; left:0; top:0; width:497px; height:280px;
+         transform-origin:0 0; border-radius:14px; overflow:hidden;
+         box-shadow: 0 0 0 2px #ffffff30, 0 24px 70px #000d; }
+  #pip canvas { display:block; width:497px; height:280px; }
+
+  /* --- Untertitel ------------------------------------------------------- */
+  #cap { position:absolute; left:0; right:0; top:954px; height:100px;
+         display:flex; align-items:center; justify-content:center;
+         font-size:50px; font-weight:650; letter-spacing:-.012em; }
+  #cap b { color:var(--blue); font-weight:750; }
+  #cap span { display:inline-block; white-space:pre; }
+
+  /* --- Anfang und Ende -------------------------------------------------- */
+  .card { position:absolute; inset:0; display:flex; flex-direction:column;
+          align-items:center; justify-content:center; text-align:center; }
+  #intro .marke { height:330px; filter: drop-shadow(0 0 60px #f5912f55); }
+  #intro h1 { margin:54px 0 0; font-size:92px; font-weight:750;
+              letter-spacing:-.03em; line-height:1; }
+  #end .marke { height:210px; filter: drop-shadow(0 0 50px #f5912f44); }
+  #end .name { margin-top:26px; font-size:118px; font-weight:780;
+               letter-spacing:-.035em; line-height:1; }
+  #end .claim { margin-top:22px; font-size:54px; font-weight:600;
+                color:var(--blue); letter-spacing:-.015em; }
+  #end .os { margin-top:58px; display:flex; gap:22px; }
+  #end .os div { font-size:34px; font-weight:650; padding:14px 34px;
+                 border-radius:999px; border:2px solid #ffffff2e;
+                 background:#ffffff0a; }
+  #end .free { margin-top:34px; font-size:28px; color:var(--muted);
+               letter-spacing:.01em; }
+  #end .url { margin-top:52px; font-size:96px; font-weight:760;
+              letter-spacing:-.025em; color:var(--text); }
+  #end .url b { color:var(--orange); font-weight:760; }
+</style>
+</head>
+<body>
+<div id="bg"></div>
+
+<div class="scr" id="sChords"><iframe data-inst="chords"></iframe></div>
+<div class="scr" id="sGuitar"><iframe data-inst="guitar"></iframe></div>
+<div class="scr" id="sKeys"><iframe data-inst="keys"></iframe></div>
+<div class="scr" id="sBass"><iframe data-inst="bass"></iframe></div>
+
+<div class="tag" id="tChords" style="color:#e8eaed">Chords</div>
+<div class="tag" id="tBass"   style="color:var(--orange)">Bass</div>
+<div class="tag" id="tGuitar" style="color:var(--blue)">Guitar</div>
+<div class="tag" id="tKeys"   style="color:var(--green)">Keys</div>
+
+<div class="box" id="bChord" style="color:#e8eaed"><div class="tag">Chord</div></div>
+<div class="box" id="bKey"   style="color:var(--green)"><div class="tag">Key</div></div>
+<div class="box" id="bTime"  style="color:var(--orange)"><div class="tag">Timing</div></div>
+<div class="box" id="bNext"  style="color:var(--blue)"><div class="tag">What&rsquo;s coming next</div></div>
+
+<div id="pip"><canvas id="pipc" width="497" height="280"></canvas></div>
+
+<div id="cap"></div>
+
+<div class="card" id="intro">
+  <canvas class="marke" id="mark1"></canvas>
+  <h1 id="introText">Your next jam starts here.</h1>
+</div>
+
+<div class="card" id="end">
+  <canvas class="marke" id="endMark"></canvas>
+  <div class="name" id="endName">JamPilot</div>
+  <div class="claim" id="endClaim">Jam along with anything.</div>
+  <div class="os">
+    <div id="os0">Windows</div><div id="os1">Linux</div><div id="os2">macOS</div>
+  </div>
+  <div class="free" id="endFree">Free and open source &middot; everything runs on your own computer</div>
+  <div class="url" id="endUrl">jampilot<b>.</b>org</div>
+</div>
+
+<script>
+const Z = __ZEITPLAN__;          // {szenen:{...}, untertitel:[...], pip:{...}, ...}
+const $ = id => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = x => { x = clamp(x); return x * x * (3 - 2 * x); };          // weich
+const aus  = x => { x = clamp(x); return 1 - Math.pow(1 - x, 3); };       // ausrollend
+const rampe = (T, a, d) => ease((T - a) / d);          // 0 -> 1 ab a, Dauer d
+const fenster = (T, a, b, ein = .35, raus = .3) =>     // sichtbar zwischen a und b
+  Math.min(rampe(T, a, ein), 1 - rampe(T, b - raus, raus));
+const misch = (p, q, k) => ({ x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k,
+                              w: p.w + (q.w - p.w) * k });
+
+// Lagen eines Bildschirms: x, y, Breite (16:9).
+const GROSS = { x: 192, y: 40, w: 1536 };
+const ZELLE = [{ x: 180, y: 34, w: 768 }, { x: 972, y: 34, w: 768 },
+               { x: 180, y: 494, w: 768 }, { x: 972, y: 494, w: 768 }];
+
+function stelle(el, lage, deckkraft, radius = 18) {
+  const s = lage.w / 1920;
+  el.style.transform = `translate(${lage.x}px, ${lage.y}px) scale(${s})`;
+  el.style.borderRadius = radius / s + "px";
+  el.style.opacity = deckkraft.toFixed(3);
+  el.style.visibility = deckkraft <= 0.001 ? "hidden" : "visible";
+}
+function zeige(el, deckkraft, dy = 0, skala = 1) {
+  el.style.opacity = clamp(deckkraft).toFixed(3);
+  el.style.visibility = deckkraft <= 0.001 ? "hidden" : "visible";
+  if (dy || skala !== 1) el.style.transform = `translateY(${dy}px) scale(${skala})`;
+}
+function lege(el, x, y, deckkraft) {         // Element mit fester Groesse hinlegen
+  el.style.transform = `translate(${x}px, ${y}px)`;
+  el.style.opacity = clamp(deckkraft).toFixed(3);
+  el.style.visibility = deckkraft <= 0.001 ? "hidden" : "visible";
+}
+function rahmen(el, r, deckkraft, schildLage) {
+  el.style.transform = `translate(${r.x}px, ${r.y}px)`;
+  el.style.width = r.w + "px"; el.style.height = r.h + "px";
+  el.style.opacity = clamp(deckkraft).toFixed(3);
+  el.style.visibility = deckkraft <= 0.001 ? "hidden" : "visible";
+  const schild = el.firstElementChild;
+  schild.style.transform =
+      schildLage === "unten"  ? `translate(14px, ${r.h + 8}px)`
+    : schildLage === "rechts" ? `translate(${r.w + 12}px, ${(r.h - 50) / 2}px)`
+    :                           `translate(14px, -56px)`;
+}
+// Punkt der Anzeige (1920er Raster) -> Buehne, fuer den grossen Bildschirm.
+const gx = x => GROSS.x + x * GROSS.w / 1920, gy = y => GROSS.y + y * GROSS.w / 1920;
+const feld = (x0, y0, x1, y1) => ({ x: gx(x0), y: gy(y0), w: gx(x1) - gx(x0),
+                                    h: gy(y1) - gy(y0) });
+
+const pipBilder = [];
+let untertitelStand = "";
+
+function seek(T) {
+  const S = Z.szenen;
+
+  // --- Anfang -------------------------------------------------------------
+  const intro = 1 - rampe(T, S.live - .45, .45);
+  zeige($("intro"), intro);
+  zeige($("mark1"), aus(T / .7), 0, .86 + .14 * aus(T / .9) + .012 * T);
+  zeige($("introText"), rampe(T, .75, .5), 26 * (1 - aus((T - .75) / .6)));
+
+  // --- Bildschirme --------------------------------------------------------
+  const zuRaster = ease((T - S.raster) / .8);            // gross -> Zellen
+  const zurueck  = ease((T - S.spiel) / .8);             // Bass-Zelle -> gross
+  const ende     = rampe(T, S.ende - .4, .4);
+
+  // Bass: der Bildschirm der Live-Szene und der Schlussszene.
+  let bassLage = GROSS, bassDeck;
+  if (T < S.raster) {
+    bassDeck = rampe(T, S.live - .25, .5) * (1 - rampe(T, S.was - .2, .4));
+    const k = aus((T - S.live + .25) / .9);
+    bassLage = { x: GROSS.x + 46 * (1 - k), y: GROSS.y + 26 * (1 - k),
+                 w: GROSS.w - 92 * (1 - k) };
+  } else {
+    bassLage = misch(ZELLE[1], GROSS, zurueck);
+    bassDeck = rampe(T, S.raster + .25, .5) * (1 - ende);
+  }
+  stelle($("sBass"), bassLage, bassDeck);
+
+  // Akkorde: uebernimmt fuer die Erklaerszene, wird dann Zelle 0.
+  const akkLage = misch(GROSS, ZELLE[0], zuRaster);
+  const akkDeck = rampe(T, S.was - .2, .4) * (1 - rampe(T, S.spiel, .35));
+  stelle($("sChords"), akkLage, akkDeck);
+
+  for (const [id, zelle, verzug] of [["sGuitar", 2, .12], ["sKeys", 3, .24]]) {
+    const k = aus((T - S.raster - .25 - verzug) / .7);
+    const lage = { x: ZELLE[zelle].x + 30 * (1 - k), y: ZELLE[zelle].y + 30 * (1 - k),
+                   w: ZELLE[zelle].w - 60 * (1 - k) };
+    stelle($(id), lage, rampe(T, S.raster + .25 + verzug, .45)
+                        * (1 - rampe(T, S.spiel, .35)));
+  }
+
+  // Schilder der vier Ansichten.
+  for (const [id, zelle, verzug] of [["tChords", 0, .5], ["tBass", 1, .62],
+                                     ["tGuitar", 2, .74], ["tKeys", 3, .86]]) {
+    const d = rampe(T, S.raster + .3 + verzug, .35) * (1 - rampe(T, S.spiel - .1, .25));
+    // Rechts unter dem QR-Code: die einzige Ecke, die in allen vier
+    // Ansichten frei ist (links stehen die Griffbilder, unten laeuft das Band).
+    lege($(id), ZELLE[zelle].x + ZELLE[zelle].w - 22 - $(id).offsetWidth,
+         ZELLE[zelle].y + 124, d);
+  }
+
+  // --- Hinweisrahmen der Erklaerszene --------------------------------------
+  const weg = 1 - rampe(T, S.raster - .45, .35);
+  rahmen($("bChord"), feld(380, 92, 1540, 770), rampe(T, Z.rahmen[0], .3) * weg);
+  rahmen($("bKey"),   feld(18, 56, 232, 106),  rampe(T, Z.rahmen[1], .3) * weg, "rechts");
+  rahmen($("bTime"),  feld(8, 988, 1912, 1072), rampe(T, Z.rahmen[2], .3) * weg, "unten");
+  rahmen($("bNext"),  feld(286, 838, 1912, 974), rampe(T, Z.rahmen[3], .3) * weg);
+
+  // --- Der Spieler ----------------------------------------------------------
+  let pip = 0;
+  for (const [a, b] of Z.pip.sichtbar) pip = Math.max(pip, fenster(T, a, b, .45, .3));
+  const p = $("pip"), ps = Z.pip.breite / 497;
+  p.style.transform = `translate(${Z.pip.x}px, ${Z.pip.y + 18 * (1 - pip)}px) scale(${ps})`;
+  p.style.borderRadius = 14 / ps + "px";
+  p.style.opacity = pip.toFixed(3);
+  p.style.visibility = pip <= 0.001 ? "hidden" : "visible";
+  if (pip > 0) {
+    const bild = pipBilder[clamp(Math.round((T - Z.pip.ab) * 30), 0, pipBilder.length - 1)];
+    if (bild) $("pipc").getContext("2d").drawImage(bild, 0, 0);
+  }
+
+  // --- Untertitel -----------------------------------------------------------
+  const cap = $("cap");
+  const u = Z.untertitel.find(u => T >= u.a - .05 && T < u.b + .05);
+  if (!u) { cap.style.visibility = "hidden"; untertitelStand = ""; }
+  else {
+    if (untertitelStand !== u.a) {
+      cap.innerHTML = u.teile.map(t => `<span>${t.html}</span>`).join("");
+      untertitelStand = u.a;
+    }
+    cap.style.visibility = "visible";
+    cap.style.opacity = fenster(T, u.a, u.b, .25, .25).toFixed(3);
+    u.teile.forEach((t, i) => {
+      const k = aus((T - t.t) / .4);
+      cap.children[i].style.opacity = rampe(T, t.t, .25).toFixed(3);
+      cap.children[i].style.transform = `translateY(${14 * (1 - k)}px)`;
+    });
+  }
+
+  // --- Ende -----------------------------------------------------------------
+  const E = Z.ende;
+  zeige($("end"), rampe(T, S.ende - .1, .5));
+  zeige($("endMark"), 1, 0, .9 + .1 * aus((T - S.ende) / 1.2));
+  zeige($("endName"), rampe(T, S.ende + .15, .5), 22 * (1 - aus((T - S.ende - .15) / .6)));
+  zeige($("endClaim"), rampe(T, E.claim, .4), 18 * (1 - aus((T - E.claim) / .5)));
+  E.os.forEach((t, i) => zeige($("os" + i), rampe(T, t, .3),
+                               16 * (1 - aus((T - t) / .45))));
+  zeige($("endFree"), rampe(T, E.os[2] + .5, .5));
+  zeige($("endUrl"), rampe(T, E.url, .4), 0, .94 + .06 * aus((T - E.url) / .6));
+}
+
+// Ein Zustand der Analyse an alle vier Anzeigen.
+function feed(zustand) {
+  for (const f of document.querySelectorAll("iframe")) f.contentWindow.apply(zustand);
+}
+
+// Laden: die vier Anzeigen (jede in ihrer Ansicht) und die Bilder des Spielers.
+window.bereit = (async () => {
+  await Promise.all([...document.querySelectorAll("iframe")].map(f =>
+    new Promise(fertig => { f.onload = fertig; f.src = "/?k=" + Z.token; })));
+  for (const f of document.querySelectorAll("iframe")) {
+    const w = f.contentWindow;
+    w.setzeInstrument(f.dataset.inst);
+    // Der Mauszeiger-Hinweis der Seite ("Click = fullscreen ...") gehoert der
+    // Bedienung, nicht dem Film.
+    w.document.getElementById("hint").style.visibility = "hidden";
+  }
+  await Promise.all(Array.from({ length: Z.pip.anzahl }, (_, i) => {
+    const bild = new Image();
+    bild.src = `/pip/${String(i).padStart(5, "0")}.jpg`;
+    pipBilder[i] = bild;
+    return bild.decode();
+  }));
+  // Das Logo wird EINMAL in eine Zeichenflaeche gemalt und ist danach kein
+  // Bild mehr. Als <img> liess es den Render stehen: Chrome wirft dekodierte
+  // Bilder nach etwa 20 Sekunden weg, und das erneute Dekodieren kommt bei
+  // angehaltener Uhr nie zurueck - jedes Foto der Start- und der Endkarte
+  // wartete dann ewig (gemessen, mit und ohne die eingebetteten Anzeigen).
+  const marke = new Image();
+  marke.src = "/mark.png";
+  await marke.decode();
+  for (const flaeche of document.querySelectorAll(".marke")) {
+    flaeche.width = marke.naturalWidth; flaeche.height = marke.naturalHeight;
+    flaeche.getContext("2d").drawImage(marke, 0, 0);
+  }
+  await document.fonts.ready;
+  seek(0);
+  return true;
+})();
+</script>
+</body>
+</html>

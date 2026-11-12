@@ -43,7 +43,7 @@
       <strong>seconds before you hear them</strong>.</p>
     <div class="cta">
       <a class="btn primary" href="#download" id="heroDownload">Download JamPilot</a>
-      <a class="btn ghost" href="https://www.youtube.com/watch?v=zSepTG2ZgY0" rel="noopener">Watch the 60-second demo</a>
+      <a class="btn ghost" href="#watch">Watch the 40-second teaser</a>
     </div>
     <p class="fine">Windows · Linux · macOS — no account, no cloud, nothing uploaded.</p>
   </div>
@@ -76,6 +76,22 @@
     wrote a chord sheet for, the B-side no tutorial will ever cover. Not “look
     it up, learn it, come back next week”. <em>Now.</em></p>
   <p class="big">No more googling for chords. Press play, and play.</p>
+</section>
+
+<section id="watch" class="block watch">
+  <h2>See it in 40 seconds</h2>
+  <p class="sub">A real song, the real display, a bass in hand. Subtitled &mdash; it works without sound.</p>
+  <!-- preload="none": Die sechs Megabyte laedt nur, wer auf Abspielen
+       drueckt. Bis dahin steht das Standbild, und dessen Masse halten den
+       Platz frei. Kein Autoplay - der Film hat Ton. -->
+  <video controls playsinline preload="none" width="1920" height="1080"
+         poster="teaser-poster.jpg"
+         aria-label="JamPilot teaser, 40 seconds: the display in bass view next to a bass player, then the chord, key, timing and lane explained, then the four instrument views side by side.">
+    <source src="teaser.mp4" type="video/mp4">
+    Your browser does not play this video &mdash;
+    <a href="teaser.mp4">download it</a> instead.
+  </video>
+  <p class="more">Want more? <a href="https://www.youtube.com/watch?v=zSepTG2ZgY0" rel="noopener">The 60-second demo on YouTube</a>.</p>
 </section>
 
 <section id="how" class="block">
@@ -162,14 +178,14 @@
   </div>
   <div class="panels">
     <div role="tabpanel" id="panel-chords" aria-labelledby="tab-chords">
-      <img src="img/hero.png" width="1920" height="1200" loading="lazy" alt="The display: the audible chord G large in the centre with its scale degree 5 above, the coming chords F and C in the lane below.">
+      <img src="img/hero.png" width="1920" height="1200" loading="lazy" alt="The display: the audible chord G large in the centre with its scale degree 5 above, the coming chords F and C in the lane below, the music's envelope as a curve underneath.">
       <p><strong>Chords.</strong> The audible chord, big, with its scale degree
-        above. <span class="mono">F</span> is about to arrive,
-        <span class="mono">C</span> follows in 0.8 seconds — enough time to get
-        your hand there.</p>
+        above. <span class="mono">F</span> is on its way to the line,
+        <span class="mono">C</span> follows behind it — how far a chord still
+        has to travel is how long you have to get your hand there.</p>
     </div>
     <div role="tabpanel" id="panel-bass" aria-labelledby="tab-bass">
-      <img src="img/bass.png" width="1920" height="1200" loading="lazy" alt="Bass view: Cm sounding, a four-string neck top-left showing the move from C to A flat, A flat next in the lane.">
+      <img src="img/bass.png" width="1920" height="1200" loading="lazy" alt="Bass view: F sounding, a four-string neck top-left showing the move from F to E, the slash chord C over E next in the lane.">
       <p><strong>Bass.</strong> The chord says what the band plays; it does not
         say what the bass plays. JamPilot <em>measures</em> the bass note
         (<span class="mono">C/E</span>) and shows it on a four-string neck — in
@@ -177,14 +193,14 @@
         marked.</p>
     </div>
     <div role="tabpanel" id="panel-guitar" aria-labelledby="tab-guitar">
-      <img src="img/guitar.png" width="1920" height="1200" loading="lazy" alt="Guitar view: the fretboard diagram for G minor as a barre chord at the 3rd fret top-left, F coming up in the lane.">
+      <img src="img/guitar.png" width="1920" height="1200" loading="lazy" alt="Guitar view: the fretboard diagram for G minor seven as a barre chord at the 3rd fret top-left, C seven and F major seven coming up in the lane.">
       <p><strong>Guitar.</strong> A fretboard diagram for the sounding chord.
         The shape is chosen with the lead: a look-ahead over the coming chords
         picks the path with the least hand travel, so you stay in one position
         instead of jumping across the neck.</p>
     </div>
     <div role="tabpanel" id="panel-keys" aria-labelledby="tab-keys">
-      <img src="img/keys.png" width="1920" height="1200" loading="lazy" alt="Keyboard view: A flat major seven as pressed keys on two octaves, G minor seven next in the lane.">
+      <img src="img/keys.png" width="1920" height="1200" loading="lazy" alt="Keyboard view: F major seven as pressed keys on two octaves with the bass note marked, D minor seven next in the lane.">
       <p><strong>Keyboard.</strong> The chord as pressed keys on two octaves,
         in the inversion that keeps your right hand in place — with the
         measured bass marked for the left.</p>
@@ -202,7 +218,7 @@
       <p>No app, no account: it is just a browser page. The computer does the
         listening; every other device is a screen.</p>
     </div>
-    <img class="shot small" src="img/connect-your-phone.png" width="336" height="272" loading="lazy" alt="The QR code in the corner of the display, labelled: Connect your phone.">
+    <img class="shot small" src="img/connect-your-phone.png" width="350" height="341" loading="lazy" alt="The QR code in the corner of the display, labelled: Connect your phone.">
   </div>
 </section>
 
