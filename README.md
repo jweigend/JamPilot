@@ -54,12 +54,14 @@ System audio ──► ring buffer (N s) ──► speakers (delayed, unchanged)
 
 You stop chasing the song. You see what is coming and play it.
 
-![The web display: the audible chord G large in the centre with its scale degree 5 above, the coming chords F and C in the lane below running towards the NOW line](docs/bilder/hero.png)
+![The web display: the audible chord G large in the centre with its scale degree 5 above; in the lane below, the coming chords F and C run towards the NOW line, with the music's envelope as a pale blue curve underneath](docs/bilder/hero.png)
 
-*The chord you hear right now is the big one — `G`, the `5` of the key. `F`
-is about to arrive, `C` follows in 0.8 seconds — enough time to get your hand
-there. Top left, the key JamPilot has worked out (C major); top right, a QR
-code to put the same display on your phone.*
+*The chord you hear right now is the big one — `G`, the `5` of the key. In the
+lane below, `F` is on its way to the `NOW` line and `C` follows behind it:
+how far a chip still has to travel is how long you have to get your hand
+there. The blue curve under the chips is the music itself, and it shows the
+attack `C` will land on. Top left, the key JamPilot has worked out (C major);
+top right, a QR code to put the same display on your phone.*
 
 The delay is not a defect to be minimised. **It is the feature**: it buys the
 analysis a few seconds of the future, and it buys the player time to react. The
@@ -112,10 +114,26 @@ glance, while both your hands are busy:
 
 - **The big chord in the centre** is what is sounding **right now**, in sync with
   what your speakers are putting out — not what the analysis is chewing on.
-- **The lane at the bottom** is the future, moving right to left towards the
-  `NOW` line. A chord flips to the centre in exactly the frame in which its
-  chip touches the line — big chord and lane run off the same clock, so they
-  cannot drift apart.
+- **The lane at the bottom** is the future. Every coming chord is a **chip** —
+  its scale degree small on top, its name below, the suffix (`m7`, `maj7`,
+  the bass of a slash chord) in the blue of the big chord — and the chips
+  travel right to left at a constant speed towards the `NOW` line.
+  - **Distance is time.** There is no countdown on a chip and nothing printed
+    below it: *when* a chord comes is how far it still is from the line, and
+    your eye reads that faster than a number. With the default five-second
+    delay the lane holds about two seconds of future.
+  - **A chord becomes the big one in exactly the frame in which its chip
+    touches the line** — big chord and lane run off the same clock, so they
+    cannot drift apart.
+  - **Chips run through `NOW`.** A chip does not stop at the line and pile up
+    there: it keeps its speed, crosses, and fades behind the line within a
+    third of a second. The lane never stands still while music is playing,
+    and never jumps.
+  - **Full colour from the right edge.** A chip is as readable the moment it
+    enters as it is at the line — you see the change when it appears, not
+    when it is nearly due.
+  - **What is on the lane stays put.** A chip is only shown once the chord
+    has settled; it is not renamed or moved afterwards.
 - **Bar lines under the lane** — a faint tick per beat, the downbeat a little
   taller. The chip says *what* comes, the ticks say *where in the bar*: is
   that `G` the start of the next bar, or a change on the three? A learned
@@ -172,17 +190,17 @@ glance, while both your hands are busy:
 *Connect any tablet or phone — now. One scan, and the same synced display is on
 every music stand in the room. No app, no account: it is just a browser page.*
 
-![Record mode: Gm sounding with its fretboard diagram top-left, a red recording dot next to the JamPilot logo, the half-transparent five-button transport bar at the bottom, G and C ahead in the lane](docs/bilder/record-mode.png)
+![Record mode: Em7 sounding with its open fretboard shape top-left, a red recording dot next to the JamPilot logo, the half-transparent five-button transport bar at the bottom, Am7 ahead in the lane](docs/bilder/record-mode.png)
 
 *Record mode: the red dot next to the logo is the only sign you left live. The
 half-transparent bar at the bottom is the player — chord-wise back and forward,
 pause, start of the recording, back to live. Everything else keeps working;
-here it runs inside guitar mode, with `Gm` sounding.*
+here it runs inside guitar mode, with `Em7` sounding and `Am7` on its way.*
 
 **The control window** opens next to it — a small native window, and it is the
 **way back**:
 
-![The control window: state, the routing switch, the mute switch, delay and measured lead](docs/bilder/controllwindow.png)
+<img src="docs/bilder/controllwindow.png" width="380" alt="The control window: the state Running, the routing switch, the mute switch, delay and measured lead, the address of the display, and a grey line with the chord now playing and the next one">
 
 JamPilot reroutes your system sound while it runs. So the big switch at the top,
 **Audio through JamPilot**, is the panic button — off, and your system sound is
@@ -191,7 +209,10 @@ and underneath you see the state, the delay, and the **lead actually being
 measured** — how far ahead of your ears the *analysis* is running (4.0 s in the
 shot: the 5 s buffer minus a one-second guard at the fresh edge). Half of that
 is the lead you see on the lane; the other half is where a chord settles before
-it is committed to the screen. The same keys work here as on the display page
+it is committed to the screen. The grey line at the very bottom is the proof
+that sound is arriving: the chord playing now, the next one and when it comes,
+and the key. During start-up the same line says what JamPilot is busy with.
+The same keys work here as on the display page
 (`Space`, `R`, `P`, `←`, `→`, `Home`, `End`), and in record mode the line
 shows how far behind live you are instead of the lead. Closing the window quits
 JamPilot, and that restores your audio.
@@ -210,22 +231,25 @@ the chord. The gear menu switches the display:
 | **Guitar** | the audible chord, with a **fretboard diagram** top-left | `C` |
 | **Keyboard** | the audible chord, with a **piano diagram** top-left | `C` |
 
-![Guitar mode: the fretboard diagram for Gm as a barre chord at the 3rd fret top-left, the big chord in the centre, F coming up in the lane below](docs/bilder/guitar.png)
+![Guitar mode: the fretboard diagram for Gm7 as a barre chord at the 3rd fret top-left, the big chord in the centre, C7 and Fmaj7 coming up in the lane below](docs/bilder/guitar.png)
 
-*Guitar mode: `Gm` is sounding — its barre-chord shape at the 3rd fret is drawn
-top-left — while `F` approaches in the lane.*
+*Guitar mode: `Gm7` is sounding — its barre-chord shape at the 3rd fret is
+drawn top-left — while `C7` and `Fmaj7` approach in the lane.*
 
-![Keyboard mode: A♭maj7 as pressed keys on two octaves, its ♭2 degree in G minor above the chord, Gm7 next in the lane](docs/bilder/keys.png)
+![Keyboard mode: Fmaj7 as pressed keys on two octaves with the bass note marked by an orange dot, its ♭6 degree in A minor above the chord, Dm7 next in the lane](docs/bilder/keys.png)
 
-*Keyboard mode: `A♭maj7` as pressed keys, in a voicing chosen so your right hand
-stays in place — the `♭2` of G minor, with `Gm7`, the `1`, next in the lane.*
+*Keyboard mode: `Fmaj7` as pressed keys, in a voicing chosen so your right hand
+stays in place — the `♭6` of A minor, with `Dm7`, the `4`, next in the lane.
+The orange dot is the measured bass note, for your left hand.*
 
-![Bass mode: Cm sounding, a four-string neck top-left showing the move from C to A♭, A♭ next in the lane](docs/bilder/bass.png)
+![Bass mode: F sounding, a four-string neck top-left showing the move from F to E, the slash chord C/E next in the lane and D behind it, the low-band curve in orange](docs/bilder/bass.png)
 
-*Bass mode: the **measured** bass note is what counts. Here it is `C`, the root
-of `Cm`, so the name stays plain — were it `E♭`, you would read `Cm/E♭`. The
-four-string neck top-left shows where you are and where the next note sits
-(`C → A♭`): when `A♭` reaches the NOW line, your finger is already there.
+*Bass mode: the **measured** bass note is what counts. Here it is `F`, the root
+of the chord, so the name stays plain. The next chip reads `C/E` — a C chord
+with `E` in the bass — and that `E` is what you play. The four-string neck
+top-left shows where you are and where the next note sits (`F → E`): when
+`C/E` reaches the NOW line, your finger is already there. The curve under the
+lane turns orange in this mode — it is the low band, your register.
 The neck also shows the **register** the bassist is actually in: `E1` on the
 open E string, `E2` on the A or D string, `E3` up on the G string — read
 from the same low-band analysis, not guessed from the shortest hand move
@@ -269,9 +293,10 @@ or hide the numbers, per device.
 
 ![The Scale degrees section of the gear menu: Shown, Inverted, Hidden](docs/bilder/nashville.png)
 
-*Three ways to read the numbers, per device. In the guitar shot above, `Gm` is
-the `1` of G minor and `F` carries its `♭7` — a small warning that the root
-sits outside the key's major scale.*
+*Three ways to read the numbers, per device. In the shot at the top of this
+page, `G`, `F` and `C` are the `5`, `4` and `1` of C major. Degrees are always
+counted from the major scale of the key's root, so in the A-minor shots above
+`Gm7` carries a `♭7` and `Fmaj7` a `♭6`.*
 
 ## Get it running
 
@@ -403,6 +428,20 @@ and on [SourceForge](https://sourceforge.net/projects/jampilot/) cover
 **Linux x86_64**, **macOS Apple Silicon** and **Windows x86_64**. On an Intel
 Mac, install from source — `./run.sh` is the whole setup.
 
+### Staying up to date
+
+When a newer release is on GitHub, the control window shows a small green
+**Update to x.y.z** button next to *Quit*. It opens the download page in your
+browser — nothing is downloaded or replaced behind your back, and the music
+keeps playing. Download it when it suits you and put the new file (Windows:
+the new folder) in place of the old one.
+
+For this, JamPilot asks GitHub once per start which release is the latest.
+It is the only time the program goes online, and it sends nothing but that
+request (with its own version number in the `User-Agent`). No network, a
+firewall, GitHub unreachable: then there is simply no button.
+`--no-update-check` turns the question off.
+
 **The very first start of a binary takes up to a minute** — on every platform,
 Windows included. Nothing has crashed: the program is unpacking itself,
 building its caches and compiling the numba kernels it does not ship
@@ -427,20 +466,6 @@ Honesty section — the things JamPilot does *not* do (yet):
   count-in and no tempo number on screen.
 - **macOS routing is still manual** (BlackHole + two flags), and macOS/Windows
   have not had long musical sessions yet — see the platform table.
-
-### Staying up to date
-
-When a newer release is on GitHub, the control window shows a small green
-**Update to x.y.z** button next to *Quit*. It opens the download page in your
-browser — nothing is downloaded or replaced behind your back, and the music
-keeps playing. Download it when it suits you and put the new file (Windows:
-the new folder) in place of the old one.
-
-For this, JamPilot asks GitHub once per start which release is the latest.
-It is the only time the program goes online, and it sends nothing but that
-request (with its own version number in the `User-Agent`). No network, a
-firewall, GitHub unreachable: then there is simply no button.
-`--no-update-check` turns the question off.
 
 ## How it works
 
