@@ -264,3 +264,29 @@ footer p { margin: 0 0 6px; max-width: 760px; }
   html { scroll-behavior: auto; }
   .st-chord.flip { animation: none; }
 }
+
+/* ---------- Sicherheitsprotokoll (site/audit/<version>.html) ----------
+   Dieselbe Spalte wie die Notiz des Autors (.letter). Das Ergebnis steht
+   zuerst und in einem Kasten; alles Technische am Ende, zugeklappt. Der
+   Leser ist Musiker, kein Administrator - siehe docs/sicherheitsaudit.md. */
+.audit .verdict { border: 1px solid #3ddc7f55; background: #07130c;
+                  border-radius: var(--radius); padding: 20px 22px; margin: 0 0 32px; }
+.audit .verdict .head { color: var(--green); font-weight: 700;
+                        font-size: clamp(19px, 2.4vw, 23px); line-height: 1.3; margin: 0 0 6px; }
+.audit .verdict p:last-child { color: var(--muted); margin: 0; font-size: 15.5px; }
+.audit h2 { font-size: clamp(23px, 3vw, 29px); margin: 60px 0 20px; }
+.audit h3 { color: var(--text); font-size: 18px; line-height: 1.35; margin: 28px 0 6px; }
+.audit .letter-body h3 + p { margin-top: 0; }
+.audit .letter-body ol, .audit .letter-body ul { color: var(--muted); font-size: 1.06em;
+                  line-height: 1.7; padding-left: 22px; margin: 0 0 1.2em; }
+.audit .letter-body li { margin-bottom: .9em; }
+.audit .letter-body li strong { color: var(--text); font-weight: 600; }
+.audit details { margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--border); }
+.audit summary { cursor: pointer; color: var(--text); font-weight: 650; font-size: 18px; }
+.audit details .letter-body { margin-top: 20px; }
+.audit details .letter-body p, .audit details .letter-body ul { font-size: 15.5px; }
+.audit .sums { list-style: none; padding: 0; }
+.audit .sums li { margin-bottom: 12px; }
+.audit .sums .mono { display: block; color: var(--muted); font-size: 12.5px;
+                     overflow-wrap: anywhere; }
+.audit .mono { overflow-wrap: anywhere; }
