@@ -6,7 +6,11 @@ dynamic = ["version"]
 description = "Verzoegertes Systemaudio-Loopback mit Akkordanzeige (Vorlauf) fuer Musiker"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.26", "sounddevice>=0.4.6", "librosa>=0.10", "qrcode>=7.4",
-                "PySide6-Essentials>=6.6", "onnxruntime>=1.17"]
+                "PySide6-Essentials>=6.6", "onnxruntime>=1.17",
+                # Wurzelzertifikate fuer die Update-Abfrage (updates.py). Kam
+                # bisher nur zufaellig mit (librosa -> pooch -> requests);
+                # das Bundle braucht es aber wirklich.
+                "certifi"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
