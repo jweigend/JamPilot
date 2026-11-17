@@ -382,6 +382,25 @@ def slash_note(pooled: np.ndarray | None, chord: str,
     return best
 
 
+def is_relative_change(prev_chord: str, new_root: int | None) -> bool:
+    """Ist der neue Grundton die Terz des vorigen Akkords, und zwar so, dass
+    beide Akkorde zwei Toene teilen: Moll-Label -> Grundton + 3 (Cm -> Eb,
+    die Paralleltonart) oder Dur-Label -> Grundton + 9 (Eb -> Cm)?
+
+    Genau die Verwechslung, in der das Akkordmodell den Bass braucht, um
+    sich zu entscheiden: Cm (C Eb G) und Eb (Eb G Bb) unterscheiden sich
+    nur in einem Ton, und der liegt meist unten (cli._bass_anticipation).
+    """
+    prev_root = chord_root(prev_chord)
+    tones = chord_tone_classes(prev_chord)
+    if prev_root is None or tones is None or new_root is None:
+        return False
+    moll = (prev_root + 3) % 12 in tones and (prev_root + 4) % 12 not in tones
+    dur = (prev_root + 4) % 12 in tones and (prev_root + 3) % 12 not in tones
+    return ((moll and (new_root - prev_root) % 12 == 3)
+            or (dur and (new_root - prev_root) % 12 == 9))
+
+
 def slash(chord: str, bass_name: str | None) -> str:
     """C mit Bass E ergibt C/E - aber nur, wenn der Bass NICHT der Grundton ist.
 

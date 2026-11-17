@@ -580,3 +580,22 @@ Eine Mindestlaenge des Bassfensters (0,3 / 0,5 s) als zweite Huerde wurde
 gemessen und verworfen: nach der Merge-Korrektur ohne Nutzen, kostet
 Grundtoene von Ein-Schlag-Akkorden. Proberaum-Test bestanden (13.10.,
 Sailing to Philadelphia, Telegraph Road).
+
+## Bass-Vorlauf bei Paralleltonart-Verwechslung (2026-11-17)
+
+Boom, Like That (Knopfler): 94 % der 216 Wechsel exakt auf der starken
+Zaehlzeit, 4 % genau einen Schlag spaet - alle vom Typ Eb nach C, wo das
+Modell den Takt vor dem Eb als Cm labelt (Cm/Eb teilen zwei Toene) und das
+Cm bis 1,7 s ueber die Eins reicht. Der Bass springt in allen 27 C->Eb-
+Faellen genau auf dem Schlag. `cli._bass_anticipation` zieht eine frische
+Grundton-Grenze auf den fruehesten Schlag zurueck, auf dem das Tiefband den
+neuen Grundton schon fuehrt (max. 2), nur bei `bass.is_relative_change`.
+Skript `messung_boom_like_that.py`, Report `tests/realaudio/REPORT_boom_like_that.md`.
+
+| Variante (Live-Pfad) | Boom: auf der Eins / >= 1/2 Schlag spaet | Let It Be | Eight Days | Something |
+|---|---|---|---|---|
+| Stand | 94 % / 4 % | 90 % | 80 % | 93 % |
+| zwei Frames Vorlauf | 88 % / 11 % | - | - | - |
+| frueherer Beat bevorzugt | 84 % / 2 % (6 % fehlt) | - | - | - |
+| Bass-Vorlauf, jeder Grundtonwechsel | 95 % / 1 % | **87 %** | 80 % | 93 % |
+| **Bass-Vorlauf, nur Paralleltonart (eingebaut)** | **95 % / 1 %** | 90 % | 80 % | 93 % |

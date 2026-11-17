@@ -402,11 +402,16 @@ class BeatGrid:
         interval = self.interval()
         return 60.0 / interval if interval else None
 
+    def known_beats(self) -> list[float]:
+        """Die Beats, die das Raster gerade kennt: die letzten committeten
+        und die noch offenen, aufsteigend."""
+        return sorted([e["at"] for e in self.events[-16:]] + [o[0] for o in self._open])
+
     def snap(self, pos: float) -> float | None:
         """Viertel-Snap: der naechste bekannte Beat, wenn er in Reichweite
         liegt (gut ein halber Schlag - ohne Schwelle innerhalb des Rasters,
         aber nicht ueber Loecher hinweg). None, wenn kein Raster da ist."""
-        candidates = [e["at"] for e in self.events[-16:]] + [o[0] for o in self._open]
+        candidates = self.known_beats()
         if not candidates:
             return None
         nearest = min(candidates, key=lambda at: abs(at - pos))

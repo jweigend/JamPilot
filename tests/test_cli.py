@@ -427,6 +427,70 @@ class TestRefineFreshBounds:
         assert timeline == [(0.0, "A"), (9.0, "D")]
 
 
+class TestBassAnticipation:
+    """Bass-Vorlauf (BASS_ANTICIPATION_BEATS): bei der Paralleltonart-
+    Verwechslung wandert die Grenze auf den fruehesten Schlag, auf dem das
+    Tiefband schon den neuen Grundton traegt - sonst bleibt sie."""
+
+    class Raster:
+        def __init__(self, beats, interval=0.5):
+            self._beats, self._interval = list(beats), interval
+
+        def known_beats(self):
+            return list(self._beats)
+
+        def interval(self):
+            return self._interval
+
+    class Bass:
+        """Bassnote je Zeit: Liste von (ab_sekunde, tonklasse)."""
+        def __init__(self, verlauf):
+            self.verlauf = verlauf
+
+        def frames_between(self, start, end):
+            note = None
+            for ab, pc in self.verlauf:
+                if ab <= start + 1e-9:
+                    note = pc
+            if note is None:
+                return None
+            frames = np.zeros((12, 4), dtype=np.float32)
+            frames[note] = 1.0
+            return frames, start
+
+    def test_cm_nach_eb_wandert_auf_den_bass(self):
+        # Beats alle 0,5 s; das Label Cm beginnt bei 10.0, Eb (Grenze 11.0);
+        # der Bass spielt Eb (3) schon ab 10.5 - einen Schlag frueher.
+        raster = self.Raster(np.arange(8.0, 13.01, 0.5))
+        bass = self.Bass([(8.0, 0), (10.5, 3)])
+        assert cli._bass_anticipation(11.0, "Cm", "D#", bass, raster) == 10.5
+
+    def test_hoechstens_zwei_schlaege_zurueck(self):
+        raster = self.Raster(np.arange(8.0, 13.01, 0.5))
+        bass = self.Bass([(8.0, 3)])                      # Eb "schon immer"
+        assert cli._bass_anticipation(11.0, "Cm", "D#", bass, raster) == 10.0
+
+    def test_nur_paralleltonart(self):
+        raster = self.Raster(np.arange(8.0, 13.01, 0.5))
+        bass = self.Bass([(8.0, 3)])
+        # C -> Eb teilt keinen Ton: ein echter Wechsel, der Bass davor ist
+        # ein Vorhalt (Let It Be) - bleibt.
+        assert cli._bass_anticipation(11.0, "C", "D#", bass, raster) == 11.0
+        assert cli._bass_anticipation(11.0, "Cm", "Cm7", bass, raster) == 11.0
+
+    def test_eigener_schlag_muss_den_grundton_tragen(self):
+        raster = self.Raster(np.arange(8.0, 13.01, 0.5))
+        bass = self.Bass([(8.0, 3), (11.0, 0)])          # auf dem Schlag selbst C
+        assert cli._bass_anticipation(11.0, "Cm", "D#", bass, raster) == 11.0
+
+    def test_ohne_raster_oder_bass_unveraendert(self):
+        raster = self.Raster(np.arange(8.0, 13.01, 0.5))
+        assert cli._bass_anticipation(11.0, "Cm", "D#", None, raster) == 11.0
+        assert cli._bass_anticipation(11.0, "Cm", "D#", self.Bass([(8.0, 3)]), None) == 11.0
+        # Grenze weit weg vom Raster: kein Snap, kein Vorlauf
+        assert cli._bass_anticipation(20.0, "Cm", "D#", self.Bass([(8.0, 3)]), raster) == 20.0
+
+
 class TestEventLedger:
     """[Redesign 6.1] Publish-once-Kanal: committete Events sind unantastbar."""
 

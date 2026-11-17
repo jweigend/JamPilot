@@ -9,7 +9,8 @@ haelt genau den Fall fest. Die Begruendung steht in bass.py.
 import numpy as np
 import pytest
 
-from jampilot.bass import BassTrack, chord_root, dominant, name, slash
+from jampilot.bass import (BassTrack, chord_root, dominant, is_relative_change, name,
+                           slash)
 from jampilot.chroma import FRAME_SECONDS, HAVE_LIBROSA, NOTE_NAMES, analyze_window
 from jampilot.selftest import SAMPLERATE, _chord, _drums
 
@@ -205,6 +206,27 @@ class TestName:
 
     def test_deckt_sich_mit_den_notennamen(self):
         assert [name(i) for i in range(12)] == NOTE_NAMES
+
+
+class TestRelativeChange:
+    """Paralleltonart-Verwechslung des Modells: Moll-Label -> Terz hoch
+    (Cm -> Eb), Dur-Label -> Sexte hoch (Eb -> Cm). Sonst nichts."""
+
+    def test_moll_zur_paralleldur(self):
+        assert is_relative_change("Cm", 3)          # Cm -> Eb
+        assert is_relative_change("Cm7", 3)
+        assert is_relative_change("Am", 0)          # Am -> C
+
+    def test_dur_zur_parallelmoll(self):
+        assert is_relative_change("D#", 0)          # Eb -> Cm
+        assert is_relative_change("C", 9)           # C -> Am
+
+    def test_andere_wechsel_nicht(self):
+        assert not is_relative_change("C", 3)       # C -> Eb: kein geteilter Ton
+        assert not is_relative_change("G", 7)       # gleicher Grundton
+        assert not is_relative_change("Cm", 7)      # Cm -> G: Quinte
+        assert not is_relative_change("N", 0)
+        assert not is_relative_change("Cm", None)
 
 
 class TestSlashNote:
