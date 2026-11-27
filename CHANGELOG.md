@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### The chord lands on the one: bass anticipation for the relative-chord mix-up
+
+Measured on *Boom, Like That* (Mark Knopfler; changes always on the one,
+216 of them): 94 % of the events sat exactly on the beat, median -1 ms —
+and 4 % exactly one beat late, all of one kind, Eb after C. The chord
+model labels the bar before the Eb as Cm (C-Eb-G against Eb-G-Bb, two
+shared notes, the bass decides) and holds it up to 1.7 s past the one;
+the boundary refinement searches ±0.4 s and never gets there, the
+quarter snap takes the next beat. The bass line knows better: in all 27
+C→Eb changes the low band jumps to Eb exactly on the strong beat. A
+fresh root boundary now moves back to the earliest beat on which the low
+band already carries the new root (at most two beats, and only if its
+own beat carries it too) — but only for this relative-chord mix-up
+(`bass.is_relative_change`: minor label → root + 3, major label → root
++ 9). On *Boom, Like That* the late events drop from 4 % to 1 % (95 % on
+the one); on Let It Be, Eight Days a Week and Something not a single
+number moves. The unrestricted form (every root change) cost Let It Be
+three points — there the bass really does play the next root early.
+Pure timing knobs were measured and rejected: two frames of lead instead
+of one (11 % late), preferring the earlier beat (6 % missing),
+preferring the strong beat (two cases). `cli._bass_anticipation`,
+`BeatGrid.known_beats`, report in `tests/realaudio/REPORT_boom_like_that.md`,
+script `tests/reference/messung_boom_like_that.py`.
+
 ## 1.5.1 — 2026-11-11
 
 The theme of this release: **the lane, as calm as its own picture.** The

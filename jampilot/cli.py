@@ -149,6 +149,22 @@ _REFINED_LOOKFORWARD = 0.35
 # It's Too Late - Proberaum entscheidet.
 BTC_ONSET_SHIFT = 1 * 2048 / 22050          # ein BTC-Frame, ~93 ms
 
+# Bass-Vorlauf: Eine Grundton-Grenze darf auf fruehere Schlaege zurueck, wenn
+# das Tiefband dort schon den NEUEN Grundton als Bassnote fuehrt - aber nur
+# bei der Paralleltonart-Verwechslung des Modells (bass.is_relative_change:
+# Cm -> Eb, Eb -> Cm), in der die beiden Akkorde zwei Toene teilen und der
+# Bass den dritten stellt. Gemessen (Boom, Like That, 216 Wechsel auf
+# starken Zaehlzeiten, tests/reference/messung_boom_like_that.py): Das
+# Modell labelt den Takt vor dem Eb als Cm, bis zu 1,7 s ueber die Eins
+# hinaus, die Verfeinerung (+-0,4 s) kommt nicht hin, der Snap landet einen
+# Schlag spaeter - 8 von 27 Eb-Wechseln. Der Bass springt in allen 27 genau
+# auf dem Schlag. Mit Vorlauf: Events >= halber Schlag zu spaet 4 -> 1 %,
+# auf der Eins 94 -> 95 %, Median unveraendert; auf Let It Be, Eight Days,
+# Something identische Zahlen wie ohne. Die BREITE Fassung (jeder
+# Grundtonwechsel) kostete Let It Be 3 Punkte: dort sind es echte Vorhalte
+# des Bassisten, kein Fehl-Label. Hoechstens so viele Schlaege zurueck:
+BASS_ANTICIPATION_BEATS = 2
+
 # Mindestabstand zweier Events im Publish-once-Kanal. Das Modell haelt
 # btc.MIN_SEGMENT_SECONDS zwischen seinen Grenzen, aber der Live-Pfad konnte
 # sie danach wieder zusammenschieben: die Grenzverfeinerung (Floor 0.05 s) und
@@ -1001,10 +1017,15 @@ def _display_loop(loop, args, broadcaster=None, stop=None, engine=None):
             # Lauf aus (Worker beschaeftigt) oder das Gate zu (Rubato), gaebe
             # es ohne Verfeinerung die nackte 93-ms-Grenze. Die ~100 ms je
             # Grenze sind der Preis fuer einen Pfad statt zweier.
+            # ... und danach der Bass-Vorlauf (BASS_ANTICIPATION_BEATS): wo
+            # das Tiefband den neuen Grundton schon einen Schlag frueher
+            # fuehrt als das Label, gehoert die Grenze dorthin.
             _refine_fresh_bounds(
                 timeline, refined_bounds, frontier,
-                lambda pos, prev_name, name: window_start + refine_boundary(
-                    audio, sr, pos - window_start, prev_name, name))
+                lambda pos, prev_name, name: _bass_anticipation(
+                    window_start + refine_boundary(
+                        audio, sr, pos - window_start, prev_name, name),
+                    prev_name, name, bass_track, raster))
             refined_bounds[:] = [(p, n) for p, n in refined_bounds
                                  if p > audible_pos - 2.0]
             lead = max(horizon - audible_pos, 0.0)
@@ -1482,6 +1503,49 @@ def _is_onset_correction(timeline, segments, i, last) -> bool:
     if i + 1 >= len(segments) or segments[i + 1][1] != last:
         return False
     return segments[i + 1][0] - timeline[-1][0] <= ONSET_HYSTERESIS + _REFINED_LOOKBACK
+
+
+def _bass_anticipation(pos, prev_name, name, bass_track, raster,
+                       max_beats: int = BASS_ANTICIPATION_BEATS) -> float:
+    """Bass-Vorlauf (BASS_ANTICIPATION_BEATS): die verfeinerte Grenze `pos`
+    auf den fruehesten Schlag zurueck, auf dem das Tiefband schon den neuen
+    Grundton traegt - nur bei der Paralleltonart-Verwechslung, und nur, wenn
+    auch der eigene Schlag ihn traegt. Ohne Raster oder Bassspur bleibt
+    `pos`."""
+    from . import bass as bassmod
+    if raster is None or bass_track is None:
+        return pos
+    new_root = bassmod.chord_root(name)
+    if new_root is None or new_root == bassmod.chord_root(prev_name) \
+            or not bassmod.is_relative_change(prev_name, new_root):
+        return pos
+    beats = raster.known_beats()
+    interval = raster.interval()
+    if len(beats) < 2 or not interval:
+        return pos
+    # Eine frische Grenze liegt am Horizont (Analysefront - 1 s), das Raster
+    # reicht dorthin erst mit dem naechsten Beat-Lauf (alle BEAT_RUN_HOPS).
+    # Bis dahin wird mit dem lokalen Schlag fortgeschrieben - hoechstens
+    # drei Schlaege, das Tempo steht.
+    while beats[-1] < pos + interval and len(beats) < 64 and pos - beats[-1] < 3 * interval:
+        beats.append(beats[-1] + interval)
+    k = min(range(len(beats)), key=lambda i: abs(beats[i] - pos))
+    if abs(beats[k] - pos) > 0.6 * interval:
+        return pos                      # ausserhalb der Snap-Reichweite
+
+    def bass_on(j):
+        ende = beats[j + 1] if j + 1 < len(beats) else beats[j] + interval
+        frames = bass_track.frames_between(beats[j], ende)
+        return bassmod.dominant(frames[0]) if frames is not None else None
+
+    if bass_on(k) != new_root:
+        return pos
+    ziel = pos
+    for j in range(k - 1, max(k - 1 - max_beats, -1), -1):
+        if bass_on(j) != new_root:
+            break
+        ziel = beats[j]
+    return ziel
 
 
 def _refine_fresh_bounds(timeline, refined_bounds, frontier, refine):

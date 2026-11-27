@@ -334,6 +334,15 @@ class TestSnap:
     def test_ohne_raster_kein_snap(self):
         assert B.BeatGrid().snap(5.0) is None
 
+    def test_bekannte_beats_committet_und_offen(self):
+        g = B.BeatGrid()
+        viertel(g, bis=20.0)                             # committet bis 20, offen dahinter
+        bekannt = g.known_beats()
+        assert bekannt == sorted(bekannt)
+        assert 17.0 in bekannt and 20.5 in bekannt       # committet und offen
+        assert bekannt[-1] > 20.0 and len(bekannt) <= 16 + len(g._open)
+        assert B.BeatGrid().known_beats() == []
+
     def test_nicht_ueber_loecher_hinweg(self):
         g = B.BeatGrid()
         viertel(g, bis=20.0)
