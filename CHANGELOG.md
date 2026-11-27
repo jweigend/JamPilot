@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 — 2026-11-27
 
-### The chord lands on the one: bass anticipation for the relative-chord mix-up
+The theme of this release: **the chord lands on the one.** One song, one
+measurement, one rule — and the rule only fires where the chord model
+needs the bass to make up its mind. Judged in the rehearsal room.
+
+### Bass anticipation for the relative-chord mix-up
 
 Measured on *Boom, Like That* (Mark Knopfler; changes always on the one,
 216 of them): 94 % of the events sat exactly on the beat, median -1 ms —
@@ -25,6 +29,10 @@ of one (11 % late), preferring the earlier beat (6 % missing),
 preferring the strong beat (two cases). `cli._bass_anticipation`,
 `BeatGrid.known_beats`, report in `tests/realaudio/REPORT_boom_like_that.md`,
 script `tests/reference/messung_boom_like_that.py`.
+
+### Smaller things
+
+- 764 tests (1.5.1: 711).
 
 ## 1.5.1 — 2026-11-11
 
